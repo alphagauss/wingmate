@@ -1,0 +1,22 @@
+{
+  "name": "wingmate",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.10.0",
+  "scripts": {
+    "tauri": "tauri",
+    "runtime:prepare": "node scripts/prepare-runtime.mjs",
+    "runtime:benchmark": "node scripts/benchmark-runtime.mjs",
+    "dev": "tauri dev",
+    "build": "tauri build --no-bundle",
+    "build:frontend": "pnpm --filter @wingmate/desktop build",
+    "test": "node --test scripts/runtime-files.test.mjs && pnpm build:frontend && cargo test --workspace",
+    "test:service": "cargo test -p wingmate-service",
+    "test:smoke": "node scripts/smoke.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.3",
+    "tar": "^7.5.7"
+  }
+}

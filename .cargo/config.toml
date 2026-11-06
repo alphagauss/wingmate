@@ -1,0 +1,3 @@
+# 使用 Rust 工具链自带的 LLD，减少 Windows 链接时间。
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"
