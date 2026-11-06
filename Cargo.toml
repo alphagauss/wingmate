@@ -7,6 +7,19 @@ resolver = "2"
 version = "0.1.0"
 edition = "2021"
 
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
+incremental = true
+codegen-units = 16
+lto = "off"
 opt-level = "s"
 strip = true
+
+# 保留编译期过程宏的符号，避免 macOS 加载剥离后的动态库失败。
+[profile.release.build-override]
+strip = false
