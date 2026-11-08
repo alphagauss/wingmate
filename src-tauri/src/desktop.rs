@@ -33,6 +33,11 @@ fn navigate(app: &tauri::AppHandle, state: &service::Snapshot) -> Result<()> {
 }
 
 pub fn run(home: PathBuf) -> Result<()> {
+    let title = if wingmate_service::IS_DEV {
+        "Wingmate · 开发版"
+    } else {
+        "Wingmate"
+    };
     let busy = Arc::new(AtomicBool::new(true));
     let menu_busy = busy.clone();
     let menu_home = home.clone();
@@ -54,11 +59,17 @@ pub fn run(home: PathBuf) -> Result<()> {
             let backend =
                 Submenu::with_items(app, "后台", true, &[&start, &restart, &stop, &quit])?;
             app.set_menu(Menu::with_items(app, &[&backend])?)?;
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Wingmate")
-                .inner_size(1200.0, 820.0)
-                .min_inner_size(720.0, 480.0)
-                .build()?;
+            let window =
+                WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                    .title(title)
+                    .inner_size(1200.0, 820.0)
+                    .min_inner_size(720.0, 480.0);
+            let window = if wingmate_service::IS_DEV {
+                window.data_directory(home.join("webview"))
+            } else {
+                window
+            };
+            window.build()?;
             let handle = app.handle().clone();
             let state_home = home.clone();
             std::thread::spawn(move || {
@@ -99,12 +110,12 @@ pub fn run(home: PathBuf) -> Result<()> {
                         Err(_) if last.is_some() => {
                             // 短暂断连不销毁页面和输入草稿。
                             if let Some(window) = handle.get_webview_window("main") {
-                                let _ = window.set_title("Wingmate · 后台连接暂时中断");
+                                let _ = window.set_title(&format!("{title} · 后台连接暂时中断"));
                             }
                         }
                         Ok(Some(_)) => {
                             if let Some(window) = handle.get_webview_window("main") {
-                                let _ = window.set_title("Wingmate");
+                                let _ = window.set_title(title);
                             }
                         }
                         _ => {}

@@ -4,3 +4,5 @@ mod runtime;
 pub mod service;
 
 pub use runtime::directory;
+
+pub const IS_DEV: bool = !cfg!(feature = "bundled-runtime");

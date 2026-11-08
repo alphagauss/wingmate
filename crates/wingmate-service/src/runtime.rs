@@ -1,4 +1,4 @@
-//! 内嵌运行包按 DSH 版本释放一次；已有版本目录直接复用。
+//! 开发版直接使用安装树，发行版按 DSH 版本释放内嵌运行包。
 use anyhow::{bail, Context, Result};
 use std::{
     fs,
@@ -7,9 +7,19 @@ use std::{
 };
 
 pub const ID: &str = env!("WINGMATE_RUNTIME_ID");
+pub const DSH_ENTRY: &str = "node_modules/@deepseek-ai/dsh/lib/bin.js";
+#[cfg(feature = "bundled-runtime")]
 const ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/runtime.tar.zst"));
 
+#[cfg(not(feature = "bundled-runtime"))]
+pub fn dev_root() -> &'static Path {
+    Path::new(env!("WINGMATE_DEV_ROOT"))
+}
+
 pub fn directory() -> Result<PathBuf> {
+    #[cfg(not(feature = "bundled-runtime"))]
+    let path = dev_root().join("wingmate");
+    #[cfg(feature = "bundled-runtime")]
     let path = match std::env::var_os("WINGMATE_HOME") {
         Some(path) => PathBuf::from(path),
         None => dirs::home_dir()
@@ -28,6 +38,19 @@ pub fn directory() -> Result<PathBuf> {
     Ok(path)
 }
 
+#[cfg(not(feature = "bundled-runtime"))]
+pub fn prepare(_: &Path) -> Result<PathBuf> {
+    let path = option_env!("WINGMATE_DEV_STAGE")
+        .map(PathBuf::from)
+        .context("开发运行时尚未准备，请运行 pnpm dev")?;
+    anyhow::ensure!(
+        path.join(DSH_ENTRY).is_file(),
+        "开发运行时缺少 DSH 入口，请运行 pnpm dev"
+    );
+    Ok(path)
+}
+
+#[cfg(feature = "bundled-runtime")]
 pub fn prepare(home: &Path) -> Result<PathBuf> {
     let parent = home.join("runtimes");
     fs::create_dir_all(&parent)?;
@@ -42,7 +65,7 @@ pub fn prepare(home: &Path) -> Result<PathBuf> {
     Ok(destination)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "bundled-runtime"))]
 mod tests {
     use super::*;
 

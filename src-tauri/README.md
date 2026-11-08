@@ -11,6 +11,8 @@
 
 自有界面的范围见 [桌面前端](../apps/desktop/README.md)。
 
+开发窗口的标题带「开发版」，WebView 数据保存在开发后台管理目录下，避免与发行窗口共用本机 Web 登录状态。后台与 DSH 数据的隔离见 [服务模块](../crates/wingmate-service/README.md#数据与管理边界)。
+
 ## 品牌与桌面图标
 
 [品牌母版](icons/logo.svg)使用透明底蓝鲸。[桌面图标](icons/icon.svg)沿用同一鲸形，蓝色圆角底板为不同壁纸上的白鲸提供稳定对比，底板外保持透明。

@@ -78,7 +78,7 @@ pub fn start(home: &Path, runtime: &Path, lock: File) -> Result<(Child, tempfile
     command
         .arg("--import")
         .arg(control_url.as_str())
-        .arg(runtime.join("node_modules/@deepseek-ai/dsh/lib/bin.js"))
+        .arg(runtime.join(crate::runtime::DSH_ENTRY))
         .args(["web", "--host", "127.0.0.1", "--port", "0", "--no-open"])
         .env("WINGMATE_HOME", home)
         .env("WINGMATE_RUNTIME_ID", crate::runtime::ID)
@@ -86,6 +86,10 @@ pub fn start(home: &Path, runtime: &Path, lock: File) -> Result<(Child, tempfile
         .stdin(Stdio::piped())
         .stdout(Stdio::from(log.try_clone()?))
         .stderr(Stdio::from(log));
+    #[cfg(not(feature = "bundled-runtime"))]
+    command
+        .env("DSH_HOME", crate::runtime::dev_root().join("dsh"))
+        .env("DSH_AGENTS_HOME", crate::runtime::dev_root().join("agents"));
     #[cfg(windows)]
     prevent_standard_pipe_inheritance()?;
     let mut child = command.spawn().context("无法启动 DSH")?;

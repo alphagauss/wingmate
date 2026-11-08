@@ -31,10 +31,11 @@ pnpm dev
 pnpm build
 ```
 
+`pnpm dev` 准备开发安装树并启动桌面，开发后台和正式后台可以同时运行。开发窗口关闭后，运行 `& ./target/debug/wingmate.exe stop` 可以停止本工作副本的开发后台。目录见 [服务模块](crates/wingmate-service/README.md#数据与管理边界)。
+
 验证入口：
 
 ```powershell
-pnpm runtime:prepare
 pnpm test
 pnpm build
 pnpm test:smoke

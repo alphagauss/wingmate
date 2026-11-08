@@ -6,12 +6,13 @@
   "packageManager": "pnpm@11.10.0",
   "scripts": {
     "tauri": "tauri",
+    "runtime:dev": "node scripts/prepare-runtime.mjs --dev",
     "runtime:prepare": "node scripts/prepare-runtime.mjs",
     "runtime:benchmark": "node scripts/benchmark-runtime.mjs",
     "dev": "tauri dev",
     "build": "tauri build --no-bundle",
     "build:frontend": "pnpm --filter @wingmate/desktop build",
-    "test": "node --test scripts/runtime-files.test.mjs && pnpm build:frontend && cargo test --workspace",
+    "test": "node --test scripts/runtime-files.test.mjs && pnpm build:frontend && cargo test --workspace --no-default-features",
     "test:service": "cargo test -p wingmate-service",
     "test:smoke": "node scripts/smoke.mjs"
   },
