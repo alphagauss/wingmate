@@ -7,7 +7,8 @@
 | 任务 | 补充阅读 |
 | --- | --- |
 | DSH 版本获取、依赖、打包、裁剪、压缩、运行目录复用 | [运行时维护指南](docs/runtime-maintenance.md) |
-| 社区插件或自用插件集成、预装 | 运行时维护指南、[插件边界](plugins/README.md)及该插件的集成记录（已有时） |
+| 开发或调试 DSH 插件 | [插件开发入口](plugins/README.md#开发-dsh-插件)及相关官方文档 |
+| 社区插件或自用插件集成、预装 | [运行时维护指南](docs/runtime-maintenance.md#社区和自用插件集成)、[插件模块](plugins/README.md)及该插件的集成记录（已有时） |
 | 后台、进程管理、服务发现 | [服务模块](crates/wingmate-service/README.md) |
 | 桌面行为、本机权限、自有界面 | [桌面程序](src-tauri/README.md)、[桌面前端](apps/desktop/README.md) |
 | 验证范围和证据 | [验证约定](scripts/README.md)；涉及发行内容时再读运行时维护指南 |

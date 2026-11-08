@@ -55,7 +55,7 @@ pnpm test:smoke
 | [wingmate-service](crates/wingmate-service/README.md) | 本机后台所有权与生命周期 |
 | [apps/desktop](apps/desktop/README.md) | 自有桌面界面 |
 | [runtime](runtime/README.md) | 发行运行内容 |
-| [plugins](plugins/README.md) | 自用插件及集成边界 |
+| [plugins](plugins/README.md) | 自用插件、DSH 开发参考与本地验证入口 |
 | [upstream](upstream/README.md) | 外部源码与参考项目 |
 
 [apps](apps/README.md)、[crates](crates/README.md)、[packages](packages/README.md) 分别承载前端应用、Rust 库和实际需要共享的前端/JavaScript 包。
