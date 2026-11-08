@@ -37,6 +37,15 @@ pub struct Snapshot {
     pub error: Option<String>,
 }
 
+#[derive(Clone, Copy)]
+pub enum StartupStage {
+    Checking,
+    Connecting,
+    Extracting,
+    Starting,
+    Stopping,
+}
+
 fn operation_lock(home: &Path) -> Result<File> {
     let file = OpenOptions::new()
         .create(true)
@@ -143,15 +152,17 @@ fn wait_ready(home: &Path, mut child: Option<&mut Child>) -> Result<Snapshot> {
     }
 }
 
-fn start_locked(home: &Path) -> Result<Snapshot> {
+fn start_locked(home: &Path, report: impl Fn(StartupStage)) -> Result<Snapshot> {
     let Some(lock) = crate::process::try_acquire(home)? else {
+        report(StartupStage::Connecting);
         return wait_ready(home, None);
     };
     match fs::remove_file(home.join("endpoint.json")) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
         _ => {}
     }
-    let runtime = crate::runtime::prepare(home)?;
+    let runtime = crate::runtime::prepare(home, || report(StartupStage::Extracting))?;
+    report(StartupStage::Starting);
     let (mut child, _control) = crate::process::start(home, &runtime, lock)?;
     let result = wait_ready(home, Some(&mut child));
     if result.is_err() {
@@ -162,8 +173,13 @@ fn start_locked(home: &Path) -> Result<Snapshot> {
 }
 
 pub fn start(home: &Path) -> Result<Snapshot> {
+    start_with_progress(home, |_| {})
+}
+
+pub fn start_with_progress(home: &Path, report: impl Fn(StartupStage)) -> Result<Snapshot> {
+    report(StartupStage::Checking);
     let _operation = operation_lock(home)?;
-    start_locked(home)
+    start_locked(home, report)
 }
 
 fn stop_locked(home: &Path) -> Result<()> {
@@ -191,9 +207,15 @@ pub fn stop(home: &Path) -> Result<()> {
 }
 
 pub fn restart(home: &Path) -> Result<Snapshot> {
+    restart_with_progress(home, |_| {})
+}
+
+pub fn restart_with_progress(home: &Path, report: impl Fn(StartupStage)) -> Result<Snapshot> {
+    report(StartupStage::Stopping);
     let _operation = operation_lock(home)?;
     stop_locked(home)?;
-    start_locked(home)
+    report(StartupStage::Checking);
+    start_locked(home, report)
 }
 
 #[cfg(test)]

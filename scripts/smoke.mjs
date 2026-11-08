@@ -14,6 +14,15 @@ const env = { ...process.env, WINGMATE_HOME: join(work, 'wingmate'), DSH_HOME: j
 for (const key of Object.keys(env)) if (/API_KEY|ACCESS_TOKEN|AUTH_TOKEN/.test(key)) delete env[key];
 const endpointFile = join(env.WINGMATE_HOME, 'endpoint.json');
 const checks = [];
+if (!process.argv[2]) {
+  // 默认成品应内嵌本次构建准备的归档，且只内嵌一份。
+  const archive = await readFile(new URL('../runtime/out/runtime.tar.zst', import.meta.url));
+  const binary = await readFile(executable);
+  const first = binary.indexOf(archive);
+  assert.notEqual(first, -1, '成品缺少本次构建准备的运行包');
+  assert.equal(binary.indexOf(archive, first + archive.length), -1, '成品重复内嵌运行包');
+  checks.push('单文件只内嵌一份运行包');
+}
 function cli(action, success = true) {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, [action], { cwd: work, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });

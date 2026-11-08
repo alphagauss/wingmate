@@ -9,7 +9,8 @@ use std::{
 pub const ID: &str = env!("WINGMATE_RUNTIME_ID");
 pub const DSH_ENTRY: &str = "node_modules/@deepseek-ai/dsh/lib/bin.js";
 #[cfg(feature = "bundled-runtime")]
-const ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/runtime.tar.zst"));
+// 桌面和 CLI 的进度回调类型不同，解压代码的各个实例共用同一份归档。
+static ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/runtime.tar.zst"));
 
 #[cfg(not(feature = "bundled-runtime"))]
 pub fn dev_root() -> &'static Path {
@@ -39,7 +40,7 @@ pub fn directory() -> Result<PathBuf> {
 }
 
 #[cfg(not(feature = "bundled-runtime"))]
-pub fn prepare(_: &Path) -> Result<PathBuf> {
+pub fn prepare(_: &Path, _: impl FnOnce()) -> Result<PathBuf> {
     let path = option_env!("WINGMATE_DEV_STAGE")
         .map(PathBuf::from)
         .context("开发运行时尚未准备，请运行 pnpm dev")?;
@@ -51,13 +52,14 @@ pub fn prepare(_: &Path) -> Result<PathBuf> {
 }
 
 #[cfg(feature = "bundled-runtime")]
-pub fn prepare(home: &Path) -> Result<PathBuf> {
+pub fn prepare(home: &Path, on_extract: impl FnOnce()) -> Result<PathBuf> {
     let parent = home.join("runtimes");
-    fs::create_dir_all(&parent)?;
     let destination = parent.join(ID);
     if destination.is_dir() {
         return Ok(destination);
     }
+    on_extract();
+    fs::create_dir_all(&parent)?;
     // 解压完成后才发布版本目录，避免中途退出留下被误用的半成品目录。
     let staging = tempfile::tempdir_in(&parent)?;
     tar::Archive::new(zstd::stream::read::Decoder::new(ARCHIVE)?).unpack(staging.path())?;
@@ -76,7 +78,10 @@ mod tests {
         fs::create_dir_all(&destination).unwrap();
         fs::write(destination.join("local-note"), "keep").unwrap();
 
-        assert_eq!(prepare(home.path()).unwrap(), destination);
+        assert_eq!(
+            prepare(home.path(), || panic!("复用目录时不应报告解压")).unwrap(),
+            destination
+        );
         assert_eq!(
             fs::read_to_string(destination.join("local-note")).unwrap(),
             "keep"

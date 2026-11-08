@@ -1,6 +1,77 @@
 <!doctype html>
-<html lang="zh-CN"><meta charset="utf-8"><title>Wingmate</title>
-<style>body{font:16px system-ui;max-width:680px;margin:12vh auto;padding:24px;color:#263446;background:#f5f7fa}h1{font-size:26px}p{line-height:1.8}pre{white-space:pre-wrap;color:#a32929}</style>
-<h1>Wingmate</h1><p id="message">正在连接后台服务…</p><pre id="error"></pre>
-<p>关闭窗口后，后台任务继续运行。可通过“后台”菜单启动、停止或重启服务。</p>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wingmate</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 24px;
+      font: 16px/1.6 system-ui, sans-serif;
+      color: #162641;
+      background: #f2f6fc;
+    }
+    main {
+      width: min(100%, 460px);
+      padding: 30px 32px;
+      border: 1px solid #dce5f2;
+      border-radius: 20px;
+      background: #fff;
+      box-shadow: 0 12px 40px rgb(32 63 112 / 8%);
+    }
+    header { display: flex; align-items: center; gap: 12px; }
+    h1 { margin: 0; font-size: 20px; }
+    h2 { margin: 0; font-size: 21px; }
+    .status { display: flex; align-items: center; gap: 12px; margin-top: 22px; }
+    .spinner {
+      flex: 0 0 auto;
+      width: 18px;
+      height: 18px;
+      border: 2px solid #dce8fa;
+      border-top-color: #326bd9;
+      border-radius: 50%;
+      animation: spin 0.85s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+    p { margin: 8px 0 0; color: #4d607d; }
+    details { margin-top: 16px; color: #4d607d; }
+    summary { cursor: pointer; }
+    pre {
+      max-height: 160px;
+      overflow: auto;
+      margin: 8px 0 0;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: #f2f6fc;
+      font-size: 13px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <img src="logo.svg" width="42" height="42" alt="">
+      <h1>Wingmate</h1>
+    </header>
+    <div role="status" aria-live="polite" aria-atomic="true">
+      <div class="status">
+        <span id="spinner" class="spinner" aria-hidden="true"></span>
+        <h2 id="message">正在检查后台…</h2>
+      </div>
+      <p id="hint" hidden></p>
+    </div>
+    <details id="details" hidden>
+      <summary>查看错误详情</summary>
+      <pre id="error"></pre>
+    </details>
+  </main>
+</body>
 </html>
