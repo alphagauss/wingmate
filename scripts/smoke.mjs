@@ -1,6 +1,7 @@
 // 在隔离数据目录中验证真实单文件运行、并发发现、身份拒绝、停止和重启。
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +15,7 @@ const env = { ...process.env, WINGMATE_HOME: join(work, 'wingmate'), DSH_HOME: j
 for (const key of Object.keys(env)) if (/API_KEY|ACCESS_TOKEN|AUTH_TOKEN/.test(key)) delete env[key];
 const endpointFile = join(env.WINGMATE_HOME, 'endpoint.json');
 const checks = [];
+let expectedRevision;
 if (!process.argv[2]) {
   // 默认成品应内嵌本次构建准备的归档，且只内嵌一份。
   const archive = await readFile(new URL('../runtime/out/runtime.tar.zst', import.meta.url));
@@ -21,6 +23,7 @@ if (!process.argv[2]) {
   const first = binary.indexOf(archive);
   assert.notEqual(first, -1, '成品缺少本次构建准备的运行包');
   assert.equal(binary.indexOf(archive, first + archive.length), -1, '成品重复内嵌运行包');
+  expectedRevision = createHash('sha256').update(archive).digest('hex');
   checks.push('单文件只内嵌一份运行包');
 }
 function cli(action, success = true) {
@@ -51,7 +54,9 @@ try {
   checks.push('只有 DSH 的 Node 进程常驻，覆盖桌面 EXE 后仍能连接');
   const manifest = JSON.parse(await readFile(new URL('../runtime/package.json', import.meta.url), 'utf8'));
   assert.equal(a.runtime, `dsh-${manifest.dependencies['@deepseek-ai/dsh']}`);
-  const runtimePath = join(env.WINGMATE_HOME, 'runtimes', a.runtime);
+  assert.match(a.runtime_revision, /^[0-9a-f]{64}$/);
+  if (expectedRevision) assert.equal(a.runtime_revision, expectedRevision);
+  const runtimePath = join(env.WINGMATE_HOME, 'runtimes', `${a.runtime}-${a.runtime_revision}`);
   const reuseProbe = join(runtimePath, 'reuse-probe.txt');
   await writeFile(reuseProbe, 'keep');
   await writeFile(join(runtimePath, 'control.mjs'), 'throw new Error("old control must not run");\n');
@@ -80,8 +85,15 @@ try {
   const cookie = login.headers.getSetCookie().map(s => s.split(';')[0]).join('; ');
   const page = await fetch(a.url, { headers: { Cookie: cookie } });
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /<html/i);
-  checks.push('嵌入的真实 DSH Web 完成认证并返回页面');
+  const html = await page.text();
+  const boot = html.match(/(?:globalThis|window)\["__DSH_BOOT__"\]\s*=\s*(\{[^\n]+?\})\s*;?\s*<\/script>/);
+  assert.ok(boot, 'DSH Web 缺少客户端启动清单');
+  const plugin = JSON.parse(boot[1]).entries.find(row => row.id === 'dsh-wingmate-web');
+  assert.ok(plugin, '释放的运行包未加载后台服务插件');
+  const client = await fetch(new URL(plugin.url, a.url), { headers: { Cookie: cookie } });
+  assert.equal(client.status, 200);
+  assert.match(await client.text(), /wingmate-backend/);
+  checks.push('释放的 DSH Web 完成认证并提供后台服务插件');
   const native = spawnSync(process.execPath, [fileURLToPath(new URL('./smoke-runtime.mjs', import.meta.url)),
     runtimePath, work], { env, windowsHide: true, encoding: 'utf8', timeout: 90_000 });
   assert.equal(native.status, 0, native.error?.message || native.stderr);
@@ -93,8 +105,9 @@ try {
   assert.notEqual(restarted.engine_pid, a.engine_pid);
   assert.equal(alive(a.engine_pid), false);
   assert.equal(restarted.runtime, a.runtime);
+  assert.equal(restarted.runtime_revision, a.runtime_revision);
   assert.equal(await readFile(reuseProbe, 'utf8'), 'keep');
-  checks.push('按固定 DSH 版本释放，重启直接复用已有版本目录');
+  checks.push('按运行包指纹释放，重启直接复用相同内容的目录');
   checks.push('重启使用 EXE 内嵌的控制入口，旧 DSH 已退出');
   await cli('stop');
   assert.equal((await cli('status')).phase, 'stopped');

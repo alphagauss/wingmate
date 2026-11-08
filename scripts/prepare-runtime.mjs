@@ -3,13 +3,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdir, mkdtempDisposable, readFile, writeFile, copyFile, stat, rename, rm } from 'node:fs/promises';
-import { existsSync, createWriteStream } from 'node:fs';
+import { existsSync, createReadStream, createWriteStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { pipeline } from 'node:stream/promises';
 import { stripVTControlCharacters } from 'node:util';
 import { createZstdCompress, constants } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 import * as tar from 'tar';
 import { excludedRuntimeFile } from './runtime-files.mjs';
 
@@ -33,9 +34,35 @@ const lock = await readFile(lockPath).catch(error => {
 });
 const recipe = await readFile(fileURLToPath(import.meta.url));
 const fileRules = dev ? '' : await readFile(new URL('./runtime-files.mjs', import.meta.url));
+const registry = process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY || 'https://registry.npmmirror.com/';
+const npmCli = join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js');
+const onWindows = process.platform === 'win32';
+if (onWindows && !existsSync(npmCli)) throw new Error('当前 Node 安装缺少 npm CLI');
+
+function npm(args, options) {
+  // Windows 直接运行 Node 随带的 npm CLI，避免 cmd.exe 对路径作二次解释。
+  return spawn(onWindows ? process.execPath : 'npm', onWindows ? [npmCli, ...args] : args,
+    { windowsHide: true, ...options });
+}
+
+await using pluginBuild = await mkdtempDisposable(join(tmpdir(), 'wingmate-plugin-'));
+const pluginSource = join(root, 'plugins/wingmate-web');
+const pack = npm(['pack', '--ignore-scripts', '--pack-destination', pluginBuild.path,
+  '--cache', join(runtime, '.cache'), '--json'], { cwd: pluginSource, stdio: ['ignore', 'pipe', 'inherit'] });
+let packed = '';
+pack.stdout.setEncoding('utf8');
+pack.stdout.on('data', chunk => { packed += chunk; });
+const [packStatus] = await once(pack, 'close');
+if (packStatus !== 0) throw new Error('后台服务插件打包失败');
+const [{ filename }] = JSON.parse(packed);
+const pluginArchive = join(pluginBuild.path, filename);
+const pluginBytes = await readFile(pluginArchive);
+const pluginDirectory = 'plugins/wingmate-web';
+const pluginPatch = `${pluginDirectory}/cordis.patch.yml`;
+
 function fingerprint(lock) {
   return createHash('sha256').update(manifest).update(recipe).update(fileRules)
-    .update(lock).update(hostTarget).digest('hex');
+    .update(lock).update(hostTarget).update(pluginBytes).digest('hex');
 }
 if (dev) {
   if (!lock) throw new Error('开发安装树需要 runtime/package-lock.json');
@@ -44,7 +71,8 @@ if (dev) {
   const key = fingerprint(lock);
   const stage = join(stages, key);
   const entry = 'node_modules/@deepseek-ai/dsh/lib/bin.js';
-  if (existsSync(join(stage, entry))) {
+  const ready = () => existsSync(join(stage, entry)) && existsSync(join(stage, pluginPatch));
+  if (ready()) {
     console.log(`复用 DSH ${selected} 开发安装树`);
   } else {
     await mkdir(stages, { recursive: true });
@@ -55,7 +83,7 @@ if (dev) {
       await rename(scratch.path, stage);
     } catch (error) {
       // 同一份依赖可以由另一个并发的开发启动先准备完成。
-      if (!existsSync(join(stage, entry))) throw error;
+      if (!ready()) throw error;
     }
   }
   if (!existsSync(current) || (await readFile(current, 'utf8')).trim() !== key) {
@@ -74,8 +102,8 @@ if (dev) {
 async function prepareArchive() {
   console.log(`检查 DSH ${selected} 运行包缓存 (${hostTarget})`);
   if (lock && existsSync(stamp) && existsSync(archive)) {
-    const expected = fingerprint(lock);
-    if ((await readFile(stamp, 'utf8')).trim() === expected) {
+    const [inputs, digest] = (await readFile(stamp, 'utf8')).trim().split('\n');
+    if (inputs === fingerprint(lock) && digest === await archiveDigest(archive)) {
       console.log('复用已准备的 DSH 运行包');
       return;
     }
@@ -104,38 +132,40 @@ async function prepareArchive() {
       report.keptBytes += entry.size;
       return true;
     },
-  }, ['package.json', 'node_modules']);
+  }, ['package.json', 'node_modules', pluginDirectory]);
   const partial = `${archive}.${randomUUID()}.part`;
+  const stampFile = join(stage, 'inputs.sha256');
   try {
     await pipeline(files, createZstdCompress({ params: { [constants.ZSTD_c_compressionLevel]: compressionLevel } }),
       createWriteStream(partial));
-    await writeFile(stamp, '');
+    report.archiveBytes = (await stat(partial)).size;
+    const inputs = fingerprint(await readFile(join(stage, 'package-lock.json')));
+    await writeFile(stampFile, `${inputs}\n${await archiveDigest(partial)}\n`);
     await rename(partial, archive);
+    await rename(stampFile, stamp);
   } finally {
     await rm(partial, { force: true });
   }
-  report.archiveBytes = (await stat(archive)).size;
   await writeFile(join(out, 'build-report.json'), JSON.stringify(report, null, 2) + '\n');
-  await writeFile(stamp, fingerprint(await readFile(join(stage, 'package-lock.json'))));
   console.log(`DSH ${selected} 运行包已准备 (${hostTarget})`);
+}
+
+async function archiveDigest(path) {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest('hex');
 }
 
 async function install(stage) {
   await writeFile(join(stage, 'package.json'), manifest);
   if (lock) await writeFile(join(stage, 'package-lock.json'), lock);
-  const registry = process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY || 'https://registry.npmmirror.com/';
   const loglevel = process.env.npm_config_loglevel || process.env.NPM_CONFIG_LOGLEVEL;
   const command = lock ? 'ci' : 'install';
   const args = [command, '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund',
     '--cache', join(runtime, '.cache'), `--registry=${registry}`, '--replace-registry-host=always',
     '--progress', `--loglevel=${loglevel || 'http'}`];
-  // Windows 直接运行 Node 随带的 npm CLI，避免 cmd.exe 对路径作二次解释。
-  const npmCli = join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js');
-  const executable = process.platform === 'win32' ? process.execPath : 'npm';
-  if (process.platform === 'win32' && !existsSync(npmCli)) throw new Error('当前 Node 安装缺少 npm CLI');
   console.log(`安装 DSH ${selected} 运行依赖 (npm ${command}, npm 源 ${new URL(registry).host})`);
-  const npm = spawn(executable, process.platform === 'win32' ? [npmCli, ...args] : args,
-    { cwd: stage, stdio: loglevel ? 'inherit' : ['inherit', 'pipe', 'pipe'], windowsHide: true });
+  const installProcess = npm(args, { cwd: stage, stdio: loglevel ? 'inherit' : ['inherit', 'pipe', 'pipe'] });
   const terminal = process.stderr.isTTY;
   let fetched = 0;
   let cacheChecks = 0;
@@ -156,7 +186,7 @@ async function install(stage) {
     lastUpdate = now;
   }
   if (!loglevel) {
-    createInterface({ input: npm.stderr }).on('line', line => {
+    createInterface({ input: installProcess.stderr }).on('line', line => {
       const message = stripVTControlCharacters(line);
       if (/^npm http fetch GET 2\d\d /.test(message)) fetched++;
       else if (message.startsWith('npm http cache ')) cacheChecks++;
@@ -167,15 +197,20 @@ async function install(stage) {
       }
       showProgress();
     });
-    createInterface({ input: npm.stdout }).on('line', line => {
+    createInterface({ input: installProcess.stdout }).on('line', line => {
       clearProgress();
       console.log(line);
     });
   }
-  const [status] = await once(npm, 'close');
+  const [status] = await once(installProcess, 'close');
   if (fetched || cacheChecks) showProgress(true);
   if (status !== 0) throw new Error('DSH 运行依赖安装失败');
   if (!lock) await copyFile(join(stage, 'package-lock.json'), lockPath);
   const installedDsh = JSON.parse(await readFile(join(stage, 'node_modules/@deepseek-ai/dsh/package.json'), 'utf8'));
   if (installedDsh.version !== selected) throw new Error('安装的 DSH 版本与声明不一致');
+  const plugin = join(stage, pluginDirectory);
+  await mkdir(plugin, { recursive: true });
+  await tar.x({ file: pluginArchive, cwd: plugin, strip: 1, strict: true });
+  const installedPlugin = JSON.parse(await readFile(join(plugin, 'package.json'), 'utf8'));
+  if (installedPlugin.engines.dsh !== selected) throw new Error('后台服务插件尚未适配所选 DSH 版本');
 }

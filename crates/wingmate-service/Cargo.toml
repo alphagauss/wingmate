@@ -9,6 +9,7 @@ bundled-runtime = ["dep:dirs", "dep:zstd", "dep:tar"]
 
 [build-dependencies]
 serde_json = "1"
+sha2 = "0.10"
 
 [dependencies]
 anyhow = "1"

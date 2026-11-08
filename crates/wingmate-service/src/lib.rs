@@ -3,6 +3,6 @@ mod process;
 mod runtime;
 pub mod service;
 
-pub use runtime::directory;
+pub use runtime::{directory, REVISION as RUNTIME_REVISION};
 
 pub const IS_DEV: bool = !cfg!(feature = "bundled-runtime");

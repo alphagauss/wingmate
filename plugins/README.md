@@ -1,6 +1,6 @@
 # 自用 DSH 插件
 
-本目录承载 Wingmate 自用插件源码。目前尚无自用插件，社区插件的发行接入见[运行时维护指南](../docs/runtime-maintenance.md#社区和自用插件集成)。
+本目录承载 Wingmate 自用插件源码。首个预装插件是 [Wingmate 后台服务](wingmate-web/README.md)。社区插件的发行接入见[运行时维护指南](../docs/runtime-maintenance.md#社区和自用插件集成)。
 
 插件遵循所选 DSH 的插件与 Profile 机制，避免在 Wingmate 中另建一套业务插件协议。普通前端共享组件归 [packages](../packages/README.md)。
 

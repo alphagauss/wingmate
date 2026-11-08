@@ -1,4 +1,4 @@
-//! 开发版直接使用安装树，发行版按 DSH 版本释放内嵌运行包。
+//! 开发版直接使用安装树，发行版按内嵌运行包指纹释放。
 use anyhow::{bail, Context, Result};
 use std::{
     fs,
@@ -7,7 +7,9 @@ use std::{
 };
 
 pub const ID: &str = env!("WINGMATE_RUNTIME_ID");
+pub const REVISION: Option<&str> = option_env!("WINGMATE_RUNTIME_REVISION");
 pub const DSH_ENTRY: &str = "node_modules/@deepseek-ai/dsh/lib/bin.js";
+pub const WEB_PATCH: &str = "plugins/wingmate-web/cordis.patch.yml";
 #[cfg(feature = "bundled-runtime")]
 // 桌面和 CLI 的进度回调类型不同，解压代码的各个实例共用同一份归档。
 static ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/runtime.tar.zst"));
@@ -45,8 +47,8 @@ pub fn prepare(_: &Path, _: impl FnOnce()) -> Result<PathBuf> {
         .map(PathBuf::from)
         .context("开发运行时尚未准备，请运行 pnpm dev")?;
     anyhow::ensure!(
-        path.join(DSH_ENTRY).is_file(),
-        "开发运行时缺少 DSH 入口，请运行 pnpm dev"
+        path.join(DSH_ENTRY).is_file() && path.join(WEB_PATCH).is_file(),
+        "开发运行时缺少 DSH 或后台服务插件，请运行 pnpm dev"
     );
     Ok(path)
 }
@@ -54,7 +56,7 @@ pub fn prepare(_: &Path, _: impl FnOnce()) -> Result<PathBuf> {
 #[cfg(feature = "bundled-runtime")]
 pub fn prepare(home: &Path, on_extract: impl FnOnce()) -> Result<PathBuf> {
     let parent = home.join("runtimes");
-    let destination = parent.join(ID);
+    let destination = parent.join(release_directory());
     if destination.is_dir() {
         return Ok(destination);
     }
@@ -67,14 +69,19 @@ pub fn prepare(home: &Path, on_extract: impl FnOnce()) -> Result<PathBuf> {
     Ok(destination)
 }
 
+#[cfg(feature = "bundled-runtime")]
+fn release_directory() -> String {
+    format!("{ID}-{}", REVISION.unwrap())
+}
+
 #[cfg(all(test, feature = "bundled-runtime"))]
 mod tests {
     use super::*;
 
     #[test]
-    fn existing_version_directory_is_reused_without_validation() {
+    fn existing_fingerprint_directory_is_reused_without_validation() {
         let home = tempfile::tempdir().unwrap();
-        let destination = home.path().join("runtimes").join(ID);
+        let destination = home.path().join("runtimes").join(release_directory());
         fs::create_dir_all(&destination).unwrap();
         fs::write(destination.join("local-note"), "keep").unwrap();
 

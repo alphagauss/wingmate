@@ -8,7 +8,7 @@ Wingmate 是面向个人使用的 DeepSeek Harness 发行版，提供运行时�
 
 当前优先支持 Windows x64。运行需要系统 Node.js >=24.9.0 和 WebView2；Node 暂不随程序分发。Zstd 解压库已内嵌，无需额外安装。
 
-成品为 `target/release/wingmate.exe`，可以单独复制运行。双击打开桌面，“后台”菜单提供连接、停止和重启。停止或重启会中断运行任务。
+成品为 `target/release/wingmate.exe`，可以单独复制运行。双击打开桌面，在左下角账号菜单打开「设置 → 后台服务」，可查看、停止或重启后台。停止或重启会中断运行任务。后台停止后可在 Wingmate 首页再次启动。
 
 也可在 PowerShell 中管理后台：
 
@@ -19,7 +19,7 @@ Wingmate 是面向个人使用的 DeepSeek Harness 发行版，提供运行时�
 & ./target/release/wingmate.exe restart | Out-Host
 ```
 
-关闭所有桌面窗口后即可替换 Windows EXE，运行中的 DSH 任务会继续。若要切换 DSH 版本，请先用原版本显式停止后台。数据位置见 [服务模块](crates/wingmate-service/README.md)，版本目录复用及重新释放方式见 [运行时维护指南](docs/runtime-maintenance.md#释放与复用)。
+关闭所有桌面窗口后即可替换 Windows EXE，运行中的 DSH 任务会继续。新版携带不同的运行包且 DSH 版本相同时，首页会询问是继续连接还是重启切换。若要切换 DSH 版本，请先用原版本显式停止后台。数据位置见 [服务模块](crates/wingmate-service/README.md)，运行包释放及切换见 [运行时维护指南](docs/runtime-maintenance.md#释放与复用)。
 
 ## 开发入口
 

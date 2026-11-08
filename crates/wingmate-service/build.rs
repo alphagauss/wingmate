@@ -1,5 +1,10 @@
 // 将准备好的 DSH 运行包内嵌到服务库，最终由唯一桌面可执行文件携带。
-use std::{env, fs, path::PathBuf};
+use sha2::{Digest, Sha256};
+use std::{
+    env, fs,
+    io::{BufRead, BufReader, BufWriter, Write},
+    path::PathBuf,
+};
 
 fn main() {
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
@@ -30,15 +35,33 @@ fn main() {
                 "cargo:rustc-env=WINGMATE_DEV_STAGE={}",
                 stage.join(key).display()
             );
+            println!("cargo:rustc-env=WINGMATE_RUNTIME_REVISION={key}");
         }
         return;
     }
 
     let archive = runtime.join("out/runtime.tar.zst");
     println!("cargo:rerun-if-changed={}", archive.display());
-    fs::copy(
-        archive,
-        PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("runtime.tar.zst"),
-    )
-    .expect("请先在仓库根目录运行 pnpm runtime:prepare");
+    let mut source = BufReader::with_capacity(
+        64 * 1024,
+        fs::File::open(archive).expect("请先在仓库根目录运行 pnpm runtime:prepare"),
+    );
+    let embedded = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("runtime.tar.zst");
+    let mut destination = BufWriter::new(fs::File::create(embedded).unwrap());
+    let mut fingerprint = Sha256::new();
+    loop {
+        let bytes = source.fill_buf().unwrap();
+        if bytes.is_empty() {
+            break;
+        }
+        destination.write_all(bytes).unwrap();
+        fingerprint.update(bytes);
+        let count = bytes.len();
+        source.consume(count);
+    }
+    destination.flush().unwrap();
+    println!(
+        "cargo:rustc-env=WINGMATE_RUNTIME_REVISION={:x}",
+        fingerprint.finalize()
+    );
 }

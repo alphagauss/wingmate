@@ -1,27 +1,31 @@
-//! 桌面窗口、菜单与连接观察；服务生命周期由独立 wingmate-service 库负责。
+//! 桌面窗口、首页与连接观察；服务生命周期由独立 wingmate-service 库负责。
+mod bridge;
 mod startup_page;
 
 use anyhow::Result;
 use startup_page::{CardStatus, StartupPage};
 use std::{
     cell::Cell,
+    collections::HashSet,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tauri::{
-    menu::{Menu, MenuItem, Submenu},
-    webview::PageLoadEvent,
-    Manager, WebviewUrl, WebviewWindowBuilder,
+use tauri::{webview::PageLoadEvent, Manager, WebviewUrl, WebviewWindowBuilder};
+use wingmate_service::{
+    service::{self, Snapshot, StartupStage},
+    RUNTIME_REVISION,
 };
-use wingmate_service::service::{self, Snapshot, StartupStage};
 
 #[derive(Default)]
 struct ConnectionState {
     busy: bool,
+    exit_pending: bool,
     revision: u64,
     last: Option<String>,
-    workspace: bool,
+    workspace: Option<Snapshot>,
+    pending_update: Option<String>,
+    authorized_origins: HashSet<String>,
 }
 
 impl ConnectionState {
@@ -38,10 +42,52 @@ impl ConnectionState {
         (!self.busy).then_some(self.revision)
     }
 
-    fn open_workspace(&mut self, app: &tauri::AppHandle, page: &StartupPage, state: Snapshot) {
-        page.open_workspace(app, &state);
-        self.last = Some(state.instance);
-        self.workspace = true;
+    fn defer_exit(&mut self) -> bool {
+        self.exit_pending = self.busy;
+        self.exit_pending
+    }
+
+    fn open_workspace(
+        &mut self,
+        app: &tauri::AppHandle,
+        page: &StartupPage,
+        state: Snapshot,
+    ) -> Result<()> {
+        let origin =
+            bridge::origin(&state).ok_or_else(|| anyhow::anyhow!("后台未提供可用的工作台地址"))?;
+        if !self.authorized_origins.contains(&origin) {
+            bridge::authorize(app, &origin)?;
+            self.authorized_origins.insert(origin);
+        }
+        self.last = Some(state.instance.clone());
+        self.pending_update = None;
+        self.workspace = Some(state);
+        page.open_workspace(app, self.workspace.as_ref().unwrap());
+        Ok(())
+    }
+
+    fn connect(
+        &mut self,
+        app: &tauri::AppHandle,
+        page: &StartupPage,
+        state: Snapshot,
+        continue_instance: Option<&str>,
+    ) {
+        self.last = Some(state.instance.clone());
+        if state.runtime_revision.as_deref() != RUNTIME_REVISION
+            && continue_instance != Some(&state.instance)
+        {
+            self.workspace = None;
+            self.pending_update = Some(state.instance);
+            page.show(app, CardStatus::update_available());
+        } else if let Err(error) = self.open_workspace(app, page, state) {
+            self.workspace = None;
+            self.pending_update = None;
+            page.show(
+                app,
+                CardStatus::failure(StartupStage::Connecting, format!("{error:#}")),
+            );
+        }
     }
 
     fn finish_operation(
@@ -49,18 +95,21 @@ impl ConnectionState {
         app: &tauri::AppHandle,
         page: &StartupPage,
         title: &str,
+        continue_instance: Option<&str>,
         outcome: Result<Option<Snapshot>, CardStatus>,
     ) {
         match outcome {
-            Ok(Some(state)) => self.open_workspace(app, page, state),
+            Ok(Some(state)) => self.connect(app, page, state, continue_instance),
             Ok(None) => {
                 page.show(app, CardStatus::stopped());
                 self.last = None;
-                self.workspace = false;
+                self.workspace = None;
+                self.pending_update = None;
             }
             Err(status) => {
                 page.show(app, status);
-                self.workspace = false;
+                self.workspace = None;
+                self.pending_update = None;
             }
         }
         if let Some(window) = app.get_webview_window("main") {
@@ -82,9 +131,9 @@ impl ConnectionState {
             Ok(Some(state)) => {
                 if state.phase == "running" {
                     if self.last.as_deref() != Some(&state.instance) {
-                        self.open_workspace(app, page, state);
+                        self.connect(app, page, state, None);
                     }
-                } else if self.workspace {
+                } else if self.workspace.is_some() || self.pending_update.is_some() {
                     page.show(
                         app,
                         CardStatus::failure(
@@ -92,19 +141,20 @@ impl ConnectionState {
                             state.error.unwrap_or_else(|| "后台未运行".into()),
                         ),
                     );
-                    self.workspace = false;
+                    self.workspace = None;
+                    self.pending_update = None;
                 }
                 let _ = window.set_title(title);
             }
             Ok(None) => {
                 self.last = None;
-                if self.workspace {
+                if self.workspace.take().is_some() || self.pending_update.is_some() {
                     page.show(app, CardStatus::stopped());
                     let _ = window.set_title(title);
-                    self.workspace = false;
                 }
+                self.pending_update = None;
             }
-            Err(_) if self.workspace => {
+            Err(_) if self.workspace.is_some() => {
                 // 短暂断连不销毁页面和输入草稿。
                 let _ = window.set_title(&format!("{title} · 后台连接暂时中断"));
             }
@@ -113,11 +163,18 @@ impl ConnectionState {
     }
 }
 
+enum Operation {
+    Start,
+    Continue(String),
+    Stop(String),
+    Restart(String),
+}
+
 fn run_operation(
     app: &tauri::AppHandle,
     page: &StartupPage,
     home: &Path,
-    action: &str,
+    action: &Operation,
 ) -> Result<Option<Snapshot>, CardStatus> {
     let stage = Cell::new(StartupStage::Checking);
     let report = |next| {
@@ -125,14 +182,122 @@ fn run_operation(
         page.show_progress(app, next);
     };
     let result = match action {
-        "stop" => {
+        Operation::Stop(instance) => {
             report(StartupStage::Stopping);
-            service::stop(home).map(|()| None)
+            service::stop_instance(home, instance).map(|()| None)
         }
-        "restart" => service::restart_with_progress(home, report).map(Some),
-        _ => service::start_with_progress(home, report).map(Some),
+        Operation::Restart(instance) => {
+            service::restart_instance_with_progress(home, instance, report).map(Some)
+        }
+        Operation::Start => service::start_with_progress(home, report).map(Some),
+        Operation::Continue(_) => {
+            report(StartupStage::Connecting);
+            service::status(home).and_then(|state| {
+                anyhow::ensure!(
+                    state.as_ref().is_none_or(|state| state.phase == "running"),
+                    "后台正在切换，请稍后重试"
+                );
+                Ok(state)
+            })
+        }
     };
     result.map_err(|error| CardStatus::failure(stage.get(), format!("{error:#}")))
+}
+
+struct Desktop {
+    home: PathBuf,
+    title: &'static str,
+    page: StartupPage,
+    connection: Mutex<ConnectionState>,
+}
+
+impl Desktop {
+    fn run_operation(&self, app: &tauri::AppHandle, action: Operation) {
+        let outcome = run_operation(app, &self.page, &self.home, &action);
+        let continue_instance = match &action {
+            Operation::Continue(instance) => Some(instance.as_str()),
+            _ => None,
+        };
+        let mut current = self.connection.lock().unwrap();
+        if current.exit_pending {
+            drop(current);
+            app.exit(0);
+        } else {
+            current.finish_operation(app, &self.page, self.title, continue_instance, outcome);
+        }
+    }
+
+    fn submit(self: &Arc<Self>, app: tauri::AppHandle, action: Operation) {
+        let desktop = self.clone();
+        std::thread::spawn(move || desktop.run_operation(&app, action));
+    }
+}
+
+#[tauri::command]
+fn home_backend(
+    window: tauri::WebviewWindow,
+    desktop: tauri::State<'_, Arc<Desktop>>,
+    action: String,
+) -> Result<(), String> {
+    if !window.url().is_ok_and(|url| desktop.page.is_home(&url)) {
+        return Err("此操作只能在 Wingmate 首页执行".into());
+    }
+    let mut current = desktop.connection.lock().unwrap();
+    if current.busy {
+        return Err("后台操作正在进行".into());
+    }
+    let app = window.app_handle();
+    let operation = match action.as_str() {
+        "start" => Operation::Start,
+        "continue" | "restart" => {
+            let instance = current
+                .pending_update
+                .clone()
+                .ok_or("没有待切换的后台，请重新连接")?;
+            if action == "continue" {
+                Operation::Continue(instance)
+            } else {
+                Operation::Restart(instance)
+            }
+        }
+        _ => return Err("未知的后台操作".into()),
+    };
+    current.begin_operation();
+    drop(current);
+    desktop.inner().submit(app.clone(), operation);
+    Ok(())
+}
+
+#[tauri::command]
+fn manage_backend(
+    window: tauri::WebviewWindow,
+    desktop: tauri::State<'_, Arc<Desktop>>,
+    action: String,
+    instance: String,
+) -> Result<(), String> {
+    let origin = window
+        .url()
+        .map_err(|error| error.to_string())?
+        .origin()
+        .ascii_serialization();
+    let mut current = desktop.connection.lock().unwrap();
+    let state = current.workspace.as_ref().ok_or("后台尚未连接")?;
+    if state.instance != instance || bridge::origin(state).as_deref() != Some(&origin) {
+        return Err("后台实例已更换，请重新连接".into());
+    }
+    let operation = match action.as_str() {
+        "stop" => Operation::Stop(instance),
+        "restart" => Operation::Restart(instance),
+        _ => return Err("未知的后台操作".into()),
+    };
+    if !current.begin_operation() {
+        return Err("后台操作正在进行".into());
+    }
+    drop(current);
+    desktop
+        .inner()
+        .submit(window.app_handle().clone(), operation);
+    Ok(())
 }
 
 pub fn run(home: PathBuf) -> Result<()> {
@@ -141,98 +306,75 @@ pub fn run(home: PathBuf) -> Result<()> {
     } else {
         "Wingmate"
     };
-    let connection = Arc::new(Mutex::new(ConnectionState {
-        busy: true,
-        ..ConnectionState::default()
-    }));
-    let menu_connection = connection.clone();
-    let state_home = home.clone();
-    let page = StartupPage::new();
-    let menu_page = page.clone();
+    let desktop = Arc::new(Desktop {
+        home,
+        title,
+        page: StartupPage::new(),
+        connection: Mutex::new(ConnectionState {
+            busy: true,
+            ..ConnectionState::default()
+        }),
+    });
+    let exit_state = desktop.clone();
     tauri::Builder::default()
+        .manage(desktop.clone())
+        .invoke_handler(tauri::generate_handler![home_backend, manage_backend])
         .setup(move |app| {
-            let start = MenuItem::with_id(app, "start", "启动 / 连接后台", true, None::<&str>)?;
-            let restart = MenuItem::with_id(
-                app,
-                "restart",
-                "重启后台（中断运行任务）",
-                true,
-                None::<&str>,
-            )?;
-            let stop =
-                MenuItem::with_id(app, "stop", "停止后台（中断运行任务）", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "关闭窗口，保留后台", true, None::<&str>)?;
-            let backend =
-                Submenu::with_items(app, "后台", true, &[&start, &restart, &stop, &quit])?;
-            app.set_menu(Menu::with_items(app, &[&backend])?)?;
-            let page_load = page.clone();
+            let page_load = desktop.clone();
             let window =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                     .on_page_load(move |window, event| {
                         if event.event() == PageLoadEvent::Finished {
-                            page_load.loaded(&window, event.url());
+                            page_load.page.loaded(&window, event.url());
+                            let workspace = page_load.connection.lock().unwrap().workspace.clone();
+                            if let Some(state) = workspace {
+                                bridge::expose(&window, event.url(), &state);
+                            }
                         }
                     })
                     .title(title)
                     .inner_size(1200.0, 820.0)
                     .min_inner_size(720.0, 480.0);
             let window = if wingmate_service::IS_DEV {
-                window.data_directory(state_home.join("webview"))
+                window.data_directory(desktop.home.join("webview"))
             } else {
                 window
             };
             window.build()?;
             let handle = app.handle().clone();
             std::thread::spawn(move || {
-                let outcome = run_operation(&handle, &page, &state_home, "start");
-                connection
-                    .lock()
-                    .unwrap()
-                    .finish_operation(&handle, &page, title, outcome);
+                desktop.run_operation(&handle, Operation::Start);
                 loop {
                     std::thread::sleep(Duration::from_secs(2));
                     let Some(window) = handle.get_webview_window("main") else {
                         break;
                     };
-                    let Some(revision) = connection.lock().unwrap().observation_revision() else {
+                    let Some(revision) = desktop.connection.lock().unwrap().observation_revision()
+                    else {
                         continue;
                     };
-                    let status = service::status(&state_home);
-                    let mut current = connection.lock().unwrap();
-                    // 即使菜单操作已完成，操作开始前发出的轮询也不能更新界面。
+                    let status = service::status(&desktop.home);
+                    let mut current = desktop.connection.lock().unwrap();
+                    // 操作开始前发出的轮询不能覆盖操作结果。
                     if current.observation_revision() == Some(revision) {
-                        current.observe(&handle, &page, &window, title, status);
+                        current.observe(&handle, &desktop.page, &window, title, status);
                     }
                 }
             });
             Ok(())
         })
-        .on_menu_event(move |app, event| {
-            let action = event.id().as_ref();
-            if action == "quit" {
-                app.exit(0);
-                return;
+        .build(tauri::generate_context!())?
+        .run(move |_, event| {
+            if let tauri::RunEvent::ExitRequested {
+                code: None, api, ..
+            } = event
+            {
+                // 允许窗口关闭，等已开始的后台操作完成后再退出桌面进程。
+                if exit_state.connection.lock().unwrap().defer_exit() {
+                    api.prevent_exit();
+                }
             }
-            if !matches!(action, "start" | "stop" | "restart") {
-                return;
-            }
-            if !menu_connection.lock().unwrap().begin_operation() {
-                return;
-            }
-            let action = action.to_owned();
-            let home = home.clone();
-            let page = menu_page.clone();
-            let connection = menu_connection.clone();
-            let app = app.clone();
-            std::thread::spawn(move || {
-                let outcome = run_operation(&app, &page, &home, &action);
-                connection
-                    .lock()
-                    .unwrap()
-                    .finish_operation(&app, &page, title, outcome);
-            });
-        })
-        .run(tauri::generate_context!())?;
+        });
     Ok(())
 }
 
@@ -241,7 +383,7 @@ mod tests {
     use super::ConnectionState;
 
     #[test]
-    fn menu_operation_invalidates_an_in_flight_observation() {
+    fn operation_invalidates_an_in_flight_observation() {
         let mut connection = ConnectionState::default();
         let revision = connection.observation_revision().unwrap();
 
@@ -251,5 +393,14 @@ mod tests {
 
         connection.busy = false;
         assert_ne!(connection.observation_revision().unwrap(), revision);
+    }
+
+    #[test]
+    fn closing_window_defers_exit_during_backend_operation() {
+        let mut connection = ConnectionState::default();
+        assert!(!connection.defer_exit());
+        assert!(connection.begin_operation());
+        assert!(connection.defer_exit());
+        assert!(connection.exit_pending);
     }
 }

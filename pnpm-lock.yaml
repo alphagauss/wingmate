@@ -17,6 +17,8 @@ importers:
 
   apps/desktop: {}
 
+  plugins/wingmate-web: {}
+
 packages:
 
   '@isaacs/fs-minipass@4.0.1':

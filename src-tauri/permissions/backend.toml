@@ -1,0 +1,9 @@
+[[permission]]
+identifier = "allow-home-backend"
+description = "Allows the Wingmate home page to start, connect to or update its backend."
+commands.allow = ["home_backend"]
+
+[[permission]]
+identifier = "allow-manage-backend"
+description = "Allows the verified DSH workbench to stop or restart its backend."
+commands.allow = ["manage_backend"]

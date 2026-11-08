@@ -53,7 +53,7 @@ pub fn occupied(home: &Path) -> Result<bool> {
 }
 
 pub fn start(home: &Path, runtime: &Path, lock: File) -> Result<(Child, tempfile::NamedTempFile)> {
-    // 控制入口随 EXE 更新，已经释放的同版本 DSH 目录可以继续复用。
+    // 控制入口随 EXE 更新，与已经释放的运行包独立。
     let mut control = tempfile::Builder::new().suffix(".mjs").tempfile_in(home)?;
     control.write_all(include_bytes!("../../../runtime/control.mjs"))?;
     let control_url = reqwest::Url::from_file_path(control.path())
@@ -79,9 +79,15 @@ pub fn start(home: &Path, runtime: &Path, lock: File) -> Result<(Child, tempfile
         .arg("--import")
         .arg(control_url.as_str())
         .arg(runtime.join(crate::runtime::DSH_ENTRY))
-        .args(["web", "--host", "127.0.0.1", "--port", "0", "--no-open"])
+        .args(["web", "--patch"])
+        .arg(runtime.join(crate::runtime::WEB_PATCH))
+        .args(["--host", "127.0.0.1", "--port", "0", "--no-open"])
         .env("WINGMATE_HOME", home)
         .env("WINGMATE_RUNTIME_ID", crate::runtime::ID)
+        .env(
+            "WINGMATE_RUNTIME_REVISION",
+            crate::runtime::REVISION.unwrap_or_default(),
+        )
         .env_remove("NODE_OPTIONS")
         .stdin(Stdio::piped())
         .stdout(Stdio::from(log.try_clone()?))

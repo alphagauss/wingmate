@@ -30,6 +30,7 @@ pub struct Snapshot {
     pub protocol: u32,
     pub instance: String,
     pub runtime: String,
+    pub runtime_revision: Option<String>,
     pub pid: u32,
     pub engine_pid: Option<u32>,
     pub phase: String,
@@ -182,12 +183,17 @@ pub fn start_with_progress(home: &Path, report: impl Fn(StartupStage)) -> Result
     start_locked(home, report)
 }
 
-fn stop_locked(home: &Path) -> Result<()> {
+fn stop_locked(home: &Path, expected_instance: Option<&str>) -> Result<()> {
     if !crate::process::occupied(home)? {
+        anyhow::ensure!(expected_instance.is_none(), "后台已停止，请重新连接");
         return Ok(());
     }
     // 先验证活跃端点的身份，未知服务不会收到停止指令。
     let current = endpoint(home)?;
+    anyhow::ensure!(
+        expected_instance.is_none_or(|instance| instance == current.instance),
+        "后台实例已更换，请重新连接"
+    );
     call(&current, "status")?;
     call(&current, "stop")?;
     let deadline = Instant::now() + Duration::from_secs(20);
@@ -203,17 +209,34 @@ fn stop_locked(home: &Path) -> Result<()> {
 
 pub fn stop(home: &Path) -> Result<()> {
     let _operation = operation_lock(home)?;
-    stop_locked(home)
+    stop_locked(home, None)
+}
+
+pub fn stop_instance(home: &Path, expected_instance: &str) -> Result<()> {
+    let _operation = operation_lock(home)?;
+    stop_locked(home, Some(expected_instance))
 }
 
 pub fn restart(home: &Path) -> Result<Snapshot> {
-    restart_with_progress(home, |_| {})
+    restart_with_progress(home, None, |_| {})
 }
 
-pub fn restart_with_progress(home: &Path, report: impl Fn(StartupStage)) -> Result<Snapshot> {
+pub fn restart_instance_with_progress(
+    home: &Path,
+    expected_instance: &str,
+    report: impl Fn(StartupStage),
+) -> Result<Snapshot> {
+    restart_with_progress(home, Some(expected_instance), report)
+}
+
+fn restart_with_progress(
+    home: &Path,
+    expected_instance: Option<&str>,
+    report: impl Fn(StartupStage),
+) -> Result<Snapshot> {
     report(StartupStage::Stopping);
     let _operation = operation_lock(home)?;
-    stop_locked(home)?;
+    stop_locked(home, expected_instance)?;
     report(StartupStage::Checking);
     start_locked(home, report)
 }
@@ -234,6 +257,25 @@ mod tests {
     }
 
     #[test]
+    fn instance_bound_restart_rejects_a_replaced_backend() -> Result<()> {
+        let home = tempfile::tempdir()?;
+        let _owner = crate::process::try_acquire(home.path())?.unwrap();
+        let current = serde_json::json!({
+            "product": PRODUCT, "protocol": PROTOCOL, "runtime": crate::runtime::ID,
+            "instance": "new", "pid": 1, "port": 1, "token": "test",
+        });
+        fs::write(home.path().join("endpoint.json"), current.to_string())?;
+
+        let result = restart_instance_with_progress(home.path(), "old", |_| {});
+        assert_eq!(
+            result.err().unwrap().to_string(),
+            "后台实例已更换，请重新连接"
+        );
+        assert!(crate::process::occupied(home.path())?);
+        Ok(())
+    }
+
+    #[test]
     fn rejects_identity_mismatch_even_with_valid_json() {
         let endpoint = Endpoint {
             product: PRODUCT.into(),
@@ -251,6 +293,7 @@ mod tests {
             runtime: "r".into(),
             pid: 1,
             engine_pid: Some(1),
+            runtime_revision: None,
             phase: "running".into(),
             url: None,
             error: None,

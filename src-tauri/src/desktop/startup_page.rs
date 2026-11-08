@@ -2,12 +2,13 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, Url, WebviewWindow};
 use wingmate_service::service::{Snapshot, StartupStage};
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize)]
 pub(super) struct CardStatus {
     message: &'static str,
     hint: &'static str,
     waiting: bool,
     error: Option<String>,
+    actions: &'static str,
 }
 
 impl CardStatus {
@@ -17,6 +18,7 @@ impl CardStatus {
             hint,
             waiting: true,
             error: None,
+            actions: "",
         }
     }
 
@@ -43,24 +45,36 @@ impl CardStatus {
             StartupStage::Stopping => "后台停止失败",
         };
         let hint = match stage {
-            StartupStage::Extracting => "检查磁盘空间和目录权限后，从「后台」菜单重试。",
-            StartupStage::Stopping => "可从「后台」菜单重试停止或重新连接。",
-            _ => "可从「后台」菜单选择「启动 / 连接后台」重试。",
+            StartupStage::Extracting => "检查磁盘空间和目录权限后再试。",
+            StartupStage::Stopping => "重新连接后可再次管理后台。",
+            _ => "可重试启动或连接已有后台。",
         };
         Self {
             message,
             hint,
             waiting: false,
             error: Some(error),
+            actions: "retry",
         }
     }
 
     pub(super) fn stopped() -> Self {
         Self {
             message: "后台已停止",
-            hint: "可从「后台」菜单选择「启动 / 连接后台」。",
+            hint: "启动后将自动打开工作台。",
             waiting: false,
             error: None,
+            actions: "start",
+        }
+    }
+
+    pub(super) fn update_available() -> Self {
+        Self {
+            message: "有新的后台运行包可用",
+            hint: "可继续使用当前后台，或重启后台以启用新版功能。",
+            waiting: false,
+            error: None,
+            actions: "update",
         }
     }
 }
@@ -86,36 +100,21 @@ impl StartupPage {
     }
 
     pub(super) fn loaded(&self, window: &WebviewWindow, url: &Url) {
-        if url == &self.url {
+        if self.is_home(url) {
             self.render(window);
         }
     }
 
+    pub(super) fn is_home(&self, url: &Url) -> bool {
+        url == &self.url
+    }
+
     fn render(&self, window: &WebviewWindow) {
         let status = self.status.lock().unwrap().clone();
-        let args = serde_json::to_string(&(
-            self.url.scheme(),
-            self.url.host_str(),
-            status.message,
-            status.hint,
-            status.waiting,
-            status.error,
-        ))
-        .unwrap();
+        let args = serde_json::to_string(&(self.url.as_str(), status)).unwrap();
         let _ = window.eval(&format!(
-            r#"(([scheme, host, message, hint, waiting, error]) => {{
-                if (location.protocol !== scheme + ':' || location.hostname !== host) return;
-                const title = document.getElementById('message');
-                if (!title) return;
-                title.textContent = message;
-                const hintNode = document.getElementById('hint');
-                hintNode.textContent = hint;
-                hintNode.hidden = !hint;
-                document.getElementById('spinner').hidden = !waiting;
-                const details = document.getElementById('details');
-                details.hidden = error === null;
-                if (error === null) details.open = false;
-                document.getElementById('error').textContent = error ?? '';
+            r#"(([url, status]) => {{
+                if (location.href === url) window.renderWingmateHome?.(status);
             }})({args})"#
         ));
     }
@@ -181,9 +180,10 @@ impl StartupPage {
                         &window,
                         CardStatus {
                             message: "无法打开工作台",
-                            hint: "可从「后台」菜单选择「启动 / 连接后台」重试。",
+                            hint: "可重试连接后台。",
                             waiting: false,
                             error: None,
+                            actions: "retry",
                         },
                         true,
                     );

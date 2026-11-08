@@ -11,6 +11,7 @@ if (handoff !== 'start\n') process.exit(1);
 
 const home = process.env.WINGMATE_HOME;
 const runtime = process.env.WINGMATE_RUNTIME_ID;
+const runtime_revision = process.env.WINGMATE_RUNTIME_REVISION || null;
 const endpointFile = join(home, 'endpoint.json');
 const identity = { product: 'wingmate', protocol: 2, instance: randomUUID(), runtime, pid: process.pid };
 const token = randomUUID();
@@ -84,6 +85,7 @@ const server = createServer({ requestTimeout: 5000, headersTimeout: 5000 }, asyn
   }
   reply(response, 200, JSON.stringify({
     ...identity,
+    runtime_revision,
     engine_pid: process.pid,
     phase: stopping ? 'stopping' : url ? 'running' : 'starting',
     url: stopping ? null : url,

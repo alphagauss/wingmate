@@ -1,0 +1,20 @@
+{
+  "name": "dsh-wingmate-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./host.mjs",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["host.mjs", "client.js", "cordis.patch.yml"],
+  "engines": { "dsh": "0.2.2-rc.1" },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-client-ui-settings"]
+    }
+  }
+}
