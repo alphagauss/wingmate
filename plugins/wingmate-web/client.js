@@ -17,6 +17,17 @@ window.__ModuleLoader__.load({
       const [action, setAction] = useState(null);
       const [pending, setPending] = useState(false);
       const [error, setError] = useState('');
+      const [copyStatus, setCopyStatus] = useState('');
+
+      async function copyWebLink() {
+        setCopyStatus('');
+        try {
+          await bridge.copyWebLink();
+          setCopyStatus('已复制');
+        } catch {
+          setCopyStatus('复制失败，请重试。');
+        }
+      }
 
       async function confirm() {
         setPending(true);
@@ -33,6 +44,12 @@ window.__ModuleLoader__.load({
       return h('section', { 'aria-label': '后台服务' },
         h('h2', null, '后台服务'),
         h('p', { role: 'status' }, bridge ? `运行中 · DSH ${bridge.version}` : '正在连接 Wingmate 桌面…'),
+        bridge?.copyWebLink && h('div', { style: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 } },
+          h('span', null, 'Web 地址'),
+          h('code', null, window.location.origin),
+          h(Button, { variant: 'outline', disabled: pending, onClick: copyWebLink }, '复制链接'),
+          h('span', { role: 'status' }, copyStatus),
+        ),
         h('p', null, '关闭窗口后，后台和正在运行的任务会继续。'),
         h('div', { style: { display: 'flex', gap: 8 } },
           h(Button, { variant: 'outline', disabled: !bridge || pending, onClick: () => setAction('stop') }, '停止后台'),
