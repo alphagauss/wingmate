@@ -14,7 +14,7 @@
 
 在当前工作副本根目录启动 dev 模式，复用已有的编译产物和运行时安装树。开发后台、DSH 数据和 WebView 资料都在当前工作副本的 `work/dev` 下，与发行版隔离。可按任务需要启停开发后台、修改或清理开发模式产生的数据。清理前先退出正在使用这些数据的开发进程。目录规则见 [服务模块](../crates/wingmate-service/README.md#数据与管理边界)。
 
-先确认示例端口空闲。若同一工作副本已有开发窗口，先关闭它，确保 WebView2 按本次参数启动。调试环境变量只设置在启动终端。
+准备启动 dev 调试时，可直接关闭当前工作副本已有的 dev 窗口，让 WebView2 按本次参数启动。如需停止同一工作副本仍在运行的 dev 后台，可直接执行 `& .\target\debug\wingmate.exe stop | Out-Host`。启动前确认示例端口空闲。调试环境变量只设置在启动终端。
 
 ```powershell
 $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9223'
