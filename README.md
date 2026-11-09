@@ -6,7 +6,7 @@ Wingmate 是面向个人使用的 DeepSeek Harness 发行版，提供运行时�
 
 ## 使用
 
-当前优先支持 Windows x64。运行需要系统 Node.js >=24.9.0 和 WebView2；Node 暂不随程序分发。Zstd 解压库已内嵌，无需额外安装。
+当前发行目标是 Windows x64，跨平台设计见[项目约定](docs/product.md#跨平台设计)。运行需要系统 Node.js >=24.9.0 和 WebView2；Node 暂不随程序分发。Zstd 解压库已内嵌，无需额外安装。
 
 成品为 `target/release/wingmate.exe`，可以单独复制运行。双击打开桌面，在左下角账号菜单打开「设置 → 后台服务」，可查看、停止或重启后台。停止或重启会中断运行任务。后台停止后可在 Wingmate 首页再次启动。
 
