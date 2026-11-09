@@ -17,7 +17,7 @@
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'",
       "capabilities": [{
         "identifier": "wingmate-home",
-        "webviews": ["main"],
+        "webviews": ["main", "temporary-*"],
         "permissions": ["allow-home-backend", "allow-window-chrome"]
       }]
     }

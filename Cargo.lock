@@ -4313,6 +4313,7 @@ name = "wingmate"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "fs2",
  "gtk",
  "open",
  "rfd",
@@ -4320,6 +4321,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
+ "tempfile",
  "tokio",
  "webview2-com",
  "windows-sys 0.61.2",

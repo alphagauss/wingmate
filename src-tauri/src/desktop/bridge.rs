@@ -1,3 +1,5 @@
+use super::Desktop;
+use std::sync::Arc;
 use tauri::{ipc::CapabilityBuilder, AppHandle, Manager, Url, WebviewWindow};
 use wingmate_service::service::Snapshot;
 
@@ -9,7 +11,7 @@ pub(super) fn origin(state: &Snapshot) -> Option<String> {
 pub(super) fn authorize(app: &AppHandle, origin: &str) -> tauri::Result<()> {
     app.add_capability(
         CapabilityBuilder::new("wingmate-workspace")
-            .webview("main")
+            .webview(&app.state::<Arc<Desktop>>().window_label)
             .local(false)
             .remote(format!("{origin}/*"))
             .permission("allow-manage-backend")

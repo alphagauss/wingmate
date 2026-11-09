@@ -1,5 +1,6 @@
+use super::desktop_window;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Manager, Url, WebviewWindow};
+use tauri::{AppHandle, Url, WebviewWindow};
 use wingmate_service::service::{Snapshot, StartupStage};
 
 #[derive(Clone, PartialEq, Eq, serde::Serialize)]
@@ -148,7 +149,7 @@ impl StartupPage {
         let page = self.clone();
         let handle = app.clone();
         let _ = app.run_on_main_thread(move || {
-            if let Some(window) = handle.get_webview_window("main") {
+            if let Some(window) = desktop_window(&handle) {
                 page.update(&window, status, show_card);
             }
         });
@@ -171,7 +172,7 @@ impl StartupPage {
         let page = self.clone();
         let handle = app.clone();
         let _ = app.run_on_main_thread(move || {
-            if let Some(window) = handle.get_webview_window("main") {
+            if let Some(window) = desktop_window(&handle) {
                 if window.url().as_ref().ok() == Some(&page.url) {
                     page.update(&window, CardStatus::waiting("正在打开工作台…", ""), false);
                 }

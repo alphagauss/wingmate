@@ -1,4 +1,4 @@
-use super::{bridge, Desktop, StartupPage};
+use super::{bridge, desktop_window, Desktop, StartupPage};
 use std::{cell::Cell, sync::Arc, time::Duration};
 use tauri::{Manager, Url, WebviewWindow, WindowEvent};
 use wingmate_service::service::Snapshot;
@@ -104,7 +104,7 @@ pub(super) fn watch(window: &WebviewWindow, navigation: u32) {
                 current.titlebar.navigation == navigation && !current.titlebar.ready;
             drop(current);
             if needs_fallback {
-                if let Some(window) = handle.get_webview_window("main") {
+                if let Some(window) = desktop_window(&handle) {
                     let _ = window.set_decorations(true);
                     let _ = show_if_hidden(&window);
                 }
@@ -188,7 +188,7 @@ pub(super) fn window_chrome(
 ) -> Result<bool, String> {
     let url = window.url().map_err(|error| error.to_string())?;
     if !cfg!(windows)
-        || window.label() != "main"
+        || window.label() != desktop.window_label
         || !desktop.connection.lock().unwrap().titlebar.allows(
             &url,
             instance.as_deref(),

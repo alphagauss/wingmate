@@ -1,6 +1,6 @@
 //! 将 DSH 请求的新窗口和授权流程转交给系统浏览器。
 
-use super::{bridge, Desktop};
+use super::{bridge, desktop_window, Desktop};
 use std::{
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -22,7 +22,7 @@ static NEXT_POPUP: AtomicU64 = AtomicU64::new(0);
 static CONFIRMATION_PENDING: AtomicBool = AtomicBool::new(false);
 
 fn workspace_instance(app: &AppHandle) -> Option<String> {
-    let origin = app.get_webview_window("main")?.url().ok()?.origin();
+    let origin = desktop_window(app)?.url().ok()?.origin();
     let desktop = app.state::<Arc<Desktop>>();
     let connection = desktop.connection.lock().unwrap();
     let workspace = connection.workspace.as_ref()?;
@@ -58,7 +58,7 @@ fn forward_link(app: &AppHandle, instance: String, url: Url) {
         open_in_browser(url);
         return;
     }
-    let Some(parent) = app.get_webview_window("main") else {
+    let Some(parent) = desktop_window(app) else {
         return;
     };
     if CONFIRMATION_PENDING.swap(true, Ordering::Relaxed) {

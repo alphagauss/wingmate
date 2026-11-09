@@ -3,6 +3,7 @@ mod bridge;
 mod popup;
 mod startup_page;
 mod titlebar;
+mod window_state;
 
 use anyhow::Result;
 use startup_page::{CardStatus, StartupPage};
@@ -13,7 +14,9 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tauri::{webview::PageLoadEvent, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    webview::PageLoadEvent, AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+};
 use wingmate_service::{
     service::{self, Snapshot, StartupStage},
     RUNTIME_REVISION,
@@ -116,7 +119,7 @@ impl ConnectionState {
                 self.pending_update = None;
             }
         }
-        if let Some(window) = app.get_webview_window("main") {
+        if let Some(window) = desktop_window(app) {
             titlebar::connection_title(&window, title, false);
         }
         self.busy = false;
@@ -210,9 +213,14 @@ fn run_operation(
 
 struct Desktop {
     home: PathBuf,
+    window_label: String,
     title: &'static str,
     page: StartupPage,
     connection: Mutex<ConnectionState>,
+}
+
+fn desktop_window(app: &AppHandle) -> Option<WebviewWindow> {
+    app.get_webview_window(&app.state::<Arc<Desktop>>().window_label)
 }
 
 impl Desktop {
@@ -305,6 +313,12 @@ fn manage_backend(
 }
 
 pub fn run(home: PathBuf) -> Result<()> {
+    let primary = window_state::PrimaryWindow::claim(&home)?;
+    let window_label = if primary.is_some() {
+        "main".into()
+    } else {
+        format!("temporary-{}", std::process::id())
+    };
     let title = if wingmate_service::IS_DEV {
         "Wingmate · 开发版"
     } else {
@@ -312,6 +326,7 @@ pub fn run(home: PathBuf) -> Result<()> {
     };
     let desktop = Arc::new(Desktop {
         home,
+        window_label,
         title,
         page: StartupPage::new(),
         connection: Mutex::new(ConnectionState {
@@ -330,8 +345,10 @@ pub fn run(home: PathBuf) -> Result<()> {
         .setup(move |app| {
             let page_load = desktop.clone();
             let popup_app = app.handle().clone();
+            let label = desktop.window_label.as_str();
+            let size = window_state::DEFAULT_SIZE;
             let window =
-                WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
                     .on_new_window(move |url, features| popup::open(&popup_app, url, features))
                     .on_page_load(move |window, event| {
                         match event.event() {
@@ -364,15 +381,18 @@ pub fn run(home: PathBuf) -> Result<()> {
                     })
                     .title(title)
                     .decorations(!cfg!(windows))
-                    .visible(!cfg!(windows))
-                    .inner_size(1200.0, 820.0)
-                    .min_inner_size(720.0, 480.0);
+                    .visible(false)
+                    .inner_size(size.width, size.height);
             let window = if wingmate_service::IS_DEV {
                 window.data_directory(desktop.home.join("webview"))
             } else {
                 window
             };
             let window = window.build()?;
+            window_state::initialize(&window, &desktop.home, primary);
+            if !cfg!(windows) {
+                window.show()?;
+            }
             titlebar::watch(&window, 0);
             titlebar::observe(&window);
             let handle = app.handle().clone();
@@ -386,7 +406,7 @@ pub fn run(home: PathBuf) -> Result<()> {
                 desktop.run_operation(&handle, Operation::Start);
                 loop {
                     std::thread::sleep(Duration::from_secs(2));
-                    let Some(window) = handle.get_webview_window("main") else {
+                    let Some(window) = desktop_window(&handle) else {
                         break;
                     };
                     let Some(revision) = desktop.connection.lock().unwrap().observation_revision()
