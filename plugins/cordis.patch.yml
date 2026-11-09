@@ -1,0 +1,3 @@
+- insert:
+    - id: wingmate-web
+      name: ./wingmate-web/host.mjs

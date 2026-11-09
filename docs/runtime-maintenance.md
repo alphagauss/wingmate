@@ -68,7 +68,7 @@
 
 ## 社区和自用插件集成
 
-首个预装插件是 [Wingmate 后台服务](../plugins/wingmate-web/README.md)。预装清单由构建脚本明确指定。参考仓库、本地开发插件、发行预装组件是不同状态，创建目录或加入开发 workspace 不会自动改变发行内容。
+首个预装插件是 [Wingmate 后台服务](../plugins/wingmate-web/README.md)。构建脚本明确指定预装哪些包，[启动补丁](../plugins/cordis.patch.yml)决定 Wingmate 启动 Web 时默认启用哪些插件。开发版和发行版均随运行包携带这份补丁，并将它计入构建指纹。参考仓库、本地开发插件、发行预装组件是不同状态，创建目录或加入开发 workspace 不会自动改变发行内容。
 
 第一次实际集成时建立简短记录：本项目维护的插件写在所属 `plugins/<名称>/README.md`；仅消费外部发布包的组件写在 `docs/integrations/<名称>.md`。后者目录在实际需要时创建。记录包含：
 

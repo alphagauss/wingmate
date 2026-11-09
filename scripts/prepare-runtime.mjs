@@ -58,11 +58,12 @@ const [{ filename }] = JSON.parse(packed);
 const pluginArchive = join(pluginBuild.path, filename);
 const pluginBytes = await readFile(pluginArchive);
 const pluginDirectory = 'plugins/wingmate-web';
-const pluginPatch = `${pluginDirectory}/cordis.patch.yml`;
+const pluginPatch = 'plugins/cordis.patch.yml';
+const pluginPatchBytes = await readFile(join(root, pluginPatch));
 
 function fingerprint(lock) {
   return createHash('sha256').update(manifest).update(recipe).update(fileRules)
-    .update(lock).update(hostTarget).update(pluginBytes).digest('hex');
+    .update(lock).update(hostTarget).update(pluginBytes).update(pluginPatchBytes).digest('hex');
 }
 if (dev) {
   if (!lock) throw new Error('开发安装树需要 runtime/package-lock.json');
@@ -132,7 +133,7 @@ async function prepareArchive() {
       report.keptBytes += entry.size;
       return true;
     },
-  }, ['package.json', 'node_modules', pluginDirectory]);
+  }, ['package.json', 'node_modules', 'plugins']);
   const partial = `${archive}.${randomUUID()}.part`;
   const stampFile = join(stage, 'inputs.sha256');
   try {
@@ -213,4 +214,5 @@ async function install(stage) {
   await tar.x({ file: pluginArchive, cwd: plugin, strip: 1, strict: true });
   const installedPlugin = JSON.parse(await readFile(join(plugin, 'package.json'), 'utf8'));
   if (installedPlugin.engines.dsh !== selected) throw new Error('后台服务插件尚未适配所选 DSH 版本');
+  await writeFile(join(stage, pluginPatch), pluginPatchBytes);
 }

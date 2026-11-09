@@ -9,7 +9,7 @@ use std::{
 pub const ID: &str = env!("WINGMATE_RUNTIME_ID");
 pub const REVISION: Option<&str> = option_env!("WINGMATE_RUNTIME_REVISION");
 pub const DSH_ENTRY: &str = "node_modules/@deepseek-ai/dsh/lib/bin.js";
-pub const WEB_PATCH: &str = "plugins/wingmate-web/cordis.patch.yml";
+pub const WEB_PATCH: &str = "plugins/cordis.patch.yml";
 #[cfg(feature = "bundled-runtime")]
 // 桌面和 CLI 的进度回调类型不同，解压代码的各个实例共用同一份归档。
 static ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/runtime.tar.zst"));
