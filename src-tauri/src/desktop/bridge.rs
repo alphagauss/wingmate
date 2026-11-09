@@ -12,7 +12,8 @@ pub(super) fn authorize(app: &AppHandle, origin: &str) -> tauri::Result<()> {
             .webview("main")
             .local(false)
             .remote(format!("{origin}/*"))
-            .permission("allow-manage-backend"),
+            .permission("allow-manage-backend")
+            .permission("allow-window-chrome"),
     )
 }
 

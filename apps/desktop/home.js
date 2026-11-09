@@ -25,6 +25,11 @@ window.renderWingmateHome = ({ message, hint, waiting, error, actions }) => {
 };
 
 document.getElementById('show-restart').addEventListener('click', () => confirmation.showModal());
+// The modal makes elements outside it inert, including the custom window controls.
+confirmation.addEventListener('toggle', () => {
+  const titlebar = document.querySelector('[data-wingmate-titlebar]');
+  if (titlebar) (confirmation.open ? confirmation : document.body).append(titlebar);
+});
 
 for (const control of document.querySelectorAll('[data-backend-action]')) {
   control.addEventListener('click', async () => {

@@ -2,6 +2,7 @@
 mod bridge;
 mod popup;
 mod startup_page;
+mod titlebar;
 
 use anyhow::Result;
 use startup_page::{CardStatus, StartupPage};
@@ -27,6 +28,8 @@ struct ConnectionState {
     workspace: Option<Snapshot>,
     pending_update: Option<String>,
     authorized_origins: HashSet<String>,
+    titlebar_theme: titlebar::Theme,
+    titlebar: titlebar::Frame,
 }
 
 impl ConnectionState {
@@ -114,7 +117,7 @@ impl ConnectionState {
             }
         }
         if let Some(window) = app.get_webview_window("main") {
-            let _ = window.set_title(title);
+            titlebar::connection_title(&window, title, false);
         }
         self.busy = false;
     }
@@ -145,19 +148,19 @@ impl ConnectionState {
                     self.workspace = None;
                     self.pending_update = None;
                 }
-                let _ = window.set_title(title);
+                titlebar::connection_title(window, title, false);
             }
             Ok(None) => {
                 self.last = None;
                 if self.workspace.take().is_some() || self.pending_update.is_some() {
                     page.show(app, CardStatus::stopped());
-                    let _ = window.set_title(title);
+                    titlebar::connection_title(window, title, false);
                 }
                 self.pending_update = None;
             }
             Err(_) if self.workspace.is_some() => {
                 // 短暂断连不销毁页面和输入草稿。
-                let _ = window.set_title(&format!("{title} · 后台连接暂时中断"));
+                titlebar::connection_title(window, title, true);
             }
             _ => {}
         }
@@ -319,24 +322,49 @@ pub fn run(home: PathBuf) -> Result<()> {
     let exit_state = desktop.clone();
     tauri::Builder::default()
         .manage(desktop.clone())
-        .invoke_handler(tauri::generate_handler![home_backend, manage_backend])
+        .invoke_handler(tauri::generate_handler![
+            home_backend,
+            manage_backend,
+            titlebar::window_chrome
+        ])
         .setup(move |app| {
             let page_load = desktop.clone();
             let popup_app = app.handle().clone();
             let window =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                     .on_new_window(move |url, features| popup::open(&popup_app, url, features))
-                    .on_page_load(move |window, event| match event.event() {
-                        PageLoadEvent::Started => popup::close_all(window.app_handle()),
-                        PageLoadEvent::Finished => {
-                            page_load.page.loaded(&window, event.url());
-                            let workspace = page_load.connection.lock().unwrap().workspace.clone();
-                            if let Some(state) = workspace {
-                                bridge::expose(&window, event.url(), &state);
+                    .on_page_load(move |window, event| {
+                        match event.event() {
+                            PageLoadEvent::Started => {
+                                popup::close_all(window.app_handle());
                             }
+                            PageLoadEvent::Finished => {
+                                page_load.page.loaded(&window, event.url());
+                            }
+                        }
+                        let mut current = page_load.connection.lock().unwrap();
+                        if event.event() == PageLoadEvent::Started {
+                            current.titlebar.start(&window);
+                        }
+                        let workspace = current.workspace.clone();
+                        let theme = current.titlebar_theme;
+                        let navigation = current.titlebar.navigation();
+                        let source = current
+                            .titlebar
+                            .bind(event.url(), &page_load.page, workspace.as_ref())
+                            .cloned();
+                        drop(current);
+                        if let (PageLoadEvent::Finished, Some(state)) = (event.event(), &workspace)
+                        {
+                            bridge::expose(&window, event.url(), state);
+                        }
+                        if let Some(source) = source {
+                            titlebar::expose(&window, &source, theme, navigation);
                         }
                     })
                     .title(title)
+                    .decorations(!cfg!(windows))
+                    .visible(!cfg!(windows))
                     .inner_size(1200.0, 820.0)
                     .min_inner_size(720.0, 480.0);
             let window = if wingmate_service::IS_DEV {
@@ -345,6 +373,8 @@ pub fn run(home: PathBuf) -> Result<()> {
                 window
             };
             let window = window.build()?;
+            titlebar::watch(&window, 0);
+            titlebar::observe(&window);
             let handle = app.handle().clone();
             let popup_app = handle.clone();
             window.on_window_event(move |event| {

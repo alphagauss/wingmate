@@ -2,7 +2,7 @@
 window.__ModuleLoader__.load({
   id: 'dsh-wingmate-web',
   factory(require) {
-    const { createElement: h, useState, useSyncExternalStore } = require('react');
+    const { createElement: h, useLayoutEffect, useState, useSyncExternalStore } = require('react');
     const { Button, Modal } = require('@deepseek-ai/dsh-client-ui-primitives');
     const bridgeEvent = 'wingmate:backend-bridge';
     const getBridge = () => window.__WINGMATE_BACKEND__;
@@ -10,6 +10,20 @@ window.__ModuleLoader__.load({
     function subscribe(update) {
       window.addEventListener(bridgeEvent, update);
       return () => window.removeEventListener(bridgeEvent, update);
+    }
+
+    function WindowTitlebar() {
+      useLayoutEffect(() => {
+        let unmount;
+        const mount = () => { unmount ??= window.__WINGMATE_TITLEBAR__?.mount(); };
+        window.addEventListener('wingmate:titlebar', mount);
+        mount();
+        return () => {
+          window.removeEventListener('wingmate:titlebar', mount);
+          unmount?.();
+        };
+      }, []);
+      return null;
     }
 
     function BackendSettings() {
@@ -74,6 +88,10 @@ window.__ModuleLoader__.load({
       inject: ['slots'],
       apply(ctx) {
         if (typeof window.__TAURI_INTERNALS__?.invoke !== 'function') return;
+        window.__WINGMATE_TITLEBAR__?.prepare();
+        ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+          name: 'shell.overlay', id: 'wingmate-window-titlebar',
+        }, WindowTitlebar));
         ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section', id: 'wingmate-backend', order: 90, label: '后台服务',
         }, BackendSettings));

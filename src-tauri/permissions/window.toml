@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-window-chrome"
+description = "Allows the Wingmate home page or verified DSH workbench to operate its own title bar."
+commands.allow = ["window_chrome"]

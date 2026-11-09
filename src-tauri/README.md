@@ -15,7 +15,13 @@
 
 自有界面的范围见 [桌面前端](../apps/desktop/README.md)。
 
-开发窗口的标题带「开发版」，WebView 数据保存在开发后台管理目录下，避免与发行窗口共用本机 Web 登录状态。后台与 DSH 数据的隔离见 [服务模块](../crates/wingmate-service/README.md#数据与管理边界)。
+开发窗口的原生标题和自绘标题栏均显示「Wingmate · 开发版」。WebView 数据保存在开发后台管理目录下，避免与发行窗口共用本机 Web 登录状态。后台与 DSH 数据的隔离见 [服务模块](../crates/wingmate-service/README.md#数据与管理边界)。
+
+## Windows 标题栏
+
+首页和工作台共用 40 DIP 的自绘窗口控件。工作台沿用 [DSH 桌面布局](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.1/packages/client/ui-layout/README.zh.md#窗口-chrome-座) 的顶栏避让和主题颜色。首页初次打开跟随系统，返回首页时沿用本窗口上次收到的 DSH 明暗主题选择。三个按钮的绘制参考 [Electron Windows 窗口按钮](https://github.com/electron/electron/blob/v44.7.0/shell/browser/ui/views/win_caption_button.cc)，窗口操作由 Tauri 执行。标题栏拖动和双击使用 WebView2 的拖动区域。
+
+Windows 主窗口以无系统标题栏的形式打开，导航时保留当前边框。新页面未在 5 秒内挂载自绘控件时恢复系统标题栏，旧后台和页面加载失败时仍可操作窗口。窗口操作权限仅授予首页及主 WebView 中已验证的工作台来源。
 
 ## 品牌与桌面图标
 
