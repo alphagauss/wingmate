@@ -13,11 +13,22 @@ wingmate-service = { path = "../crates/wingmate-service", default-features = fal
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 open = { version = "5", features = ["shellexecute-on-windows"] }
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["sync", "time"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+
+[target.'cfg(all(not(windows), not(target_os = "linux")))'.dependencies]
+rfd = { version = "0.17", default-features = false, features = ["gtk3"] }
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
-windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Graphics_Gdi",
+    "Win32_System_Console",
+    "Win32_UI_Controls",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [features]
 # Tauri dev 移除 custom-protocol，直接用 Cargo 构建时仍默认携带运行包。
