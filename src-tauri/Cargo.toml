@@ -12,8 +12,11 @@ anyhow = "1"
 wingmate-service = { path = "../crates/wingmate-service", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+open = { version = "5", features = ["shellexecute-on-windows"] }
+tokio = { version = "1", features = ["time"] }
 
 [target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
 windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 
 [features]

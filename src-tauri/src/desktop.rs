@@ -1,5 +1,6 @@
 //! 桌面窗口、首页与连接观察；服务生命周期由独立 wingmate-service 库负责。
 mod bridge;
+mod popup;
 mod startup_page;
 
 use anyhow::Result;
@@ -321,10 +322,13 @@ pub fn run(home: PathBuf) -> Result<()> {
         .invoke_handler(tauri::generate_handler![home_backend, manage_backend])
         .setup(move |app| {
             let page_load = desktop.clone();
+            let popup_app = app.handle().clone();
             let window =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                    .on_page_load(move |window, event| {
-                        if event.event() == PageLoadEvent::Finished {
+                    .on_new_window(move |url, features| popup::open(&popup_app, url, features))
+                    .on_page_load(move |window, event| match event.event() {
+                        PageLoadEvent::Started => popup::close_all(window.app_handle()),
+                        PageLoadEvent::Finished => {
                             page_load.page.loaded(&window, event.url());
                             let workspace = page_load.connection.lock().unwrap().workspace.clone();
                             if let Some(state) = workspace {
@@ -340,8 +344,14 @@ pub fn run(home: PathBuf) -> Result<()> {
             } else {
                 window
             };
-            window.build()?;
+            let window = window.build()?;
             let handle = app.handle().clone();
+            let popup_app = handle.clone();
+            window.on_window_event(move |event| {
+                if matches!(event, tauri::WindowEvent::Destroyed) {
+                    popup::close_all(&popup_app);
+                }
+            });
             std::thread::spawn(move || {
                 desktop.run_operation(&handle, Operation::Start);
                 loop {
