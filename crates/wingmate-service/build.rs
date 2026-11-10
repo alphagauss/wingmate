@@ -18,8 +18,8 @@ fn main() {
         .expect("runtime/package.json 必须声明固定 DSH 版本");
     println!("cargo:rustc-env=WINGMATE_RUNTIME_ID=dsh-{version}");
     if env::var_os("CARGO_FEATURE_BUNDLED_RUNTIME").is_none() {
-        let stage = runtime.join("stage");
-        let current = stage.join(format!("current-{version}"));
+        let stage = checkout.join("work/dev/runtimes");
+        let current = stage.join("current");
         println!("cargo:rerun-if-changed={}", current.display());
         println!(
             "cargo:rustc-env=WINGMATE_DEV_ROOT={}",
@@ -40,7 +40,7 @@ fn main() {
         return;
     }
 
-    let archive = runtime.join("out/runtime.tar.zst");
+    let archive = checkout.join("work/build/runtime/runtime.tar.zst");
     println!("cargo:rerun-if-changed={}", archive.display());
     let mut source = BufReader::with_capacity(
         64 * 1024,

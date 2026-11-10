@@ -48,7 +48,7 @@ pub enum StartupStage {
     Stopping,
 }
 
-fn operation_lock(home: &Path) -> Result<File> {
+pub(crate) fn operation_lock(home: &Path) -> Result<File> {
     let file = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -164,7 +164,9 @@ fn wait_ready(home: &Path, mut child: Option<&mut Child>) -> Result<Snapshot> {
 fn start_locked(home: &Path, report: impl Fn(StartupStage)) -> Result<Snapshot> {
     let Some(lock) = crate::process::try_acquire(home)? else {
         report(StartupStage::Connecting);
-        return wait_ready(home, None);
+        let state = wait_ready(home, None)?;
+        crate::runtime::cleanup_after_ready(home, &state);
+        return Ok(state);
     };
     match fs::remove_file(home.join("endpoint.json")) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
@@ -177,6 +179,9 @@ fn start_locked(home: &Path, report: impl Fn(StartupStage)) -> Result<Snapshot> 
     if result.is_err() {
         let _ = child.kill();
         let _ = child.wait();
+    }
+    if let Ok(state) = &result {
+        crate::runtime::cleanup_after_ready(home, state);
     }
     result
 }

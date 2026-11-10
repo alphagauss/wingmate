@@ -20,7 +20,7 @@ DSH 插件教程与 API 由上游维护。以下是三个官方入口，页面�
 
 ## 在 Wingmate 中验证
 
-1. 用 `pnpm runtime:dev` 准备锁定版本的安装树。`runtime/stage/current-<版本>` 中的目录名指向本次安装树，其下的 `node_modules/@deepseek-ai/dsh/lib/bin.js` 是 DSH 入口。可用 Node 调用此入口，也可用同版 DSH CLI。
+1. 用 `pnpm runtime:dev` 准备锁定版本的运行目录。`work/dev/runtimes/current` 中的目录名指向本次运行目录，其下的 `node_modules/@deepseek-ai/dsh/lib/bin.js` 是 DSH 入口。直接调用 Node 做隔离测试时应先停止测试进程再准备或切换开发后台；这类手动进程不持 Wingmate 的运行锁，不参与自动回收保护。
 2. 将 `DSH_HOME` 和 `DSH_AGENTS_HOME` 指向本次验证专用目录，按[第一个插件](https://deepseek-harness.github.io/deepseek-harness/develop/basic/)准备 patch，其中的本地插件入口使用绝对路径。用 `dsh web --patch <补丁文件> --dump-config` 核对配置层，再用同一 patch 启动 Web，分别确认插件成功加载和实际功能可用。复用开发安装树时，将命令中的 `dsh` 换成 `node <DSH入口路径>`。
 3. 需要交付时，在组合包的 `engines.dsh` 中声明经过验证的兼容范围。先检查打包清单包含 manifest、patch 和实际加载入口，再将生成的 `.tgz` 安装到全新的隔离测试目录。按官方安装指南验证加载、实际功能及禁用或移除，避免开发目录链接掩盖漏打包的文件。涉及 Web 界面的改动要在 Web 中验证。需要在 Wingmate 桌面验证时，可把组合包安装到[开发数据目录](../crates/wingmate-service/README.md#数据与管理边界)的 `web` Profile。随 Wingmate 分发时，另按[运行时维护指南](../docs/runtime-maintenance.md#社区和自用插件集成)记录接入决定，并按[验证约定](../scripts/README.md)验证单文件发行产物。
 

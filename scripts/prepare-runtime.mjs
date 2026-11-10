@@ -15,16 +15,30 @@ import * as tar from 'tar';
 import { excludedRuntimeFile } from './runtime-files.mjs';
 import { applyRuntimePatches } from './runtime-patches.mjs';
 import { validatePluginArchive } from './runtime-plugins.mjs';
+import { linkDependencies } from './runtime-dev.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const runtime = join(root, 'runtime');
 const dev = process.argv.includes('--dev');
+if (process.env.WINGMATE_PREPARE_LOCKED !== '1') throw new Error('请使用 pnpm runtime:dev 或 pnpm runtime:prepare，以取得构建锁');
+process.stdin.on('end', () => process.exit(1));
+process.stdin.resume();
+process.stdin.unref();
 const target = process.env.TAURI_ENV_TARGET_TRIPLE;
 const host = spawnSync('rustc', ['-vV'], { encoding: 'utf8', windowsHide: true });
 if (host.status !== 0) throw new Error('无法读取 Rust 构建目标');
 const hostTarget = host.stdout.match(/^host: (.+)$/m)?.[1];
 if (target && target !== hostTarget) throw new Error('首版只支持在目标平台本机构建运行包');
-const out = join(runtime, 'out');
+const nodeTarget = `${process.platform}-${process.arch}/node-${process.versions.modules}`;
+const out = join(root, 'work/build/runtime');
+const cache = join(root, 'work/cache/npm');
+// Move the previous generated locations once; keep a single npm cache and build archive.
+for (const [from, to] of [[join(runtime, '.cache'), cache], [join(runtime, 'out'), out]]) {
+  if (existsSync(from) && !existsSync(to)) {
+    await mkdir(dirname(to), { recursive: true });
+    await rename(from, to);
+  }
+}
 const archive = join(out, 'runtime.tar.zst');
 const stamp = join(out, 'inputs.sha256');
 const manifest = await readFile(join(runtime, 'package.json'));
@@ -38,6 +52,7 @@ const recipe = await readFile(fileURLToPath(import.meta.url));
 const fileRules = dev ? '' : await readFile(new URL('./runtime-files.mjs', import.meta.url));
 const patchRecipe = await readFile(new URL('./runtime-patches.mjs', import.meta.url));
 const pluginChecks = await readFile(new URL('./runtime-plugins.mjs', import.meta.url));
+const devRecipe = dev ? await readFile(new URL('./runtime-dev.mjs', import.meta.url)) : '';
 const patchBytes = await readFile(join(runtime, 'patches', `dsh-${selected}.json`));
 const patches = JSON.parse(patchBytes);
 const registry = process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY || 'https://registry.npmmirror.com/';
@@ -47,8 +62,9 @@ if (onWindows && !existsSync(npmCli)) throw new Error('当前 Node 安装缺少 
 
 function npm(args, options) {
   // Windows 直接运行 Node 随带的 npm CLI，避免 cmd.exe 对路径作二次解释。
+  const output = options.stdio === 'inherit' ? ['inherit', 'inherit'] : options.stdio.slice(1);
   return spawn(onWindows ? process.execPath : 'npm', onWindows ? [npmCli, ...args] : args,
-    { windowsHide: true, ...options });
+    { windowsHide: true, ...options, stdio: ['ignore', ...output] });
 }
 
 await using pluginBuild = await mkdtempDisposable(join(tmpdir(), 'wingmate-plugin-'));
@@ -60,7 +76,7 @@ for (const name of ['wingmate-web', 'wingmate-file-viewer']) {
   const [buildStatus] = await once(build, 'close');
   if (buildStatus !== 0) throw new Error(`插件编译失败: ${name}`);
   const pack = npm(['pack', '--ignore-scripts', '--pack-destination', pluginBuild.path,
-    '--cache', join(runtime, '.cache'), '--json'], { cwd: source, stdio: ['ignore', 'pipe', 'inherit'] });
+    '--cache', cache, '--json'], { cwd: source, stdio: ['ignore', 'pipe', 'inherit'] });
   let packed = '';
   pack.stdout.setEncoding('utf8');
   pack.stdout.on('data', chunk => { packed += chunk; });
@@ -77,14 +93,20 @@ const pluginPatchBytes = await readFile(join(root, pluginPatch));
 
 function fingerprint(lock) {
   const hash = createHash('sha256').update(manifest).update(recipe).update(fileRules)
-    .update(patchRecipe).update(patchBytes).update(pluginChecks).update(lock).update(hostTarget).update(pluginPatchBytes);
+    .update(patchRecipe).update(patchBytes).update(pluginChecks).update(devRecipe).update(lock)
+    .update(hostTarget).update(nodeTarget).update(pluginPatchBytes);
   for (const plugin of plugins) hash.update(plugin.directory).update(plugin.bytes);
   return hash.digest('hex');
 }
 if (dev) {
   if (!lock) throw new Error('开发安装树需要 runtime/package-lock.json');
-  const stages = join(runtime, 'stage');
-  const current = join(stages, `current-${selected}`);
+  const stages = join(root, 'work/dev/runtimes');
+  const dependencies = join(root, 'work/dev/dependencies');
+  // Plugin and patch inputs deliberately do not invalidate the npm installation.
+  const dependencyKey = createHash('sha256').update(manifest).update(lock)
+    .update(`${hostTarget}/${nodeTarget}`).update(install.toString()).digest('hex');
+  const base = join(dependencies, dependencyKey);
+  const current = join(stages, 'current');
   const key = fingerprint(lock);
   const stage = join(stages, key);
   const entry = 'node_modules/@deepseek-ai/dsh/lib/bin.js';
@@ -92,16 +114,21 @@ if (dev) {
   if (ready()) {
     console.log(`复用 DSH ${selected} 开发安装树`);
   } else {
+    if (!existsSync(join(base, entry))) {
+      await mkdir(dependencies, { recursive: true });
+      await using scratch = await mkdtempDisposable(join(dependencies, '.install-'));
+      await install(scratch.path);
+      await rename(scratch.path, base);
+    } else {
+      console.log(`复用 DSH ${selected} 依赖，仅更新插件与补丁`);
+    }
     await mkdir(stages, { recursive: true });
     await using scratch = await mkdtempDisposable(join(stages, '.install-'));
-    await install(scratch.path);
+    await linkDependencies(base, scratch.path);
+    await integrate(scratch.path);
+    await writeFile(join(scratch.path, '.wingmate-dependency'), `${dependencyKey}\n`);
     if (!existsSync(join(scratch.path, entry))) throw new Error('开发安装树缺少 DSH 入口');
-    try {
-      await rename(scratch.path, stage);
-    } catch (error) {
-      // 同一份依赖可以由另一个并发的开发启动先准备完成。
-      if (!ready()) throw error;
-    }
+    await rename(scratch.path, stage);
   }
   if (!existsSync(current) || (await readFile(current, 'utf8')).trim() !== key) {
     const partial = `${current}.${randomUUID()}.part`;
@@ -129,6 +156,7 @@ async function prepareArchive() {
   await using scratch = await mkdtempDisposable(join(out, '.install-'));
   const stage = scratch.path;
   await install(stage);
+  await integrate(stage);
   // 发行裁剪在补丁与插件集成后执行，开发安装树保留完整依赖。
   const compressionLevel = 9;
   console.log(`裁剪并压缩 DSH ${selected} 运行包 (Node 内置 Zstd ${compressionLevel})`);
@@ -187,7 +215,7 @@ async function install(stage) {
   const loglevel = process.env.npm_config_loglevel || process.env.NPM_CONFIG_LOGLEVEL;
   const command = lock ? 'ci' : 'install';
   const args = [command, '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund',
-    '--cache', join(runtime, '.cache'), `--registry=${registry}`, '--replace-registry-host=always',
+    '--cache', cache, `--registry=${registry}`, '--replace-registry-host=always',
     '--progress', `--loglevel=${loglevel || 'http'}`];
   console.log(`安装 DSH ${selected} 运行依赖 (npm ${command}, npm 源 ${new URL(registry).host})`);
   const installProcess = npm(args, { cwd: stage, stdio: loglevel ? 'inherit' : ['inherit', 'pipe', 'pipe'] });
@@ -233,6 +261,9 @@ async function install(stage) {
   if (!lock) await copyFile(join(stage, 'package-lock.json'), lockPath);
   const installedDsh = JSON.parse(await readFile(join(stage, 'node_modules/@deepseek-ai/dsh/package.json'), 'utf8'));
   if (installedDsh.version !== selected) throw new Error('安装的 DSH 版本与声明不一致');
+}
+
+async function integrate(stage) {
   await applyRuntimePatches(stage, patches);
   for (const item of plugins) {
     const plugin = join(stage, item.directory);

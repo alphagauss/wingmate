@@ -16,6 +16,8 @@
 
 开发版固定使用当前工作副本的 `work/dev/wingmate` 管理后台，并为 DSH 显式设置 `work/dev/dsh` 和 `work/dev/agents`。桌面与 CLI 使用同一组目录，即使从带有发行版目录变量的终端启动，也能与发行版后台独立运行。
 
+开发准备和后台启停共用操作锁；后台就绪并匹配预期指纹后才回收旧运行内容。开发依赖共享、目录归属和回收边界统一见[运行时维护指南](../../docs/runtime-maintenance.md#打包范围与所有权)。`pnpm dev:stop` 明确按开发模式编译管理工具。`target/debug` 只表示 Rust 优化级别，不能据此推断 EXE 使用开发数据还是发行数据，实际行为取决于 `bundled-runtime` feature。
+
 管理凭据和 Web 访问 token 不在普通 CLI 状态中展示。测试数据必须与日常数据隔离，发现文件仍属于同用户本机信任边界。
 
 运行内容的目录、切换和手动刷新见 [释放与复用](../../docs/runtime-maintenance.md#释放与复用)。

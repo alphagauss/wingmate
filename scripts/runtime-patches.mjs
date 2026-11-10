@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { readFile, writeFile, rename, rm, stat, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 
 // Apply ordered, version-bound edits to a fresh npm installation. A changed upstream fails closed.
@@ -16,6 +16,16 @@ export async function applyRuntimePatches(stage, patches) {
     if (!patch.before || source.split(patch.before).length !== 2) {
       throw new Error(`补丁必须恰好匹配一处: ${patch.id}`);
     }
-    await writeFile(file, source.replace(patch.before, () => patch.after));
+    // The development view can share this inode with the pristine dependency cache.
+    const temporary = `${file}.${randomUUID()}.part`;
+    try {
+      const { mode } = await stat(file);
+      await writeFile(temporary, source.replace(patch.before, () => patch.after), { mode });
+      // Creation applies the process umask; restore the original permissions before publishing.
+      await chmod(temporary, mode);
+      await rename(temporary, file);
+    } finally {
+      await rm(temporary, { force: true });
+    }
   }
 }

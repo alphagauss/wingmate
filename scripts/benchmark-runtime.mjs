@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { createGunzip, createGzip, createZstdCompress, createZstdDecompress, constants } from 'node:zlib';
 
-const input = resolve(process.argv[2] ?? 'runtime/out/runtime.tar.zst');
+const input = resolve(process.argv[2] ?? 'work/build/runtime/runtime.tar.zst');
 await mkdir('work', { recursive: true });
 const output = await mkdtemp(resolve('work/compression-'));
 const source = join(output, 'runtime.tar');

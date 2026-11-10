@@ -2,53 +2,82 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { resolve, join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { copyFile, mkdir, mkdtemp, readFile, writeFile, access, rm } from 'node:fs/promises';
+import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const original = resolve(process.argv[2] ?? (process.platform === 'win32' ? 'target/release/wingmate.exe' : 'target/release/wingmate'));
-await mkdir('work', { recursive: true });
-const work = process.argv[3] ? resolve(process.argv[3]) : await mkdtemp(resolve('work/smoke-'));
+const args = process.argv.slice(2).filter(arg => arg !== '--keep-work');
+const keepWork = process.argv.includes('--keep-work');
+assert.ok(args.length <= 2 && args.every(arg => !arg.startsWith('--')), '用法: smoke.mjs [EXE] [新测试目录] [--keep-work]');
+const original = resolve(args[0] ?? (process.platform === 'win32' ? 'target/release/wingmate.exe' : 'target/release/wingmate'));
+await mkdir('work/tests', { recursive: true });
+const work = args[1] ? resolve(args[1]) : await mkdtemp(resolve('work/tests/smoke-'));
+if (args[1]) {
+  await mkdir(dirname(work), { recursive: true });
+  // Own a fresh directory before allowing automatic deletion; never adopt existing user data.
+  await mkdir(work);
+}
 const executable = join(work, process.platform === 'win32' ? 'wingmate.exe' : 'wingmate');
-await copyFile(original, executable);
 const env = { ...process.env, WINGMATE_HOME: join(work, 'wingmate'), DSH_HOME: join(work, 'dsh'), DSH_AGENTS_HOME: join(work, 'agents') };
 for (const key of Object.keys(env)) if (/API_KEY|ACCESS_TOKEN|AUTH_TOKEN/.test(key)) delete env[key];
 const endpointFile = join(env.WINGMATE_HOME, 'endpoint.json');
 const checks = [];
 let expectedRevision;
-if (!process.argv[2]) {
-  // 默认成品应内嵌本次构建准备的归档，且只内嵌一份。
-  const archive = await readFile(new URL('../runtime/out/runtime.tar.zst', import.meta.url));
-  const binary = await readFile(executable);
-  const first = binary.indexOf(archive);
-  assert.notEqual(first, -1, '成品缺少本次构建准备的运行包');
-  assert.equal(binary.indexOf(archive, first + archive.length), -1, '成品重复内嵌运行包');
-  expectedRevision = createHash('sha256').update(archive).digest('hex');
-  checks.push('单文件只内嵌一份运行包');
-}
+let mayHaveStarted = false;
+let failure, cleanupError;
 function cli(action, success = true) {
+  if (action === 'start' || action === 'restart') mayHaveStarted = true;
   return new Promise((resolve, reject) => {
     const child = spawn(executable, [action], { cwd: work, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '', error = '';
     child.stdout.on('data', chunk => output += chunk);
     child.stderr.on('data', chunk => error += chunk);
-    const timer = setTimeout(() => { child.kill(); reject(new Error(`${action} 超时`)); }, 180_000);
-    child.on('error', reject);
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; child.kill(); }, 180_000);
+    child.on('error', error => { clearTimeout(timer); reject(error); });
     child.on('close', code => {
       clearTimeout(timer);
-      if (success && code !== 0) reject(new Error(`${action}: ${error || output}`));
-      else resolve(success ? JSON.parse(output) : { code, error, output });
+      try {
+        if (timedOut) throw new Error(`${action} 超时`);
+        if (success && code !== 0) throw new Error(`${action}: ${error || output}`);
+        resolve(success ? JSON.parse(output) : { code, error, output });
+      } catch (error) { reject(error); }
     });
   });
 }
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 try {
+  await copyFile(original, executable);
+  if (!args[0]) {
+    // 默认成品应内嵌本次构建准备的归档，且只内嵌一份。
+    const archive = await readFile(new URL('../work/build/runtime/runtime.tar.zst', import.meta.url));
+    const binary = await readFile(executable);
+    const first = binary.indexOf(archive);
+    assert.notEqual(first, -1, '成品缺少本次构建准备的运行包');
+    assert.equal(binary.indexOf(archive, first + archive.length), -1, '成品重复内嵌运行包');
+    expectedRevision = createHash('sha256').update(archive).digest('hex');
+    checks.push('单文件只内嵌一份运行包');
+  }
   assert.equal((await cli('status')).phase, 'stopped');
-  const [a, b] = await Promise.all([cli('start'), cli('start')]);
+  assert.ok(existsSync(env.WINGMATE_HOME), '被测 EXE 未使用隔离管理目录，请提供发行模式 EXE');
+  const oldRuntime = join(env.WINGMATE_HOME, 'runtimes', `dsh-0.0.0-${'a'.repeat(64)}`);
+  const unmanaged = join(env.WINGMATE_HOME, 'runtimes', 'user-notes');
+  await mkdir(oldRuntime, { recursive: true });
+  await mkdir(unmanaged, { recursive: true });
+  await writeFile(join(oldRuntime, 'fixture.txt'), 'obsolete');
+  await writeFile(join(unmanaged, 'keep.txt'), 'keep');
+  // Wait for both launchers even if one fails, before attempting shutdown and deletion.
+  const starts = await Promise.allSettled([cli('start'), cli('start')]);
+  for (const result of starts) if (result.status === 'rejected') throw result.reason;
+  const [a, b] = starts.map(result => result.value);
   assert.equal(a.phase, 'running');
   assert.equal(a.instance, b.instance);
   assert.equal(a.pid, a.engine_pid);
   assert.equal(a.engine_pid, b.engine_pid);
+  await assert.rejects(access(oldRuntime), { code: 'ENOENT' });
+  assert.equal(await readFile(join(unmanaged, 'keep.txt'), 'utf8'), 'keep');
+  checks.push('新版就绪后清理旧运行目录，保留非托管内容');
   await copyFile(original, executable);
   assert.equal((await cli('status')).instance, a.instance);
   checks.push('只有 DSH 的 Node 进程常驻，覆盖桌面 EXE 后仍能连接');
@@ -138,8 +167,29 @@ try {
     await cli('stop');
     checks.push('DSH 异常退出后，陈旧发现文件不阻止重新启动');
   }
-  await writeFile(join(work, 'result.json'), JSON.stringify({ executable, checks }, null, 2));
-  console.log(JSON.stringify({ checks, evidence: work }, null, 2));
+} catch (error) {
+  failure = error;
 } finally {
-  try { await cli('stop'); } catch (error) { console.error(`清理未完成：${error.message}`); }
+  try {
+    if (mayHaveStarted) {
+      await cli('stop');
+      assert.equal((await cli('status')).phase, 'stopped', '后台未退出，保留测试目录');
+    }
+  } catch (error) { cleanupError = error; }
+  // Save diagnostics before deletion too: cleanup itself can fail partway through.
+  try { await copyFile(join(env.WINGMATE_HOME, 'service.log'), join(work, 'service.log')); }
+  catch (error) { if (error.code !== 'ENOENT') cleanupError ??= error; }
+  if (!keepWork && !cleanupError) {
+    try {
+      for (const path of [env.WINGMATE_HOME, env.DSH_HOME, env.DSH_AGENTS_HOME, executable]) {
+        await rm(path, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+      }
+      if (!failure) await rm(join(work, 'service.log'), { force: true });
+    } catch (error) { cleanupError = error; }
+  }
 }
+const report = { executable, checks, status: failure || cleanupError ? 'failed' : 'passed',
+  error: failure?.stack, cleanupError: cleanupError?.stack, retained: keepWork || !!cleanupError };
+await writeFile(join(work, 'result.json'), JSON.stringify(report, null, 2) + '\n');
+console.log(JSON.stringify({ ...report, evidence: work }, null, 2));
+if (failure || cleanupError) process.exitCode = 1;
