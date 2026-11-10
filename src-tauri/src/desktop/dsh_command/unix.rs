@@ -8,7 +8,19 @@ use std::{
 };
 
 const SHEBANG: &str = "#!/usr/bin/env node\n";
-const SH_PATH: &str = r#"
+// Keep the old blocks so existing registrations can be updated or removed.
+const SH_PATH: [&str; 2] = [
+    r#"
+# >>> Wingmate dsh >>>
+if [ -x "$HOME/.wingmate/bin/dsh" ]; then
+  case "${PATH-}:" in
+    "$HOME/.wingmate/bin:"*) ;;
+    *) export PATH="$HOME/.wingmate/bin${PATH:+:$PATH}" ;;
+  esac
+fi
+# <<< Wingmate dsh <<<
+"#,
+    r#"
 # >>> Wingmate dsh >>>
 if [ -x "$HOME/.wingmate/bin/dsh" ]; then
   case ":${PATH-}:" in
@@ -17,14 +29,24 @@ if [ -x "$HOME/.wingmate/bin/dsh" ]; then
   esac
 fi
 # <<< Wingmate dsh <<<
-"#;
-const FISH_PATH: &str = r#"
+"#,
+];
+const FISH_PATH: [&str; 2] = [
+    r#"
+# >>> Wingmate dsh >>>
+if test -x "$HOME/.wingmate/bin/dsh"; and test "$PATH[1]" != "$HOME/.wingmate/bin"
+  set -gx PATH "$HOME/.wingmate/bin" $PATH
+end
+# <<< Wingmate dsh <<<
+"#,
+    r#"
 # >>> Wingmate dsh >>>
 if test -x "$HOME/.wingmate/bin/dsh"; and not contains -- "$HOME/.wingmate/bin" $PATH
   set -gx PATH $PATH "$HOME/.wingmate/bin"
 end
 # <<< Wingmate dsh <<<
-"#;
+"#,
+];
 
 pub(super) fn configure(
     enabled: Option<bool>,
@@ -123,7 +145,7 @@ fn configure_in(
             };
             let needs_update = launcher().ok().as_deref() != current.strip_prefix(SHEBANG)
                 || fs::metadata(command)?.permissions().mode() & 0o100 == 0
-                || profiles.iter().any(|(path, block)| {
+                || profiles.iter().any(|(path, [block, _])| {
                     !fs::read_to_string(path).is_ok_and(|text| text.contains(block))
                 });
             Ok(Status {
@@ -134,7 +156,7 @@ fn configure_in(
     }
 }
 
-fn update_profile(path: &Path, block: &str, enabled: bool) -> Result<()> {
+fn update_profile(path: &Path, [block, legacy]: [&str; 2], enabled: bool) -> Result<()> {
     // Dotfiles can be symlinks, so preserve the link and edit its target.
     let (path, permissions, original) = match fs::metadata(path) {
         Ok(metadata) if metadata.is_file() => {
@@ -150,7 +172,7 @@ fn update_profile(path: &Path, block: &str, enabled: bool) -> Result<()> {
         }
         Err(error) => return Err(error.into()),
     };
-    let mut content = original.replace(block, "");
+    let mut content = original.replace(block, "").replace(legacy, "");
     if enabled {
         content.push_str(block);
     }
@@ -196,10 +218,12 @@ mod tests {
         assert!(!configure_in(home, &zsh, &fish, None, launcher)?.enabled);
         assert!(configure_in(home, &zsh, &fish, Some(true), launcher)?.enabled);
         assert!(!configure_in(home, &zsh, &fish, None, launcher)?.needs_update);
+        fs::write(&bash_target, format!("{original}{}", SH_PATH[1]))?;
+        assert!(configure_in(home, &zsh, &fish, None, launcher)?.needs_update);
         configure_in(home, &zsh, &fish, Some(true), launcher)?;
         assert_eq!(
             fs::read_to_string(&bash_target)?,
-            format!("{original}{SH_PATH}")
+            format!("{original}{}", SH_PATH[0])
         );
         assert!(home.join(".bashrc").symlink_metadata()?.is_symlink());
         assert!(!home.join(".profile").exists());

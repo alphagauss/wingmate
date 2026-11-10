@@ -67,6 +67,7 @@ fn configure_in(
             .eq_ignore_ascii_case(bin_text)
     };
     let registered = path.split(';').any(is_ours);
+    let first = path.split(';').next().is_some_and(is_ours);
     let cmd = bin.join("dsh.cmd");
     let script = bin.join("dsh.cjs");
     let cmd_content = read(&cmd)?;
@@ -79,18 +80,22 @@ fn configure_in(
         "命令目录已有同名文件：{bin_text}"
     );
 
+    let without_launcher = || {
+        path.split(';')
+            .filter(|part| !is_ours(part))
+            .collect::<Vec<_>>()
+            .join(";")
+    };
     let next_path = match enabled {
-        Some(true) if !registered => Some(if path.is_empty() {
-            bin_text.to_owned()
-        } else {
-            format!("{path};{bin_text}")
-        }),
-        Some(false) if registered => Some(
-            path.split(';')
-                .filter(|part| !is_ours(part))
-                .collect::<Vec<_>>()
-                .join(";"),
-        ),
+        Some(true) if !first => {
+            let rest = without_launcher();
+            Some(if rest.is_empty() {
+                bin_text.to_owned()
+            } else {
+                format!("{bin_text};{rest}")
+            })
+        }
+        Some(false) if registered => Some(without_launcher()),
         _ => None,
     };
     if enabled == Some(true) {
@@ -116,7 +121,7 @@ fn configure_in(
         }
     } else {
         let enabled = registered && cmd_content.is_some() && script_content.is_some();
-        let needs_update = enabled && launcher().ok() != script_content;
+        let needs_update = enabled && (!first || launcher().ok() != script_content);
         return Ok((
             Status {
                 enabled,
@@ -176,8 +181,15 @@ mod tests {
             assert_eq!(registered.vtype, REG_EXPAND_SZ);
             assert_eq!(
                 String::from_reg_value(&registered)?,
-                format!("{path};{}", bin.display())
+                format!("{};{path}", bin.display())
             );
+            let old_path = format!("{path};{}", bin.display());
+            let mut appended = old_path.to_reg_value();
+            appended.vtype = REG_EXPAND_SZ;
+            environment.set_raw_value("Path", &appended)?;
+            assert!(configure_in(&test, &bin, None, script)?.0.needs_update);
+            assert!(configure_in(&test, &bin, Some(true), script)?.1);
+            assert_eq!(environment.get_raw_value("Path")?, registered);
             assert!(
                 configure_in(&test, &bin, None, || {
                     launcher(&entry, &dsh_home, &directory.path().join("other-agents"))
