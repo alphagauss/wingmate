@@ -6,6 +6,7 @@ use std::{
     fs::{self, File, OpenOptions},
     path::Path,
     process::Child,
+    sync::OnceLock,
     thread,
     time::{Duration, Instant},
 };
@@ -78,11 +79,18 @@ fn endpoint(home: &Path) -> Result<Endpoint> {
 }
 
 fn call(endpoint: &Endpoint, action: &str) -> Result<Snapshot> {
-    let client = reqwest::blocking::Client::builder()
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(20))
-        .build()?;
+    static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    let client = match CLIENT.get() {
+        Some(client) => client,
+        None => {
+            let client = reqwest::blocking::Client::builder()
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(Duration::from_secs(20))
+                .build()?;
+            CLIENT.get_or_init(|| client)
+        }
+    };
     let response = client
         .post(format!("http://127.0.0.1:{}/rpc", endpoint.port))
         .bearer_auth(&endpoint.token)

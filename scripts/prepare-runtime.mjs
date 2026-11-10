@@ -136,12 +136,18 @@ async function prepareArchive() {
   }, ['package.json', 'node_modules', 'plugins']);
   const partial = `${archive}.${randomUUID()}.part`;
   const stampFile = join(stage, 'inputs.sha256');
+  const hash = createHash('sha256');
   try {
     await pipeline(files, createZstdCompress({ params: { [constants.ZSTD_c_compressionLevel]: compressionLevel } }),
-      createWriteStream(partial));
+      async function* (chunks) {
+        for await (const chunk of chunks) {
+          hash.update(chunk);
+          yield chunk;
+        }
+      }, createWriteStream(partial));
     report.archiveBytes = (await stat(partial)).size;
     const inputs = fingerprint(await readFile(join(stage, 'package-lock.json')));
-    await writeFile(stampFile, `${inputs}\n${await archiveDigest(partial)}\n`);
+    await writeFile(stampFile, `${inputs}\n${hash.digest('hex')}\n`);
     await rename(partial, archive);
     await rename(stampFile, stamp);
   } finally {

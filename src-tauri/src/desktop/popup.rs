@@ -25,7 +25,7 @@ fn workspace_instance(app: &AppHandle) -> Option<String> {
     let origin = desktop_window(app)?.url().ok()?.origin();
     let desktop = app.state::<Arc<Desktop>>();
     let connection = desktop.connection.lock().unwrap();
-    let workspace = connection.workspace.as_ref()?;
+    let workspace = connection.workspace()?;
     (bridge::origin(workspace)? == origin.ascii_serialization()).then(|| workspace.instance.clone())
 }
 

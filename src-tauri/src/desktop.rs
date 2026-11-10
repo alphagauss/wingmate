@@ -23,13 +23,27 @@ use wingmate_service::{
 };
 
 #[derive(Default)]
+enum View {
+    #[default]
+    Home,
+    Workspace(Snapshot),
+    UpdateAvailable(String),
+}
+
+enum Observation {
+    Ignore,
+    KeepPage { disconnected: bool },
+    Connect(Snapshot),
+    ShowHome(CardStatus),
+}
+
+#[derive(Default)]
 struct ConnectionState {
     busy: bool,
     exit_pending: bool,
     revision: u64,
     last: Option<String>,
-    workspace: Option<Snapshot>,
-    pending_update: Option<String>,
+    view: View,
     authorized_origins: HashSet<String>,
     titlebar_theme: titlebar::Theme,
     titlebar: titlebar::Frame,
@@ -54,6 +68,13 @@ impl ConnectionState {
         self.exit_pending
     }
 
+    fn workspace(&self) -> Option<&Snapshot> {
+        match &self.view {
+            View::Workspace(state) => Some(state),
+            _ => None,
+        }
+    }
+
     fn open_workspace(
         &mut self,
         app: &tauri::AppHandle,
@@ -66,10 +87,8 @@ impl ConnectionState {
             bridge::authorize(app, &origin)?;
             self.authorized_origins.insert(origin);
         }
-        self.last = Some(state.instance.clone());
-        self.pending_update = None;
-        self.workspace = Some(state);
-        page.open_workspace(app, self.workspace.as_ref().unwrap());
+        self.view = View::Workspace(state);
+        page.open_workspace(app, self.workspace().unwrap());
         Ok(())
     }
 
@@ -84,12 +103,10 @@ impl ConnectionState {
         if state.runtime_revision.as_deref() != RUNTIME_REVISION
             && continue_instance != Some(&state.instance)
         {
-            self.workspace = None;
-            self.pending_update = Some(state.instance);
+            self.view = View::UpdateAvailable(state.instance);
             page.show(app, CardStatus::update_available());
         } else if let Err(error) = self.open_workspace(app, page, state) {
-            self.workspace = None;
-            self.pending_update = None;
+            self.view = View::Home;
             page.show(
                 app,
                 CardStatus::failure(StartupStage::Connecting, format!("{error:#}")),
@@ -110,13 +127,11 @@ impl ConnectionState {
             Ok(None) => {
                 page.show(app, CardStatus::stopped());
                 self.last = None;
-                self.workspace = None;
-                self.pending_update = None;
+                self.view = View::Home;
             }
             Err(status) => {
                 page.show(app, status);
-                self.workspace = None;
-                self.pending_update = None;
+                self.view = View::Home;
             }
         }
         if let Some(window) = desktop_window(app) {
@@ -125,47 +140,43 @@ impl ConnectionState {
         self.busy = false;
     }
 
-    fn observe(
-        &mut self,
-        app: &tauri::AppHandle,
-        page: &StartupPage,
-        window: &tauri::WebviewWindow,
-        title: &str,
-        status: Result<Option<Snapshot>>,
-    ) {
+    fn observe(&mut self, revision: u64, status: Result<Option<Snapshot>>) -> Observation {
+        // 操作开始前发出的轮询不能覆盖操作结果。
+        if self.observation_revision() != Some(revision) {
+            return Observation::Ignore;
+        }
         match status {
-            Ok(Some(state)) if matches!(state.phase.as_str(), "starting" | "stopping") => {}
-            Ok(Some(state)) => {
-                if state.phase == "running" {
-                    if self.last.as_deref() != Some(&state.instance) {
-                        self.connect(app, page, state, None);
-                    }
-                } else if self.workspace.is_some() || self.pending_update.is_some() {
-                    page.show(
-                        app,
-                        CardStatus::failure(
-                            StartupStage::Connecting,
-                            state.error.unwrap_or_else(|| "后台未运行".into()),
-                        ),
-                    );
-                    self.workspace = None;
-                    self.pending_update = None;
+            Ok(Some(state)) => match state.phase.as_str() {
+                "starting" | "stopping" => Observation::Ignore,
+                "running" if self.last.as_deref() != Some(&state.instance) => {
+                    Observation::Connect(state)
                 }
-                titlebar::connection_title(window, title, false);
-            }
+                "running" => Observation::KeepPage {
+                    disconnected: false,
+                },
+                _ if !matches!(self.view, View::Home) => {
+                    self.view = View::Home;
+                    Observation::ShowHome(CardStatus::failure(
+                        StartupStage::Connecting,
+                        state.error.unwrap_or_else(|| "后台未运行".into()),
+                    ))
+                }
+                _ => Observation::KeepPage {
+                    disconnected: false,
+                },
+            },
             Ok(None) => {
                 self.last = None;
-                if self.workspace.take().is_some() || self.pending_update.is_some() {
-                    page.show(app, CardStatus::stopped());
-                    titlebar::connection_title(window, title, false);
+                match std::mem::take(&mut self.view) {
+                    View::Home => Observation::Ignore,
+                    _ => Observation::ShowHome(CardStatus::stopped()),
                 }
-                self.pending_update = None;
             }
-            Err(_) if self.workspace.is_some() => {
+            Err(_) if self.workspace().is_some() => {
                 // 短暂断连不销毁页面和输入草稿。
-                titlebar::connection_title(window, title, true);
+                Observation::KeepPage { disconnected: true }
             }
-            _ => {}
+            Err(_) => Observation::Ignore,
         }
     }
 }
@@ -262,14 +273,13 @@ fn home_backend(
     let operation = match action.as_str() {
         "start" => Operation::Start,
         "continue" | "restart" => {
-            let instance = current
-                .pending_update
-                .clone()
-                .ok_or("没有待切换的后台，请重新连接")?;
+            let View::UpdateAvailable(instance) = &current.view else {
+                return Err("没有待切换的后台，请重新连接".into());
+            };
             if action == "continue" {
-                Operation::Continue(instance)
+                Operation::Continue(instance.clone())
             } else {
-                Operation::Restart(instance)
+                Operation::Restart(instance.clone())
             }
         }
         _ => return Err("未知的后台操作".into()),
@@ -293,7 +303,7 @@ fn manage_backend(
         .origin()
         .ascii_serialization();
     let mut current = desktop.connection.lock().unwrap();
-    let state = current.workspace.as_ref().ok_or("后台尚未连接")?;
+    let state = current.workspace().ok_or("后台尚未连接")?;
     if state.instance != instance || bridge::origin(state).as_deref() != Some(&origin) {
         return Err("后台实例已更换，请重新连接".into());
     }
@@ -363,7 +373,7 @@ pub fn run(home: PathBuf) -> Result<()> {
                         if event.event() == PageLoadEvent::Started {
                             current.titlebar.start(&window);
                         }
-                        let workspace = current.workspace.clone();
+                        let workspace = current.workspace().cloned();
                         let theme = current.titlebar_theme;
                         let navigation = current.titlebar.navigation();
                         let source = current
@@ -415,10 +425,19 @@ pub fn run(home: PathBuf) -> Result<()> {
                     };
                     let status = service::status(&desktop.home);
                     let mut current = desktop.connection.lock().unwrap();
-                    // 操作开始前发出的轮询不能覆盖操作结果。
-                    if current.observation_revision() == Some(revision) {
-                        current.observe(&handle, &desktop.page, &window, title, status);
-                    }
+                    let disconnected = match current.observe(revision, status) {
+                        Observation::Ignore => continue,
+                        Observation::KeepPage { disconnected } => disconnected,
+                        Observation::Connect(state) => {
+                            current.connect(&handle, &desktop.page, state, None);
+                            false
+                        }
+                        Observation::ShowHome(status) => {
+                            desktop.page.show(&handle, status);
+                            false
+                        }
+                    };
+                    titlebar::connection_title(&window, title, disconnected);
                 }
             });
             Ok(())
@@ -440,7 +459,90 @@ pub fn run(home: PathBuf) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::ConnectionState;
+    use super::{CardStatus, ConnectionState, Observation, Snapshot, StartupStage, View};
+
+    fn snapshot(instance: &str, phase: &str) -> Snapshot {
+        Snapshot {
+            product: "wingmate".into(),
+            protocol: 2,
+            instance: instance.into(),
+            runtime: "dsh-test".into(),
+            runtime_revision: None,
+            pid: 1,
+            engine_pid: Some(1),
+            phase: phase.into(),
+            url: None,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn transient_disconnect_and_recovery_keep_the_current_workspace() {
+        let mut connection = ConnectionState {
+            last: Some("current".into()),
+            view: View::Workspace(snapshot("current", "running")),
+            ..ConnectionState::default()
+        };
+        let revision = connection.observation_revision().unwrap();
+
+        assert!(matches!(
+            connection.observe(revision, Err(anyhow::anyhow!("connection lost"))),
+            Observation::KeepPage { disconnected: true }
+        ));
+        for phase in ["starting", "stopping"] {
+            assert!(matches!(
+                connection.observe(revision, Ok(Some(snapshot("current", phase)))),
+                Observation::Ignore
+            ));
+        }
+        assert!(matches!(
+            connection.observe(revision, Ok(Some(snapshot("current", "running")))),
+            Observation::KeepPage {
+                disconnected: false
+            }
+        ));
+        assert_eq!(connection.workspace().unwrap().instance, "current");
+        assert!(matches!(
+            connection.observe(revision, Ok(Some(snapshot("replacement", "running")))),
+            Observation::Connect(state) if state.instance == "replacement"
+        ));
+    }
+
+    #[test]
+    fn only_confirmed_stop_forgets_the_last_instance() {
+        let mut connection = ConnectionState {
+            last: Some("current".into()),
+            view: View::UpdateAvailable("current".into()),
+            ..ConnectionState::default()
+        };
+        let revision = connection.observation_revision().unwrap();
+
+        assert!(matches!(
+            connection.observe(revision, Err(anyhow::anyhow!("connection lost"))),
+            Observation::Ignore
+        ));
+        assert!(
+            matches!(connection.view, View::UpdateAvailable(ref instance) if instance == "current")
+        );
+        assert!(matches!(
+            connection.observe(revision, Ok(Some(snapshot("current", "failed")))),
+            Observation::ShowHome(status) if status == CardStatus::failure(StartupStage::Connecting, "后台未运行".into())
+        ));
+        assert!(matches!(connection.view, View::Home));
+        assert_eq!(connection.last.as_deref(), Some("current"));
+
+        connection.view = View::UpdateAvailable("current".into());
+        assert!(matches!(
+            connection.observe(revision, Ok(None)),
+            Observation::ShowHome(status) if status == CardStatus::stopped()
+        ));
+        assert!(matches!(connection.view, View::Home));
+        assert_eq!(connection.last, None);
+        assert!(matches!(
+            connection.observe(revision, Ok(None)),
+            Observation::Ignore
+        ));
+    }
 
     #[test]
     fn operation_invalidates_an_in_flight_observation() {
@@ -450,9 +552,19 @@ mod tests {
         assert!(connection.begin_operation());
         assert!(!connection.begin_operation());
         assert_eq!(connection.observation_revision(), None);
+        assert!(matches!(
+            connection.observe(revision, Ok(None)),
+            Observation::Ignore
+        ));
 
         connection.busy = false;
-        assert_ne!(connection.observation_revision().unwrap(), revision);
+        connection.last = Some("replacement".into());
+        connection.view = View::Workspace(snapshot("replacement", "running"));
+        assert!(matches!(
+            connection.observe(revision, Ok(None)),
+            Observation::Ignore
+        ));
+        assert_eq!(connection.workspace().unwrap().instance, "replacement");
     }
 
     #[test]
