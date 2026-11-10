@@ -13,6 +13,8 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import * as tar from 'tar';
 import { excludedRuntimeFile } from './runtime-files.mjs';
+import { applyRuntimePatches } from './runtime-patches.mjs';
+import { validatePluginArchive } from './runtime-plugins.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const runtime = join(root, 'runtime');
@@ -34,6 +36,10 @@ const lock = await readFile(lockPath).catch(error => {
 });
 const recipe = await readFile(fileURLToPath(import.meta.url));
 const fileRules = dev ? '' : await readFile(new URL('./runtime-files.mjs', import.meta.url));
+const patchRecipe = await readFile(new URL('./runtime-patches.mjs', import.meta.url));
+const pluginChecks = await readFile(new URL('./runtime-plugins.mjs', import.meta.url));
+const patchBytes = await readFile(join(runtime, 'patches', `dsh-${selected}.json`));
+const patches = JSON.parse(patchBytes);
 const registry = process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY || 'https://registry.npmmirror.com/';
 const npmCli = join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js');
 const onWindows = process.platform === 'win32';
@@ -46,24 +52,34 @@ function npm(args, options) {
 }
 
 await using pluginBuild = await mkdtempDisposable(join(tmpdir(), 'wingmate-plugin-'));
-const pluginSource = join(root, 'plugins/wingmate-web');
-const pack = npm(['pack', '--ignore-scripts', '--pack-destination', pluginBuild.path,
-  '--cache', join(runtime, '.cache'), '--json'], { cwd: pluginSource, stdio: ['ignore', 'pipe', 'inherit'] });
-let packed = '';
-pack.stdout.setEncoding('utf8');
-pack.stdout.on('data', chunk => { packed += chunk; });
-const [packStatus] = await once(pack, 'close');
-if (packStatus !== 0) throw new Error('后台服务插件打包失败');
-const [{ filename }] = JSON.parse(packed);
-const pluginArchive = join(pluginBuild.path, filename);
-const pluginBytes = await readFile(pluginArchive);
-const pluginDirectory = 'plugins/wingmate-web';
+const plugins = [];
+for (const name of ['wingmate-web', 'wingmate-file-viewer']) {
+  const directory = `plugins/${name}`;
+  const source = join(root, directory);
+  const build = npm(['run', 'build', '--if-present'], { cwd: source, stdio: 'inherit' });
+  const [buildStatus] = await once(build, 'close');
+  if (buildStatus !== 0) throw new Error(`插件编译失败: ${name}`);
+  const pack = npm(['pack', '--ignore-scripts', '--pack-destination', pluginBuild.path,
+    '--cache', join(runtime, '.cache'), '--json'], { cwd: source, stdio: ['ignore', 'pipe', 'inherit'] });
+  let packed = '';
+  pack.stdout.setEncoding('utf8');
+  pack.stdout.on('data', chunk => { packed += chunk; });
+  const [packStatus] = await once(pack, 'close');
+  if (packStatus !== 0) throw new Error(`插件打包失败: ${name}`);
+  const [{ filename }] = JSON.parse(packed);
+  const archive = join(pluginBuild.path, filename);
+  await validatePluginArchive(archive, selected);
+  console.log(`插件包检查通过: ${name}`);
+  plugins.push({ directory, archive, bytes: await readFile(archive) });
+}
 const pluginPatch = 'plugins/cordis.patch.yml';
 const pluginPatchBytes = await readFile(join(root, pluginPatch));
 
 function fingerprint(lock) {
-  return createHash('sha256').update(manifest).update(recipe).update(fileRules)
-    .update(lock).update(hostTarget).update(pluginBytes).update(pluginPatchBytes).digest('hex');
+  const hash = createHash('sha256').update(manifest).update(recipe).update(fileRules)
+    .update(patchRecipe).update(patchBytes).update(pluginChecks).update(lock).update(hostTarget).update(pluginPatchBytes);
+  for (const plugin of plugins) hash.update(plugin.directory).update(plugin.bytes);
+  return hash.digest('hex');
 }
 if (dev) {
   if (!lock) throw new Error('开发安装树需要 runtime/package-lock.json');
@@ -113,10 +129,12 @@ async function prepareArchive() {
   await using scratch = await mkdtempDisposable(join(out, '.install-'));
   const stage = scratch.path;
   await install(stage);
-  // 只在分发归档时过滤命令 shim、调试信息和异架构预编译文件。
+  // 发行裁剪在补丁与插件集成后执行，开发安装树保留完整依赖。
   const compressionLevel = 9;
   console.log(`裁剪并压缩 DSH ${selected} 运行包 (Node 内置 Zstd ${compressionLevel})`);
-  const report = { target: hostTarget, compression: `zstd-${compressionLevel}`, keptFiles: 0, keptBytes: 0, excluded: {} };
+  const report = { target: hostTarget, compression: `zstd-${compressionLevel}`,
+    patches: patches.map(patch => patch.id), plugins: plugins.map(plugin => plugin.directory),
+    keptFiles: 0, keptBytes: 0, excluded: {} };
   const files = tar.create({ cwd: stage,
     portable: true, mtime: new Date('2026-01-01T00:00:00Z'),
     filter(path, entry) {
@@ -215,10 +233,11 @@ async function install(stage) {
   if (!lock) await copyFile(join(stage, 'package-lock.json'), lockPath);
   const installedDsh = JSON.parse(await readFile(join(stage, 'node_modules/@deepseek-ai/dsh/package.json'), 'utf8'));
   if (installedDsh.version !== selected) throw new Error('安装的 DSH 版本与声明不一致');
-  const plugin = join(stage, pluginDirectory);
-  await mkdir(plugin, { recursive: true });
-  await tar.x({ file: pluginArchive, cwd: plugin, strip: 1, strict: true });
-  const installedPlugin = JSON.parse(await readFile(join(plugin, 'package.json'), 'utf8'));
-  if (installedPlugin.engines.dsh !== selected) throw new Error('后台服务插件尚未适配所选 DSH 版本');
+  await applyRuntimePatches(stage, patches);
+  for (const item of plugins) {
+    const plugin = join(stage, item.directory);
+    await mkdir(plugin, { recursive: true });
+    await tar.x({ file: item.archive, cwd: plugin, strip: 1, strict: true });
+  }
   await writeFile(join(stage, pluginPatch), pluginPatchBytes);
 }

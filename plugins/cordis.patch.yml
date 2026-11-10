@@ -1,3 +1,7 @@
+- id: office-to-pdf
+  disabled: true
 - insert:
     - id: wingmate-web
       name: ./wingmate-web/host.mjs
+    - id: wingmate-file-viewer
+      name: ./wingmate-file-viewer/host.mjs

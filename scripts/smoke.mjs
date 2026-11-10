@@ -94,6 +94,20 @@ try {
   assert.equal(client.status, 200);
   assert.match(await client.text(), /wingmate-backend/);
   checks.push('释放的 DSH Web 完成认证并提供后台服务插件');
+  const fileViewer = JSON.parse(boot[1]).entries.find(row => row.id === 'dsh-wingmate-file-viewer');
+  assert.ok(fileViewer, '释放的运行包未加载文件预览插件');
+  const viewerClient = await fetch(new URL(fileViewer.url, a.url), { headers: { Cookie: cookie } });
+  assert.match(await viewerClient.text(), /wingmate-preview-open/);
+  const assets = JSON.parse(await readFile(join(runtimePath, 'plugins/wingmate-file-viewer/dist/assets.json'), 'utf8'));
+  const base = new URL(`/wingmate-file-viewer/${assets.revision}/`, a.url);
+  for (const [path, asset] of Object.entries(assets.files)) {
+    const resource = await fetch(new URL(path, base));
+    assert.equal(resource.status, 200, path);
+    assert.equal(createHash('sha256').update(Buffer.from(await resource.arrayBuffer())).digest('hex'), asset.hash, path);
+  }
+  assert.equal((await fetch(new URL('missing.js', base))).status, 404);
+  assert.equal((await fetch(new URL('viewer.js', base), { method: 'POST' })).status, 405);
+  checks.push('文件预览插件及全部离线资源在释放目录中完整可访问');
   const native = spawnSync(process.execPath, [fileURLToPath(new URL('./smoke-runtime.mjs', import.meta.url)),
     runtimePath, work], { env, windowsHide: true, encoding: 'utf8', timeout: 90_000 });
   assert.equal(native.status, 0, native.error?.message || native.stderr);

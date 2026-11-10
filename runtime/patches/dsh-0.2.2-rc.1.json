@@ -1,0 +1,12 @@
+[
+  {
+    "id": "disable-builtin-office-preview",
+    "package": "@deepseek-ai/dsh-client-ui-sidebar-documentpreview",
+    "version": "0.2.2-rc.1",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/packages/client/ui-sidebar-documentpreview/src/client/index.ts",
+    "file": "lib/client.js",
+    "sha256": "b36ad2a6504d35290b31eb504838e5fe2ea854687695671a05900cce21b88a0b",
+    "before": "\t\t\tapply$2(ctx, config.office);\n",
+    "after": ""
+  }
+]

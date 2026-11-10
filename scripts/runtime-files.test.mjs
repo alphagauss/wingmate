@@ -39,3 +39,17 @@ test('平台裁剪对 Windows 路径和其他目标架构一致', () => {
   assert.equal(excludedRuntimeFile('node_modules\\p\\prebuilds\\win32-arm64\\a.node', 'win32', 'arm64'), undefined);
   assert.equal(excludedRuntimeFile('node_modules/p/prebuilds/linux-x64/node.napi.musl.node', 'linux', 'x64'), undefined);
 });
+
+test('所有目标排除 LibreOffice 包及嵌套引擎，保留许可证和无关 WASM', () => {
+  for (const [platform, arch] of [['win32', 'x64'], ['darwin', 'arm64'], ['linux', 'x64'], ['linux', 'arm64']]) {
+    for (const pkg of ['libreoffice-kit', 'libreoffice-kit-win32-x64', 'libreoffice-kit-darwin-arm64', 'libreoffice-kit-wasm']) {
+      for (const prefix of ['node_modules', 'node_modules/parent/node_modules']) {
+        const root = `${prefix}/@deepseek-ai/${pkg}`;
+        assert.equal(excludedRuntimeFile(`${root}/assets/soffice.wasm`, platform, arch), 'libreoffice');
+        assert.equal(excludedRuntimeFile(`${root}/index.js`.replaceAll('/', '\\'), platform, arch), 'libreoffice');
+        assert.equal(excludedRuntimeFile(`${root}/LICENSE`, platform, arch), undefined);
+      }
+    }
+    assert.equal(excludedRuntimeFile('node_modules/other/soffice.wasm', platform, arch), undefined);
+  }
+});
