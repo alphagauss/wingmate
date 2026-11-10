@@ -16,7 +16,6 @@ export async function applyRuntimePatches(stage, patches) {
     if (!patch.before || source.split(patch.before).length !== 2) {
       throw new Error(`补丁必须恰好匹配一处: ${patch.id}`);
     }
-    // The development view can share this inode with the pristine dependency cache.
     const temporary = `${file}.${randomUUID()}.part`;
     try {
       const { mode } = await stat(file);

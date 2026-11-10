@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { copyFile, mkdir, mkdtemp, readFile, writeFile, access, rm } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, readdir, writeFile, access, rm } from 'node:fs/promises';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -50,14 +50,17 @@ const alive = pid => { try { process.kill(pid, 0); return true; } catch { return
 try {
   await copyFile(original, executable);
   if (!args[0]) {
-    // 默认成品应内嵌本次构建准备的归档，且只内嵌一份。
-    const archive = await readFile(new URL('../work/build/runtime/runtime.tar.zst', import.meta.url));
+    const directory = fileURLToPath(new URL('../work/build/runtime/', import.meta.url));
+    const manifest = await readFile(join(directory, 'manifest.json'));
     const binary = await readFile(executable);
-    const first = binary.indexOf(archive);
-    assert.notEqual(first, -1, '成品缺少本次构建准备的运行包');
-    assert.equal(binary.indexOf(archive, first + archive.length), -1, '成品重复内嵌运行包');
-    expectedRevision = createHash('sha256').update(archive).digest('hex');
-    checks.push('单文件只内嵌一份运行包');
+    for (const [name, { sha256 }] of Object.entries(JSON.parse(manifest).components)) {
+      const archive = await readFile(join(directory, `${name}-${sha256}.tar.zst`));
+      const first = binary.indexOf(archive);
+      assert.notEqual(first, -1, `成品缺少运行组件 ${name}`);
+      assert.equal(binary.indexOf(archive, first + archive.length), -1, `成品重复内嵌运行组件 ${name}`);
+    }
+    expectedRevision = createHash('sha256').update(manifest).digest('hex');
+    checks.push('单文件只内嵌每个运行组件各一份');
   }
   assert.equal((await cli('status')).phase, 'stopped');
   assert.ok(existsSync(env.WINGMATE_HOME), '被测 EXE 未使用隔离管理目录，请提供发行模式 EXE');
@@ -66,7 +69,7 @@ try {
   const unmanaged = join(env.WINGMATE_HOME, 'runtimes', 'dsh-0.0.0-abcdef');
   await mkdir(oldRuntime, { recursive: true });
   await mkdir(unmanaged, { recursive: true });
-  await writeFile(join(oldRuntime, '.wingmate-revision'), oldRevision);
+  await writeFile(join(oldRuntime, '.wingmate-base'), oldRevision);
   await writeFile(join(unmanaged, 'keep.txt'), 'keep');
   // Wait for both launchers even if one fails, before attempting shutdown and deletion.
   const starts = await Promise.allSettled([cli('start'), cli('start')]);
@@ -87,8 +90,21 @@ try {
   assert.equal(a.runtime, `dsh-${manifest.dependencies['@deepseek-ai/dsh']}`);
   assert.match(a.runtime_revision, /^[0-9a-f]{64}$/);
   if (expectedRevision) assert.equal(a.runtime_revision, expectedRevision);
-  const runtimePath = join(env.WINGMATE_HOME, 'runtimes', `${a.runtime}-${a.runtime_revision.slice(0, 6)}`);
-  assert.equal(await readFile(join(runtimePath, '.wingmate-revision'), 'utf8'), a.runtime_revision);
+  const runtimes = join(env.WINGMATE_HOME, 'runtimes');
+  let runtimePath;
+  for (const name of await readdir(runtimes)) {
+    if (!name.startsWith(`${a.runtime}-`)) continue;
+    const path = join(runtimes, name);
+    const installed = await readFile(join(path, 'installed.json')).catch(error => {
+      if (error.code !== 'ENOENT') throw error;
+    });
+    if (installed && createHash('sha256').update(installed).digest('hex') === a.runtime_revision) {
+      assert.equal(name, `${a.runtime}-${JSON.parse(installed).components.base.sha256.slice(0, 6)}`);
+      runtimePath = path;
+      break;
+    }
+  }
+  assert.ok(runtimePath, '找不到与当前后台一致的安装清单');
   const reuseProbe = join(runtimePath, 'reuse-probe.txt');
   await writeFile(reuseProbe, 'keep');
   await writeFile(join(runtimePath, 'control.mjs'), 'throw new Error("old control must not run");\n');

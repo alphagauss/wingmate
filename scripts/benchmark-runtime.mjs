@@ -1,6 +1,6 @@
 // 比较同一 tar 的压缩体积与纯解压耗时；不修改正式运行包。XZ 对比需要系统 7z。
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { Writable } from 'node:stream';
 import { createHash } from 'node:crypto';
@@ -8,7 +8,9 @@ import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { createGunzip, createGzip, createZstdCompress, createZstdDecompress, constants } from 'node:zlib';
 
-const input = resolve(process.argv[2] ?? 'work/build/runtime/runtime.tar.zst');
+const prepared = resolve('work/build/runtime');
+const input = process.argv[2] ? resolve(process.argv[2]) : join(prepared,
+  `base-${JSON.parse(await readFile(join(prepared, 'manifest.json'))).components.base.sha256}.tar.zst`);
 await mkdir('work', { recursive: true });
 const output = await mkdtemp(resolve('work/compression-'));
 const source = join(output, 'runtime.tar');

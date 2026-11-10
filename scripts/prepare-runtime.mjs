@@ -1,8 +1,8 @@
 // 从锁定的 npm 发布包准备开发安装树或发行归档。
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, mkdtempDisposable, readFile, writeFile, copyFile, stat, rename, rm } from 'node:fs/promises';
+import { mkdir, mkdtempDisposable, readFile, writeFile, copyFile, rename } from 'node:fs/promises';
 import { existsSync, createReadStream, createWriteStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { pipeline } from 'node:stream/promises';
@@ -15,7 +15,6 @@ import * as tar from 'tar';
 import { excludedRuntimeFile } from './runtime-files.mjs';
 import { applyRuntimePatches } from './runtime-patches.mjs';
 import { validatePluginArchive } from './runtime-plugins.mjs';
-import { linkDependencies } from './runtime-dev.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const runtime = join(root, 'runtime');
@@ -32,15 +31,6 @@ if (target && target !== hostTarget) throw new Error('首版只支持在目标�
 const nodeTarget = `${process.platform}-${process.arch}/node-${process.versions.modules}`;
 const out = join(root, 'work/build/runtime');
 const cache = join(root, 'work/cache/npm');
-// Move the previous generated locations once; keep a single npm cache and build archive.
-for (const [from, to] of [[join(runtime, '.cache'), cache], [join(runtime, 'out'), out]]) {
-  if (existsSync(from) && !existsSync(to)) {
-    await mkdir(dirname(to), { recursive: true });
-    await rename(from, to);
-  }
-}
-const archive = join(out, 'runtime.tar.zst');
-const stamp = join(out, 'inputs.sha256');
 const manifest = await readFile(join(runtime, 'package.json'));
 const selected = JSON.parse(manifest).dependencies['@deepseek-ai/dsh'];
 const lockPath = join(runtime, 'package-lock.json');
@@ -48,11 +38,8 @@ const lock = await readFile(lockPath).catch(error => {
   if (error.code === 'ENOENT') return null;
   throw error;
 });
-const recipe = await readFile(fileURLToPath(import.meta.url));
 const fileRules = dev ? '' : await readFile(new URL('./runtime-files.mjs', import.meta.url));
 const patchRecipe = await readFile(new URL('./runtime-patches.mjs', import.meta.url));
-const pluginChecks = await readFile(new URL('./runtime-plugins.mjs', import.meta.url));
-const devRecipe = dev ? await readFile(new URL('./runtime-dev.mjs', import.meta.url)) : '';
 const patchBytes = await readFile(join(runtime, 'patches', `dsh-${selected}.json`));
 const patches = JSON.parse(patchBytes);
 const registry = process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY || 'https://registry.npmmirror.com/';
@@ -86,121 +73,129 @@ for (const name of ['wingmate-web', 'wingmate-file-viewer']) {
   const archive = join(pluginBuild.path, filename);
   await validatePluginArchive(archive, selected);
   console.log(`插件包检查通过: ${name}`);
-  plugins.push({ directory, archive, bytes: await readFile(archive) });
+  plugins.push({ name, directory, archive, bytes: await readFile(archive) });
 }
 const pluginPatch = 'plugins/cordis.patch.yml';
 const pluginPatchBytes = await readFile(join(root, pluginPatch));
 
-function fingerprint(lock) {
-  const hash = createHash('sha256').update(manifest).update(recipe).update(fileRules)
-    .update(patchRecipe).update(patchBytes).update(pluginChecks).update(devRecipe).update(lock)
-    .update(hostTarget).update(nodeTarget).update(pluginPatchBytes);
-  for (const plugin of plugins) hash.update(plugin.directory).update(plugin.bytes);
+if (!lock) throw new Error('准备运行包需要 runtime/package-lock.json');
+const output = dev ? join(root, 'work/dev/components') : out;
+const dependencies = join(root, 'work/cache/runtime-dependencies');
+const dependencyKey = createHash('sha256').update(manifest).update(lock)
+  .update(`${hostTarget}/${nodeTarget}`).update(install.toString()).digest('hex');
+const base = join(dependencies, dependencyKey);
+const archiveOptions = { portable: true, mtime: new Date('2026-01-01T00:00:00Z') };
+const compressionLevel = dev ? 1 : 9;
+const compression = () => createZstdCompress({ params: { [constants.ZSTD_c_compressionLevel]: compressionLevel } });
+const archiveRecipe = digest(JSON.stringify(archiveOptions), compression.toString(),
+  String(compressionLevel), process.versions.node, archiveComponent.toString());
+const patchFiles = patches.map(patch => ({
+  target: join('node_modules', patch.package, patch.file).replaceAll('\\', '/'),
+  manifest: join('node_modules', patch.package, 'package.json'),
+}));
+const targets = [...new Set(patchFiles.map(file => file.target)
+  .filter(file => dev || !excludedRuntimeFile(file)))].sort();
+await mkdir(output, { recursive: true });
+await using scratch = await mkdtempDisposable(join(output, '.prepare-'));
+
+const components = {};
+components.base = await archiveComponent('base',
+  digest(dependencyKey, fileRules, JSON.stringify(targets), baseFilter.toString()),
+  ['package.json', 'node_modules'], async () => {
+    await prepareDependencies();
+    return { cwd: base, filter: baseFilter };
+  });
+
+if (targets.length) {
+  components.patches = await archiveComponent('patches',
+    digest(dependencyKey, patchBytes, patchRecipe, JSON.stringify(targets)),
+    targets, async () => {
+      await prepareDependencies();
+      const stage = join(scratch.path, 'patches');
+      const files = new Set(patchFiles.flatMap(file => [file.target, file.manifest]));
+      for (const file of files) {
+        await mkdir(dirname(join(stage, file)), { recursive: true });
+        await copyFile(join(base, file), join(stage, file));
+      }
+      await applyRuntimePatches(stage, patches);
+      return { cwd: stage };
+    });
+}
+for (const { name, directory, archive, bytes } of plugins) {
+  components[name] = await archiveComponent(name, digest(bytes), [directory], async () => {
+    const stage = join(scratch.path, name);
+    const plugin = join(stage, directory);
+    await mkdir(plugin, { recursive: true });
+    await tar.x({ file: archive, cwd: plugin, strip: 1, strict: true });
+    return { cwd: stage };
+  });
+}
+components.config = await archiveComponent('config', digest(pluginPatchBytes), [pluginPatch], async () => {
+  await mkdir(join(scratch.path, 'plugins'), { recursive: true });
+  await writeFile(join(scratch.path, pluginPatch), pluginPatchBytes);
+  return { cwd: scratch.path };
+});
+await publish('manifest.json', JSON.stringify({ format: 1, components }, null, 2) + '\n');
+
+function digest(...values) {
+  const hash = createHash('sha256');
+  for (const value of values) {
+    const bytes = Buffer.from(value);
+    hash.update(String(bytes.length)).update(':').update(bytes);
+  }
   return hash.digest('hex');
 }
-if (dev) {
-  if (!lock) throw new Error('开发安装树需要 runtime/package-lock.json');
-  const stages = join(root, 'work/dev/runtimes');
-  const dependencies = join(root, 'work/dev/dependencies');
-  // Plugin and patch inputs deliberately do not invalidate the npm installation.
-  const dependencyKey = createHash('sha256').update(manifest).update(lock)
-    .update(`${hostTarget}/${nodeTarget}`).update(install.toString()).digest('hex');
-  const base = join(dependencies, dependencyKey);
-  const current = join(stages, 'current');
-  const key = fingerprint(lock);
-  const stage = join(stages, key);
-  const entry = 'node_modules/@deepseek-ai/dsh/lib/bin.js';
-  const ready = () => existsSync(join(stage, entry)) && existsSync(join(stage, pluginPatch));
-  if (ready()) {
-    console.log(`复用 DSH ${selected} 开发安装树`);
-  } else {
-    if (!existsSync(join(base, entry))) {
-      await mkdir(dependencies, { recursive: true });
-      await using scratch = await mkdtempDisposable(join(dependencies, '.install-'));
-      await install(scratch.path);
-      await rename(scratch.path, base);
-    } else {
-      console.log(`复用 DSH ${selected} 依赖，仅更新插件与补丁`);
-    }
-    await mkdir(stages, { recursive: true });
-    await using scratch = await mkdtempDisposable(join(stages, '.install-'));
-    await linkDependencies(base, scratch.path);
-    await integrate(scratch.path);
-    await writeFile(join(scratch.path, '.wingmate-dependency'), `${dependencyKey}\n`);
-    if (!existsSync(join(scratch.path, entry))) throw new Error('开发安装树缺少 DSH 入口');
-    await rename(scratch.path, stage);
-  }
-  if (!existsSync(current) || (await readFile(current, 'utf8')).trim() !== key) {
-    const partial = `${current}.${randomUUID()}.part`;
-    try {
-      await writeFile(partial, `${key}\n`);
-      await rename(partial, current);
-    } finally {
-      await rm(partial, { force: true });
-    }
-  }
-} else {
-  await prepareArchive();
+
+async function prepareDependencies() {
+  if (existsSync(join(base, 'node_modules/@deepseek-ai/dsh/lib/bin.js'))) return;
+  await mkdir(dependencies, { recursive: true });
+  await using installTree = await mkdtempDisposable(join(dependencies, '.install-'));
+  await install(installTree.path);
+  await rename(installTree.path, base);
 }
 
-async function prepareArchive() {
-  console.log(`检查 DSH ${selected} 运行包缓存 (${hostTarget})`);
-  if (lock && existsSync(stamp) && existsSync(archive)) {
-    const [inputs, digest] = (await readFile(stamp, 'utf8')).trim().split('\n');
-    if (inputs === fingerprint(lock) && digest === await archiveDigest(archive)) {
-      console.log('复用已准备的 DSH 运行包');
-      return;
+function baseFilter(path, entry) {
+  const normalized = path.replaceAll('\\', '/');
+  if ((!dev && normalized === 'node_modules/.bin') || targets.includes(normalized)) return false;
+  return dev || !entry.isFile() || !excludedRuntimeFile(normalized);
+}
+
+async function archiveComponent(name, input, paths, prepare) {
+  const key = digest(archiveRecipe, input, JSON.stringify(paths), prepare.toString());
+  const stamp = `${name}.sha256`;
+  const cached = await readOptional(join(output, stamp));
+  if (cached) {
+    const [oldKey, sha256] = cached.trim().split('\n');
+    const path = join(output, `${name}-${sha256}.tar.zst`);
+    if (oldKey === key && /^[0-9a-f]{64}$/.test(sha256) && existsSync(path)
+        && sha256 === await archiveDigest(path)) {
+      console.log(`复用运行组件: ${name}`);
+      return { sha256, paths };
     }
   }
-  await mkdir(out, { recursive: true });
-  await using scratch = await mkdtempDisposable(join(out, '.install-'));
-  const stage = scratch.path;
-  await install(stage);
-  await integrate(stage);
-  // 发行裁剪在补丁与插件集成后执行，开发安装树保留完整依赖。
-  const compressionLevel = 9;
-  console.log(`裁剪并压缩 DSH ${selected} 运行包 (Node 内置 Zstd ${compressionLevel})`);
-  const report = { target: hostTarget, compression: `zstd-${compressionLevel}`,
-    patches: patches.map(patch => patch.id), plugins: plugins.map(plugin => plugin.directory),
-    keptFiles: 0, keptBytes: 0, excluded: {} };
-  const files = tar.create({ cwd: stage,
-    portable: true, mtime: new Date('2026-01-01T00:00:00Z'),
-    filter(path, entry) {
-      if (path.replaceAll('\\', '/') === 'node_modules/.bin') return false;
-      if (!entry.isFile()) return true;
-      const reason = excludedRuntimeFile(path);
-      if (reason) {
-        const group = report.excluded[reason] ??= { files: 0, bytes: 0 };
-        group.files++;
-        group.bytes += entry.size;
-        return false;
-      }
-      report.keptFiles++;
-      report.keptBytes += entry.size;
-      return true;
-    },
-  }, ['package.json', 'node_modules', 'plugins']);
-  const partial = `${archive}.${randomUUID()}.part`;
-  const stampFile = join(stage, 'inputs.sha256');
-  const hash = createHash('sha256');
-  try {
-    await pipeline(files, createZstdCompress({ params: { [constants.ZSTD_c_compressionLevel]: compressionLevel } }),
-      async function* (chunks) {
-        for await (const chunk of chunks) {
-          hash.update(chunk);
-          yield chunk;
-        }
-      }, createWriteStream(partial));
-    report.archiveBytes = (await stat(partial)).size;
-    const inputs = fingerprint(await readFile(join(stage, 'package-lock.json')));
-    await writeFile(stampFile, `${inputs}\n${hash.digest('hex')}\n`);
-    await rename(partial, archive);
-    await rename(stampFile, stamp);
-  } finally {
-    await rm(partial, { force: true });
-  }
-  await writeFile(join(out, 'build-report.json'), JSON.stringify(report, null, 2) + '\n');
-  console.log(`DSH ${selected} 运行包已准备 (${hostTarget})`);
+  const options = await prepare();
+  const partial = join(scratch.path, `${name}.tar.zst`);
+  await pipeline(tar.create({ ...archiveOptions, ...options }, paths), compression(), createWriteStream(partial));
+  const sha256 = await archiveDigest(partial);
+  await rename(partial, join(output, `${name}-${sha256}.tar.zst`));
+  await publish(stamp, `${key}\n${sha256}\n`);
+  console.log(`已打包运行组件: ${name}`);
+  return { sha256, paths };
+}
+
+async function readOptional(path) {
+  return readFile(path, 'utf8').catch(error => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+}
+
+async function publish(name, content) {
+  const destination = join(output, name);
+  if (await readOptional(destination) === content) return;
+  const partial = join(scratch.path, name);
+  await writeFile(partial, content);
+  await rename(partial, destination);
 }
 
 async function archiveDigest(path) {
@@ -261,14 +256,4 @@ async function install(stage) {
   if (!lock) await copyFile(join(stage, 'package-lock.json'), lockPath);
   const installedDsh = JSON.parse(await readFile(join(stage, 'node_modules/@deepseek-ai/dsh/package.json'), 'utf8'));
   if (installedDsh.version !== selected) throw new Error('安装的 DSH 版本与声明不一致');
-}
-
-async function integrate(stage) {
-  await applyRuntimePatches(stage, patches);
-  for (const item of plugins) {
-    const plugin = join(stage, item.directory);
-    await mkdir(plugin, { recursive: true });
-    await tar.x({ file: item.archive, cwd: plugin, strip: 1, strict: true });
-  }
-  await writeFile(join(stage, pluginPatch), pluginPatchBytes);
 }

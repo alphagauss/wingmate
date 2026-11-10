@@ -6,6 +6,7 @@ import * as tar from 'tar';
 
 const probe = `
 import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { join, relative, isAbsolute, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +24,7 @@ function checkFile(path) {
   if (isAbsolute(rel) || rel === '..' || rel.startsWith('..' + sep) || !statSync(file).isFile()) {
     throw new Error('插件入口必须是包内文件: ' + path);
   }
+  return file;
 }
 checkFile(fileURLToPath(import.meta.resolve('wingmate-check')));
 if (pkg.dsh?.client) {
@@ -32,6 +34,18 @@ if (pkg.dsh?.bundle) {
   for (const patch of [pkg.dsh.bundle.patch].flat()) {
     if (typeof patch !== 'string') throw new Error('dsh.bundle.patch 必须声明补丁文件');
     checkFile(join(root, patch));
+  }
+}
+if (pkg.name === 'dsh-wingmate-file-viewer') {
+  const { files } = JSON.parse(readFileSync(checkFile(join(root, 'dist/assets.json')), 'utf8'));
+  for (const required of ['frame.html', 'viewer.js', 'THIRD-PARTY-NOTICES.txt']) {
+    if (!Object.hasOwn(files, required)) throw new Error('文件预览资源清单缺少: ' + required);
+  }
+  for (const [name, asset] of Object.entries(files)) {
+    const file = readFileSync(checkFile(join(root, 'dist/viewer', name)));
+    if (file.length !== asset.size || createHash('sha256').update(file).digest('hex') !== asset.hash) {
+      throw new Error('文件预览资源指纹不匹配: ' + name);
+    }
   }
 }
 await import('wingmate-check');

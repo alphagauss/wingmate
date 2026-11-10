@@ -1,4 +1,4 @@
-//! 开发版直接使用安装树，发行版按内嵌运行包指纹释放。
+//! 按组件清单安装开发或内嵌运行包。
 use anyhow::{bail, Context, Result};
 use std::{
     fs,
@@ -11,12 +11,51 @@ pub const REVISION: Option<&str> = option_env!("WINGMATE_RUNTIME_REVISION");
 pub const DSH_ENTRY: &str = "node_modules/@deepseek-ai/dsh/lib/bin.js";
 pub const WEB_PATCH: &str = "plugins/cordis.patch.yml";
 #[cfg(feature = "bundled-runtime")]
-// 桌面和 CLI 的进度回调类型不同，解压代码的各个实例共用同一份归档。
-static ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/runtime.tar.zst"));
-#[cfg(feature = "bundled-runtime")]
-const RELEASE_SUFFIX_LEN: usize = 6;
-#[cfg(feature = "bundled-runtime")]
-const RELEASE_REVISION_FILE: &str = ".wingmate-revision";
+type Archive = &'static [u8];
+#[cfg(not(feature = "bundled-runtime"))]
+type Archive = &'static str;
+include!(concat!(env!("OUT_DIR"), "/components.rs"));
+
+const BASE_MARKER: &str = ".wingmate-base";
+const INSTALLED: &str = "installed.json";
+const OBSOLETE: &str = ".wingmate-obsolete";
+const SHORT_HASH: usize = 6;
+
+#[derive(serde::Deserialize)]
+struct Manifest {
+    format: u32,
+    components: std::collections::BTreeMap<String, Component>,
+}
+
+#[derive(serde::Deserialize, PartialEq, Eq)]
+struct Component {
+    sha256: String,
+    paths: Vec<String>,
+}
+
+impl Manifest {
+    fn parse(source: &str) -> Result<Self> {
+        let manifest: Self = serde_json::from_str(source)?;
+        anyhow::ensure!(
+            manifest.format == 1
+                && manifest.components.contains_key("base")
+                && manifest
+                    .components
+                    .values()
+                    .all(|part| is_fingerprint(&part.sha256)),
+            "运行组件清单无效"
+        );
+        Ok(manifest)
+    }
+
+    fn base(&self) -> &str {
+        &self.components["base"].sha256
+    }
+
+    fn directory(&self) -> String {
+        format!("{ID}-{}", &self.base()[..SHORT_HASH])
+    }
+}
 
 #[cfg(not(feature = "bundled-runtime"))]
 pub fn dev_root() -> &'static Path {
@@ -42,27 +81,6 @@ pub fn directory() -> Result<PathBuf> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
     }
-    Ok(path)
-}
-
-#[cfg(not(feature = "bundled-runtime"))]
-pub fn prepare(_: &Path, _: impl FnOnce()) -> Result<PathBuf> {
-    let path = option_env!("WINGMATE_DEV_STAGE")
-        .map(PathBuf::from)
-        .context("开发运行时尚未准备，请运行 pnpm dev")?;
-    anyhow::ensure!(
-        path.join(DSH_ENTRY).is_file() && path.join(WEB_PATCH).is_file(),
-        "开发运行时缺少 DSH 或后台服务插件，请运行 pnpm dev"
-    );
-    let manifest: serde_json::Value =
-        serde_json::from_slice(&fs::read(path.join("package.json"))?)?;
-    anyhow::ensure!(
-        manifest["dependencies"]["@deepseek-ai/dsh"]
-            .as_str()
-            .map(|v| format!("dsh-{v}"))
-            == Some(ID.into()),
-        "开发依赖版本已变化，请重新运行 pnpm dev"
-    );
     Ok(path)
 }
 
@@ -93,8 +111,7 @@ fn is_fingerprint(name: &str) -> bool {
     name.len() == 64 && name.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-#[cfg(feature = "bundled-runtime")]
-fn is_release_directory(parent: &Path, name: &str) -> bool {
+fn is_runtime_directory(parent: &Path, name: &str) -> bool {
     name.strip_prefix("dsh-")
         .and_then(|name| name.rsplit_once('-'))
         .is_some_and(|(version, hash)| {
@@ -102,9 +119,8 @@ fn is_release_directory(parent: &Path, name: &str) -> bool {
                 && version
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b".-+".contains(&b))
-                && hash.len() == RELEASE_SUFFIX_LEN
-                // A legacy version-only directory can also end in a hex string.
-                && fs::read_to_string(parent.join(name).join(RELEASE_REVISION_FILE))
+                && hash.len() == SHORT_HASH
+                && fs::read_to_string(parent.join(name).join(BASE_MARKER))
                     .is_ok_and(|revision| is_fingerprint(&revision) && revision.starts_with(hash))
         })
 }
@@ -130,96 +146,195 @@ fn prune(parent: &Path, keep: &[String], managed: impl Fn(&str) -> bool) -> Resu
     Ok(())
 }
 
-#[cfg(feature = "bundled-runtime")]
 fn cleanup(home: &Path) -> Result<()> {
     let parent = home.join("runtimes");
-    prune(&parent, &[release_directory()], |name| {
-        is_release_directory(&parent, name)
-    })
+    let manifest = Manifest::parse(MANIFEST)?;
+    let active = manifest.directory();
+    let directory = parent.join(&active);
+    anyhow::ensure!(
+        parent.symlink_metadata()?.is_dir()
+            && directory.symlink_metadata()?.is_dir()
+            && fs::read_to_string(directory.join(BASE_MARKER))? == manifest.base(),
+        "无法确认当前运行目录归属，跳过清理"
+    );
+    prune(&parent, std::slice::from_ref(&active), |name| {
+        is_runtime_directory(&parent, name)
+    })?;
+    remove_directory(&directory.join(OBSOLETE))?;
+    Ok(())
 }
 
-#[cfg(not(feature = "bundled-runtime"))]
-fn cleanup(_: &Path) -> Result<()> {
-    let stages = dev_root().join("runtimes");
-    let mut keep = vec![REVISION.context("缺少开发运行指纹")?.to_owned()];
-    // A build can have prepared the next version before this older executable starts.
-    let pending = fs::read_to_string(stages.join("current"))?;
-    anyhow::ensure!(is_fingerprint(pending.trim()), "开发运行目录指针无效");
-    keep.push(pending.trim().to_owned());
-    prune(&stages, &keep, is_fingerprint)?;
-    let mut dependencies = Vec::new();
-    for entry in fs::read_dir(&stages)? {
-        let entry = entry?;
-        if entry.file_type()?.is_dir() && is_fingerprint(&entry.file_name().to_string_lossy()) {
-            let key = fs::read_to_string(entry.path().join(".wingmate-dependency"))?;
-            anyhow::ensure!(is_fingerprint(key.trim()), "开发依赖指纹无效");
-            dependencies.push(key.trim().to_owned());
-        }
-    }
-    prune(
-        &dev_root().join("dependencies"),
-        &dependencies,
-        is_fingerprint,
-    )?;
-    // Compatibility with the previous layout, within this checkout and same dev service lock.
-    let legacy = dev_root()
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("runtime/stage");
-    prune(&legacy, &[], is_fingerprint)?;
-    if legacy.is_dir() {
-        for entry in fs::read_dir(&legacy)? {
-            let entry = entry?;
-            if entry.file_type()?.is_file()
-                && entry.file_name().to_string_lossy().starts_with("current-")
-            {
-                let key = fs::read_to_string(entry.path())?;
-                if is_fingerprint(key.trim()) && !legacy.join(key.trim()).exists() {
-                    fs::remove_file(entry.path())?;
-                }
-            }
-        }
-        if fs::read_dir(&legacy)?.next().is_none() {
-            fs::remove_dir(&legacy)?;
-        }
+fn remove_directory(path: &Path) -> Result<()> {
+    match path.symlink_metadata() {
+        Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(path)?,
+        Ok(_) => bail!("拒绝删除非普通目录 {}", path.display()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
     }
     Ok(())
 }
 
-#[cfg(feature = "bundled-runtime")]
 pub fn prepare(home: &Path, on_extract: impl FnOnce()) -> Result<PathBuf> {
-    let parent = home.join("runtimes");
-    let destination = parent.join(release_directory());
-    let revision = REVISION.unwrap();
-    match destination.symlink_metadata() {
+    let target = Manifest::parse(MANIFEST).context("运行组件尚未准备，请检查构建产物")?;
+    install_components(
+        &home.join("runtimes"),
+        MANIFEST,
+        &target,
+        on_extract,
+        |name, stage| {
+            let archive = ARCHIVES
+                .iter()
+                .find(|(key, _)| *key == name)
+                .with_context(|| format!("缺少运行组件 {name}"))?
+                .1;
+            #[cfg(not(feature = "bundled-runtime"))]
+            let archive =
+                fs::File::open(archive).context("缺少开发运行组件，请运行 pnpm runtime:dev")?;
+            tar::Archive::new(zstd::stream::read::Decoder::new(archive)?).unpack(stage)?;
+            #[cfg(not(feature = "bundled-runtime"))]
+            if name == "base" {
+                let package: serde_json::Value =
+                    serde_json::from_slice(&fs::read(stage.join("package.json"))?)?;
+                anyhow::ensure!(
+                    package["dependencies"]["@deepseek-ai/dsh"]
+                        .as_str()
+                        .is_some_and(|version| ID.strip_prefix("dsh-") == Some(version)),
+                    "开发依赖版本已变化，请重新运行 pnpm dev"
+                );
+            }
+            Ok(())
+        },
+    )
+}
+
+fn install_components(
+    parent: &Path,
+    source: &str,
+    target: &Manifest,
+    on_extract: impl FnOnce(),
+    unpack: impl Fn(&str, &Path) -> Result<()>,
+) -> Result<PathBuf> {
+    fs::create_dir_all(parent)?;
+    anyhow::ensure!(
+        parent.symlink_metadata()?.is_dir(),
+        "运行根目录不是普通目录"
+    );
+    let destination = parent.join(target.directory());
+    let installed_file = destination.join(INSTALLED);
+    let installed = match destination.symlink_metadata() {
         Ok(metadata) => {
             anyhow::ensure!(
                 metadata.is_dir()
-                    && fs::read_to_string(destination.join(RELEASE_REVISION_FILE))
-                        .is_ok_and(|stored| stored == revision),
-                "运行目录 {} 已被占用且无法确认指纹一致，请检查后手动移走该目录再启动",
+                    && fs::read_to_string(destination.join(BASE_MARKER))
+                        .is_ok_and(|hash| hash == target.base()),
+                "运行目录 {} 已被占用且无法确认基础包指纹，请检查后手动移走",
                 destination.display()
             );
+            match fs::read_to_string(&installed_file) {
+                Ok(current) if current == source => {
+                    ensure_entry(&destination, &destination, &[])?;
+                    return Ok(destination);
+                }
+                Ok(current) => {
+                    let current = Manifest::parse(&current).with_context(|| {
+                        format!("安装清单无效，请移走 {} 后重试", destination.display())
+                    })?;
+                    anyhow::ensure!(current.base() == target.base(), "安装清单与基础包不匹配");
+                    Some(current)
+                }
+                // The manifest is removed before any in-place changes. Rebuild interrupted installs.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    remove_directory(&destination)?;
+                    None
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+    let changed: Vec<_> = target
+        .components
+        .iter()
+        .filter(|(name, part)| {
+            installed
+                .as_ref()
+                .and_then(|current| current.components.get(*name))
+                != Some(*part)
+        })
+        .collect();
+    if !changed.is_empty() {
+        on_extract();
+    }
+    let stage = tempfile::tempdir_in(parent)?;
+    for (name, _) in &changed {
+        unpack(name, stage.path()).with_context(|| format!("释放运行组件 {name}"))?;
+    }
+    ensure_entry(stage.path(), &destination, &changed)?;
+    fs::write(stage.path().join(INSTALLED), source)?;
+    if let Some(current) = installed {
+        let mut paths: Vec<_> = changed
+            .iter()
+            .flat_map(|(_, part)| part.paths.iter().cloned())
+            .collect();
+        // Only removed, managed plugin roots are eligible. Patch file ownership is tied to the base.
+        for (name, part) in &current.components {
+            let plugin = format!("plugins/{name}");
+            if !target.components.contains_key(name)
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                && part.paths == [plugin.as_str()]
+            {
+                paths.push(plugin);
+            }
+        }
+        if paths.is_empty() {
+            fs::rename(stage.path().join(INSTALLED), installed_file)?;
             return Ok(destination);
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error).with_context(|| format!("检查 {}", destination.display())),
+        let obsolete = destination.join(OBSOLETE);
+        fs::create_dir_all(&obsolete)?;
+        anyhow::ensure!(
+            obsolete.symlink_metadata()?.is_dir(),
+            "待清理路径不是普通目录"
+        );
+        let retired = tempfile::tempdir_in(obsolete)?.keep();
+        fs::remove_file(&installed_file)?;
+        for (index, path) in paths.iter().enumerate() {
+            let live = destination.join(path);
+            match live.symlink_metadata() {
+                Ok(_) => fs::rename(&live, retired.join(index.to_string()))?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+            let replacement = stage.path().join(path);
+            if replacement.exists() {
+                fs::create_dir_all(live.parent().unwrap())?;
+                fs::rename(replacement, live)?;
+            }
+        }
+        fs::rename(stage.path().join(INSTALLED), installed_file)?;
+    } else {
+        fs::write(stage.path().join(BASE_MARKER), target.base())?;
+        fs::rename(stage.path(), &destination).context("无法提交运行目录")?;
     }
-    on_extract();
-    fs::create_dir_all(&parent)?;
-    // 解压完成后才发布版本目录，避免中途退出留下被误用的半成品目录。
-    let staging = tempfile::tempdir_in(&parent)?;
-    tar::Archive::new(zstd::stream::read::Decoder::new(ARCHIVE)?).unpack(staging.path())?;
-    fs::write(staging.path().join(RELEASE_REVISION_FILE), revision)?;
-    fs::rename(staging.path(), &destination).context("无法提交运行包")?;
     Ok(destination)
 }
 
-#[cfg(feature = "bundled-runtime")]
-fn release_directory() -> String {
-    format!("{ID}-{}", &REVISION.unwrap()[..RELEASE_SUFFIX_LEN])
+fn ensure_entry(stage: &Path, destination: &Path, changed: &[(&String, &Component)]) -> Result<()> {
+    for (_, part) in changed {
+        for path in &part.paths {
+            anyhow::ensure!(stage.join(path).exists(), "运行组件缺少 {path}");
+        }
+    }
+    for path in [DSH_ENTRY, WEB_PATCH] {
+        anyhow::ensure!(
+            stage.join(path).is_file() || destination.join(path).is_file(),
+            "运行目录缺少 {path}"
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -227,23 +342,100 @@ mod cleanup_tests {
     use super::*;
 
     #[test]
-    fn collection_preserves_active_pending_and_unmanaged_directories() -> Result<()> {
+    fn plugin_update_reuses_base_and_replaces_whole_plugin_directory() -> Result<()> {
         let root = tempfile::tempdir()?;
-        let active = "a".repeat(64);
-        let pending = "b".repeat(64);
-        let old = "c".repeat(64);
-        for name in [&active, &pending, &old, ".install-in-progress", "user-data"] {
-            fs::create_dir(root.path().join(name))?;
-            fs::write(root.path().join(name).join("file"), "keep")?;
-        }
-        prune(
+        let components = |plugin_hash: char| {
+            serde_json::json!({
+                "format": 1,
+                "components": {
+                    "base": { "sha256": "a".repeat(64), "paths": ["node_modules"] },
+                    "config": { "sha256": "b".repeat(64), "paths": [WEB_PATCH] },
+                    "wingmate-web": {
+                        "sha256": plugin_hash.to_string().repeat(64),
+                        "paths": ["plugins/wingmate-web"]
+                    }
+                }
+            })
+            .to_string()
+        };
+        let first = components('c');
+        let second = components('d');
+        let unpack = |name: &str, stage: &Path| {
+            let path = match name {
+                "base" => DSH_ENTRY,
+                "config" => WEB_PATCH,
+                "wingmate-web" => "plugins/wingmate-web/host.mjs",
+                _ => unreachable!(),
+            };
+            let path = stage.join(path);
+            fs::create_dir_all(path.parent().unwrap())?;
+            fs::write(path, name)?;
+            Ok(())
+        };
+        let path = install_components(
             root.path(),
-            &[active.clone(), pending.clone()],
-            is_fingerprint,
+            &first,
+            &Manifest::parse(&first)?,
+            || {},
+            unpack,
         )?;
+        fs::write(path.join("plugins/wingmate-web/old.js"), "obsolete")?;
+        fs::write(path.join(DSH_ENTRY), "base probe")?;
+
+        let target = Manifest::parse(&second)?;
+        let updated = install_components(
+            root.path(),
+            &second,
+            &target,
+            || {},
+            |name, stage| {
+                assert_eq!(name, "wingmate-web");
+                unpack(name, stage)
+            },
+        )?;
+        assert_eq!(updated, path);
+        assert_eq!(fs::read_to_string(path.join(DSH_ENTRY))?, "base probe");
+        assert!(!path.join("plugins/wingmate-web/old.js").exists());
+        assert_eq!(fs::read_to_string(path.join(INSTALLED))?, second);
+
+        let reformatted = format!("{second}\n");
+        install_components(
+            root.path(),
+            &reformatted,
+            &target,
+            || panic!("清单格式变化不应解包"),
+            |_, _| panic!("清单格式变化不应解包"),
+        )?;
+        assert_eq!(fs::read_to_string(path.join(INSTALLED))?, reformatted);
+
+        fs::remove_file(path.join(INSTALLED))?;
+        install_components(root.path(), &second, &target, || {}, unpack)?;
+        assert_eq!(fs::read_to_string(path.join(DSH_ENTRY))?, "base");
+        Ok(())
+    }
+
+    #[test]
+    fn collection_preserves_active_and_unmanaged_directories() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let active = "dsh-0.1.0-aaaaaa";
+        let old = "dsh-0.1.0-bbbbbb";
+        let unmanaged = "dsh-0.1.0-cccccc";
+        let mismatched = "dsh-0.1.0-dddddd";
+        for name in [active, old, unmanaged, mismatched] {
+            fs::create_dir(root.path().join(name))?;
+        }
+        for (name, hash) in [(active, 'a'), (old, 'b'), (mismatched, 'e')] {
+            fs::write(
+                root.path().join(name).join(BASE_MARKER),
+                hash.to_string().repeat(64),
+            )?;
+        }
+        prune(root.path(), &[active.to_owned()], |name| {
+            is_runtime_directory(root.path(), name)
+        })?;
         assert!(!root.path().join(old).exists());
-        for name in [&active, &pending, ".install-in-progress", "user-data"] {
-            assert!(root.path().join(name).join("file").exists());
+        for name in [active, unmanaged, mismatched] {
+            assert!(root.path().join(name).is_dir());
         }
         Ok(())
     }
@@ -275,45 +467,6 @@ mod cleanup_tests {
         state.runtime_revision = Some("different".into());
         cleanup_after_ready(home.path(), &state);
         assert!(old.exists());
-        Ok(())
-    }
-}
-
-#[cfg(all(test, feature = "bundled-runtime"))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn short_directory_is_reused_when_full_fingerprint_matches() -> Result<()> {
-        let home = tempfile::tempdir()?;
-        let parent = home.path().join("runtimes");
-        let revision = REVISION.unwrap();
-        let destination = parent.join(format!("{ID}-{}", &revision[..6]));
-        fs::create_dir_all(&destination)?;
-        fs::write(destination.join(RELEASE_REVISION_FILE), revision)?;
-
-        assert_eq!(
-            prepare(home.path(), || panic!("复用目录时不应报告解压"))?,
-            destination
-        );
-        assert!(!destination.join("node_modules").exists());
-        Ok(())
-    }
-
-    #[test]
-    fn short_name_collision_rejects_startup_and_preserves_directory() -> Result<()> {
-        let home = tempfile::tempdir()?;
-        let destination = home.path().join("runtimes").join(release_directory());
-        fs::create_dir_all(&destination)?;
-        let mut collision = REVISION.unwrap().to_owned();
-        let last = if collision.ends_with('0') { "1" } else { "0" };
-        collision.replace_range(63.., last);
-        let marker = destination.join(RELEASE_REVISION_FILE);
-        fs::write(&marker, &collision)?;
-
-        let error = prepare(home.path(), || panic!("撞号时不应解压")).unwrap_err();
-        assert!(error.to_string().contains("无法确认指纹一致"));
-        assert_eq!(fs::read_to_string(marker)?, collision);
         Ok(())
     }
 }
