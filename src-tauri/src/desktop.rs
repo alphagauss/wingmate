@@ -1,5 +1,6 @@
 //! 桌面窗口、首页与连接观察；服务生命周期由独立 wingmate-service 库负责。
 mod bridge;
+mod login_startup;
 mod popup;
 mod startup_page;
 mod titlebar;
@@ -80,6 +81,23 @@ impl ConnectionState {
             View::Workspace(state) => Some(state),
             _ => None,
         }
+    }
+
+    fn connected_workspace(
+        &self,
+        window: &WebviewWindow,
+        instance: &str,
+    ) -> Result<&Snapshot, String> {
+        let origin = window
+            .url()
+            .map_err(|error| error.to_string())?
+            .origin()
+            .ascii_serialization();
+        let state = self.workspace().ok_or("后台尚未连接")?;
+        if state.instance != instance || bridge::origin(state).as_deref() != Some(&origin) {
+            return Err("后台实例已更换，请重新连接".into());
+        }
+        Ok(state)
     }
 
     fn open_workspace(
@@ -317,16 +335,8 @@ fn manage_backend(
     action: String,
     instance: String,
 ) -> Result<(), String> {
-    let origin = window
-        .url()
-        .map_err(|error| error.to_string())?
-        .origin()
-        .ascii_serialization();
     let mut current = desktop.connection.lock().unwrap();
-    let state = current.workspace().ok_or("后台尚未连接")?;
-    if state.instance != instance || bridge::origin(state).as_deref() != Some(&origin) {
-        return Err("后台实例已更换，请重新连接".into());
-    }
+    current.connected_workspace(&window, &instance)?;
     let operation = match action.as_str() {
         "stop" => Operation::Stop(instance),
         "restart" => Operation::Restart(instance),
@@ -369,6 +379,8 @@ pub fn run(home: PathBuf) -> Result<()> {
         .invoke_handler(tauri::generate_handler![
             home_backend,
             manage_backend,
+            bridge::open_dsh_home,
+            bridge::login_startup,
             titlebar::window_chrome
         ])
         .setup(move |app| {
@@ -485,6 +497,7 @@ mod tests {
             instance: instance.into(),
             runtime: "dsh-test".into(),
             runtime_revision: None,
+            dsh_home: None,
             pid: 1,
             engine_pid: Some(1),
             phase: phase.into(),

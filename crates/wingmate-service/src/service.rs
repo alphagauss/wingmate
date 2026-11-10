@@ -32,6 +32,8 @@ pub struct Snapshot {
     pub instance: String,
     pub runtime: String,
     pub runtime_revision: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dsh_home: Option<std::path::PathBuf>,
     pub pid: u32,
     pub engine_pid: Option<u32>,
     pub phase: String,
@@ -319,6 +321,7 @@ mod tests {
             pid: 1,
             engine_pid: Some(1),
             runtime_revision: None,
+            dsh_home: None,
             phase: "running".into(),
             url: None,
             error: None,

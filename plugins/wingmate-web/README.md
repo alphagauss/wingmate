@@ -4,6 +4,10 @@ Wingmate 自行维护的 DSH Web 插件。它在官方设置页的 `settings.sec
 
 设置页显示当前后台的本机 Web 地址。「复制链接」会复制完整的 DSH 登录链接，可粘贴到同一台电脑上的浏览器中使用。页面只显示地址，登录 token 随链接复制。
 
+「DSH 数据目录」显示当前后台实际使用的目录，可用系统文件管理器打开。继续连接同版本旧运行包时，运行状态会提示新运行包将在重启后台后启用。
+
+登录启动的平台约定见[桌面程序](../../src-tauri/README.md)，本次设置完善的验证见[2026-11-10 记录](../../docs/records/2026-11-10-backend-settings.md)。
+
 客户端采用 DSH 的 lazy factory 格式，复用其 React 和控件，不需要额外的运行依赖。DSH 兼容范围以本包的 `engines.dsh` 为准，升级时重点检查客户端清单、设置扩展点、控件和启动补丁。插件属于 Wingmate 源码，复用 DSH 官方扩展点，无上游补丁。
 
 在 Windows Wingmate 工作台中，`shell.overlay` 插槽随工作台布局挂载和卸载[桌面标题栏](../../src-tauri/README.md#windows-标题栏)。

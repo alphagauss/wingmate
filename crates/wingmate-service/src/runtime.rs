@@ -262,6 +262,7 @@ mod cleanup_tests {
             instance: "test".into(),
             runtime: ID.into(),
             runtime_revision: REVISION.map(str::to_owned),
+            dsh_home: None,
             pid: 1,
             engine_pid: Some(1),
             phase: "failed".into(),

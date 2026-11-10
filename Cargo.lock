@@ -4313,9 +4313,11 @@ name = "wingmate"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dirs 6.0.0",
  "fs2",
  "gtk",
  "open",
+ "plist",
  "rfd",
  "serde",
  "serde_json",
@@ -4326,6 +4328,7 @@ dependencies = [
  "webview2-com",
  "windows-sys 0.61.2",
  "wingmate-service",
+ "winreg",
 ]
 
 [[package]]

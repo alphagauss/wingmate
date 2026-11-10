@@ -219,6 +219,12 @@ mod tests {
         let home = tempfile::tempdir()?;
         let bin = home.path().join("node_modules/@deepseek-ai/dsh/lib");
         fs::create_dir_all(&bin)?;
+        let home_paths = home.path().join("node_modules/@deepseek-ai/dsh-home-paths");
+        fs::create_dir_all(&home_paths)?;
+        fs::write(
+            home_paths.join("index.js"),
+            "exports.resolveDshHome = require('node:os').homedir;",
+        )?;
         fs::write(
             bin.join("bin.js"),
             r#"

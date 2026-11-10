@@ -73,6 +73,7 @@ try {
   for (const result of starts) if (result.status === 'rejected') throw result.reason;
   const [a, b] = starts.map(result => result.value);
   assert.equal(a.phase, 'running');
+  assert.equal(a.dsh_home, env.DSH_HOME);
   assert.equal(a.instance, b.instance);
   assert.equal(a.pid, a.engine_pid);
   assert.equal(a.engine_pid, b.engine_pid);

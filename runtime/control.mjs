@@ -3,12 +3,18 @@ import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 let handoff = '';
 for await (const chunk of process.stdin) handoff += chunk;
 if (handoff !== 'start\n') process.exit(1);
 
+// The preload lives outside the runtime tree. Resolve the helper from the DSH entry.
+const requireFromDsh = createRequire(process.argv[1]);
+const { resolveDshHome } = await import(pathToFileURL(requireFromDsh.resolve('@deepseek-ai/dsh-home-paths')));
+const dsh_home = resolveDshHome();
 const home = process.env.WINGMATE_HOME;
 const runtime = process.env.WINGMATE_RUNTIME_ID;
 const runtime_revision = process.env.WINGMATE_RUNTIME_REVISION || null;
@@ -86,6 +92,7 @@ const server = createServer({ requestTimeout: 5000, headersTimeout: 5000 }, asyn
   reply(response, 200, JSON.stringify({
     ...identity,
     runtime_revision,
+    dsh_home,
     engine_pid: process.pid,
     phase: stopping ? 'stopping' : url ? 'running' : 'starting',
     url: stopping ? null : url,
