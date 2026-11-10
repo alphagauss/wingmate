@@ -161,12 +161,10 @@ fn wait_ready(home: &Path, mut child: Option<&mut Child>) -> Result<Snapshot> {
     }
 }
 
-fn start_locked(home: &Path, report: impl Fn(StartupStage)) -> Result<Snapshot> {
+fn start_or_connect_locked(home: &Path, report: impl Fn(StartupStage)) -> Result<Snapshot> {
     let Some(lock) = crate::process::try_acquire(home)? else {
         report(StartupStage::Connecting);
-        let state = wait_ready(home, None)?;
-        crate::runtime::cleanup_after_ready(home, &state);
-        return Ok(state);
+        return wait_ready(home, None);
     };
     match fs::remove_file(home.join("endpoint.json")) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
@@ -180,20 +178,32 @@ fn start_locked(home: &Path, report: impl Fn(StartupStage)) -> Result<Snapshot> 
         let _ = child.kill();
         let _ = child.wait();
     }
-    if let Ok(state) = &result {
-        crate::runtime::cleanup_after_ready(home, state);
-    }
     result
 }
 
-pub fn start(home: &Path) -> Result<Snapshot> {
-    start_with_progress(home, |_| {})
+fn start_locked(
+    home: &Path,
+    report: impl Fn(StartupStage),
+    ready: impl FnOnce(&Snapshot),
+) -> Result<Snapshot> {
+    let state = start_or_connect_locked(home, report)?;
+    ready(&state);
+    crate::runtime::cleanup_after_ready(home, &state);
+    Ok(state)
 }
 
-pub fn start_with_progress(home: &Path, report: impl Fn(StartupStage)) -> Result<Snapshot> {
+pub fn start(home: &Path) -> Result<Snapshot> {
+    start_with_progress(home, |_| {}, |_| {})
+}
+
+pub fn start_with_progress(
+    home: &Path,
+    report: impl Fn(StartupStage),
+    ready: impl FnOnce(&Snapshot),
+) -> Result<Snapshot> {
     report(StartupStage::Checking);
     let _operation = operation_lock(home)?;
-    start_locked(home, report)
+    start_locked(home, report, ready)
 }
 
 fn stop_locked(home: &Path, expected_instance: Option<&str>) -> Result<()> {
@@ -231,27 +241,29 @@ pub fn stop_instance(home: &Path, expected_instance: &str) -> Result<()> {
 }
 
 pub fn restart(home: &Path) -> Result<Snapshot> {
-    restart_with_progress(home, None, |_| {})
+    restart_with_progress(home, None, |_| {}, |_| {})
 }
 
 pub fn restart_instance_with_progress(
     home: &Path,
     expected_instance: &str,
     report: impl Fn(StartupStage),
+    ready: impl FnOnce(&Snapshot),
 ) -> Result<Snapshot> {
-    restart_with_progress(home, Some(expected_instance), report)
+    restart_with_progress(home, Some(expected_instance), report, ready)
 }
 
 fn restart_with_progress(
     home: &Path,
     expected_instance: Option<&str>,
     report: impl Fn(StartupStage),
+    ready: impl FnOnce(&Snapshot),
 ) -> Result<Snapshot> {
     report(StartupStage::Stopping);
     let _operation = operation_lock(home)?;
     stop_locked(home, expected_instance)?;
     report(StartupStage::Checking);
-    start_locked(home, report)
+    start_locked(home, report, ready)
 }
 
 #[cfg(test)]
@@ -279,7 +291,7 @@ mod tests {
         });
         fs::write(home.path().join("endpoint.json"), current.to_string())?;
 
-        let result = restart_instance_with_progress(home.path(), "old", |_| {});
+        let result = restart_instance_with_progress(home.path(), "old", |_| {}, |_| {});
         assert_eq!(
             result.err().unwrap().to_string(),
             "后台实例已更换，请重新连接"

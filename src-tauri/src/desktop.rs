@@ -40,6 +40,7 @@ enum Observation {
 #[derive(Default)]
 struct ConnectionState {
     busy: bool,
+    active_operations: usize,
     exit_pending: bool,
     revision: u64,
     last: Option<String>,
@@ -51,10 +52,11 @@ struct ConnectionState {
 
 impl ConnectionState {
     fn begin_operation(&mut self) -> bool {
-        if self.busy {
+        if self.busy || self.exit_pending {
             return false;
         }
         self.busy = true;
+        self.active_operations += 1;
         self.revision += 1;
         true
     }
@@ -64,8 +66,13 @@ impl ConnectionState {
     }
 
     fn defer_exit(&mut self) -> bool {
-        self.exit_pending = self.busy;
+        self.exit_pending = self.active_operations > 0;
         self.exit_pending
+    }
+
+    fn operation_finished(&mut self) -> bool {
+        self.active_operations -= 1;
+        self.exit_pending && self.active_operations == 0
     }
 
     fn workspace(&self) -> Option<&Snapshot> {
@@ -193,7 +200,8 @@ fn run_operation(
     page: &StartupPage,
     home: &Path,
     action: &Operation,
-) -> Result<Option<Snapshot>, CardStatus> {
+    ready: impl FnOnce(Option<Snapshot>),
+) -> Result<(), CardStatus> {
     let stage = Cell::new(StartupStage::Checking);
     let report = |next| {
         stage.set(next);
@@ -202,12 +210,17 @@ fn run_operation(
     let result = match action {
         Operation::Stop(instance) => {
             report(StartupStage::Stopping);
-            service::stop_instance(home, instance).map(|()| None)
+            service::stop_instance(home, instance).map(|()| ready(None))
         }
         Operation::Restart(instance) => {
-            service::restart_instance_with_progress(home, instance, report).map(Some)
+            service::restart_instance_with_progress(home, instance, report, |state| {
+                ready(Some(state.clone()))
+            })
+            .map(drop)
         }
-        Operation::Start => service::start_with_progress(home, report).map(Some),
+        Operation::Start => {
+            service::start_with_progress(home, report, |state| ready(Some(state.clone()))).map(drop)
+        }
         Operation::Continue(_) => {
             report(StartupStage::Connecting);
             service::status(home).and_then(|state| {
@@ -215,7 +228,8 @@ fn run_operation(
                     state.as_ref().is_none_or(|state| state.phase == "running"),
                     "后台正在切换，请稍后重试"
                 );
-                Ok(state)
+                ready(state);
+                Ok(())
             })
         }
     };
@@ -236,17 +250,23 @@ fn desktop_window(app: &AppHandle) -> Option<WebviewWindow> {
 
 impl Desktop {
     fn run_operation(&self, app: &tauri::AppHandle, action: Operation) {
-        let outcome = run_operation(app, &self.page, &self.home, &action);
         let continue_instance = match &action {
             Operation::Continue(instance) => Some(instance.as_str()),
             _ => None,
         };
-        let mut current = self.connection.lock().unwrap();
-        if current.exit_pending {
-            drop(current);
+        let publish = |outcome| {
+            let mut current = self.connection.lock().unwrap();
+            if !current.exit_pending {
+                current.finish_operation(app, &self.page, self.title, continue_instance, outcome);
+            }
+        };
+        if let Err(status) = run_operation(app, &self.page, &self.home, &action, |state| {
+            publish(Ok(state));
+        }) {
+            publish(Err(status));
+        }
+        if self.connection.lock().unwrap().operation_finished() {
             app.exit(0);
-        } else {
-            current.finish_operation(app, &self.page, self.title, continue_instance, outcome);
         }
     }
 
@@ -266,7 +286,7 @@ fn home_backend(
         return Err("此操作只能在 Wingmate 首页执行".into());
     }
     let mut current = desktop.connection.lock().unwrap();
-    if current.busy {
+    if current.busy || current.exit_pending {
         return Err("后台操作正在进行".into());
     }
     let app = window.app_handle();
@@ -334,15 +354,14 @@ pub fn run(home: PathBuf) -> Result<()> {
     } else {
         "Wingmate"
     };
+    let mut connection = ConnectionState::default();
+    connection.begin_operation();
     let desktop = Arc::new(Desktop {
         home,
         window_label,
         title,
         page: StartupPage::new(),
-        connection: Mutex::new(ConnectionState {
-            busy: true,
-            ..ConnectionState::default()
-        }),
+        connection: Mutex::new(connection),
     });
     let exit_state = desktop.clone();
     tauri::Builder::default()
@@ -412,33 +431,31 @@ pub fn run(home: PathBuf) -> Result<()> {
                     popup::close_all(&popup_app);
                 }
             });
-            std::thread::spawn(move || {
-                desktop.run_operation(&handle, Operation::Start);
-                loop {
-                    std::thread::sleep(Duration::from_secs(2));
-                    let Some(window) = desktop_window(&handle) else {
-                        break;
-                    };
-                    let Some(revision) = desktop.connection.lock().unwrap().observation_revision()
-                    else {
-                        continue;
-                    };
-                    let status = service::status(&desktop.home);
-                    let mut current = desktop.connection.lock().unwrap();
-                    let disconnected = match current.observe(revision, status) {
-                        Observation::Ignore => continue,
-                        Observation::KeepPage { disconnected } => disconnected,
-                        Observation::Connect(state) => {
-                            current.connect(&handle, &desktop.page, state, None);
-                            false
-                        }
-                        Observation::ShowHome(status) => {
-                            desktop.page.show(&handle, status);
-                            false
-                        }
-                    };
-                    titlebar::connection_title(&window, title, disconnected);
-                }
+            desktop.submit(handle.clone(), Operation::Start);
+            std::thread::spawn(move || loop {
+                std::thread::sleep(Duration::from_secs(2));
+                let Some(window) = desktop_window(&handle) else {
+                    break;
+                };
+                let Some(revision) = desktop.connection.lock().unwrap().observation_revision()
+                else {
+                    continue;
+                };
+                let status = service::status(&desktop.home);
+                let mut current = desktop.connection.lock().unwrap();
+                let disconnected = match current.observe(revision, status) {
+                    Observation::Ignore => continue,
+                    Observation::KeepPage { disconnected } => disconnected,
+                    Observation::Connect(state) => {
+                        current.connect(&handle, &desktop.page, state, None);
+                        false
+                    }
+                    Observation::ShowHome(status) => {
+                        desktop.page.show(&handle, status);
+                        false
+                    }
+                };
+                titlebar::connection_title(&window, title, disconnected);
             });
             Ok(())
         })
@@ -448,7 +465,7 @@ pub fn run(home: PathBuf) -> Result<()> {
                 code: None, api, ..
             } = event
             {
-                // 允许窗口关闭，等已开始的后台操作完成后再退出桌面进程。
+                // 允许窗口关闭，等启停和清理完成后再退出桌面进程。
                 if exit_state.connection.lock().unwrap().defer_exit() {
                     api.prevent_exit();
                 }
@@ -574,5 +591,17 @@ mod tests {
         assert!(connection.begin_operation());
         assert!(connection.defer_exit());
         assert!(connection.exit_pending);
+        assert!(connection.operation_finished());
+    }
+
+    #[test]
+    fn closing_window_waits_for_cleanup_after_workspace_is_available() {
+        let mut connection = ConnectionState::default();
+        assert!(connection.begin_operation());
+        connection.busy = false;
+        assert!(connection.observation_revision().is_some());
+        assert!(connection.defer_exit());
+        assert!(!connection.begin_operation());
+        assert!(connection.operation_finished());
     }
 }
