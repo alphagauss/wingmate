@@ -1,5 +1,6 @@
 //! 按组件清单安装开发或内嵌运行包。
 use anyhow::{bail, Context, Result};
+use sha2::{Digest, Sha256};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -123,6 +124,32 @@ fn is_runtime_directory(parent: &Path, name: &str) -> bool {
                 && fs::read_to_string(parent.join(name).join(BASE_MARKER))
                     .is_ok_and(|revision| is_fingerprint(&revision) && revision.starts_with(hash))
         })
+}
+
+pub(crate) fn installed_dsh_entry(home: &Path, revision: Option<&str>) -> Result<PathBuf> {
+    let revision = revision.context("后台未提供运行包指纹")?;
+    let parent = home.join("runtimes");
+    for directory in fs::read_dir(&parent)? {
+        let directory = directory?;
+        if !directory.file_type()?.is_dir()
+            || !is_runtime_directory(&parent, &directory.file_name().to_string_lossy())
+        {
+            continue;
+        }
+        let path = directory.path();
+        let Ok(installed) = fs::read_to_string(path.join(INSTALLED)) else {
+            continue;
+        };
+        if format!("{:x}", Sha256::digest(installed.as_bytes())) == revision
+            && directory.file_name()
+                == std::ffi::OsStr::new(&Manifest::parse(&installed)?.directory())
+        {
+            let entry = path.join(DSH_ENTRY);
+            anyhow::ensure!(entry.is_file(), "后台的 DSH 命令入口不存在");
+            return Ok(entry);
+        }
+    }
+    bail!("无法找到当前后台的 DSH 运行目录")
 }
 
 fn prune(parent: &Path, keep: &[String], managed: impl Fn(&str) -> bool) -> Result<()> {
@@ -441,6 +468,31 @@ mod cleanup_tests {
     }
 
     #[test]
+    fn dsh_entry_uses_the_connected_manifest_revision() -> Result<()> {
+        let home = tempfile::tempdir()?;
+        let runtimes = home.path().join("runtimes");
+        for (base, config) in [('a', 'b'), ('c', 'd')] {
+            let manifest = serde_json::json!({
+                "format": 1, "components": {
+                    "base": { "sha256": base.to_string().repeat(64), "paths": [] },
+                    "config": { "sha256": config.to_string().repeat(64), "paths": [] },
+                }
+            })
+            .to_string();
+            let runtime = runtimes.join(Manifest::parse(&manifest)?.directory());
+            let entry = runtime.join(DSH_ENTRY);
+            fs::create_dir_all(entry.parent().unwrap())?;
+            fs::write(&entry, "")?;
+            fs::write(runtime.join(BASE_MARKER), base.to_string().repeat(64))?;
+            fs::write(runtime.join(INSTALLED), &manifest)?;
+            let revision = format!("{:x}", Sha256::digest(manifest.as_bytes()));
+            assert_eq!(installed_dsh_entry(home.path(), Some(&revision))?, entry);
+        }
+        assert!(installed_dsh_entry(home.path(), Some(&"f".repeat(64))).is_err());
+        Ok(())
+    }
+
+    #[test]
     fn failed_or_different_backend_cannot_trigger_collection() -> Result<()> {
         let home = tempfile::tempdir()?;
         let old = home
@@ -455,6 +507,7 @@ mod cleanup_tests {
             runtime: ID.into(),
             runtime_revision: REVISION.map(str::to_owned),
             dsh_home: None,
+            agents_home: None,
             pid: 1,
             engine_pid: Some(1),
             phase: "failed".into(),
@@ -486,13 +539,20 @@ pub fn node() -> Result<PathBuf> {
     let output = command
         .args([
             "-p",
-            "JSON.stringify({version:process.versions.node,path:process.execPath})",
+            "JSON.stringify({version:process.versions.node,path:process.execPath,arch:process.arch})",
         ])
         .env_remove("NODE_OPTIONS")
         .output()
         .context("找不到系统 Node.js，请安装 Node.js 24.9 或更新版本")?;
     anyhow::ensure!(output.status.success(), "系统 Node.js 检查失败");
     let value: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    #[cfg(feature = "bundled-runtime")]
+    anyhow::ensure!(
+        value["arch"].as_str() == Some(env!("WINGMATE_NODE_ARCH")),
+        "需要与发行包匹配的 Node.js {} 架构，当前为 {}",
+        env!("WINGMATE_NODE_ARCH"),
+        value["arch"]
+    );
     let version = value["version"].as_str().context("Node 未返回版本")?;
     let parts: Vec<u32> = version
         .split('.')

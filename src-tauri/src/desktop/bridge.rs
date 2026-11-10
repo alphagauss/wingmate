@@ -1,4 +1,4 @@
-use super::{login_startup as startup, Desktop};
+use super::{dsh_command as cli, login_startup as startup, Desktop};
 use std::sync::Arc;
 use tauri::{ipc::CapabilityBuilder, AppHandle, Manager, Url, WebviewWindow};
 use wingmate_service::service::Snapshot;
@@ -36,6 +36,26 @@ pub(super) fn login_startup(
     startup::configure(enabled).map_err(|error| format!("无法访问登录启动项：{error:#}"))
 }
 
+#[tauri::command]
+pub(super) async fn dsh_command(
+    window: WebviewWindow,
+    desktop: tauri::State<'_, Arc<Desktop>>,
+    instance: String,
+    enabled: Option<bool>,
+) -> Result<cli::Status, String> {
+    let state = desktop
+        .connection
+        .lock()
+        .unwrap()
+        .connected_workspace(&window, &instance)?
+        .clone();
+    let home = desktop.home.clone();
+    tauri::async_runtime::spawn_blocking(move || cli::configure(&home, state, enabled))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| format!("无法配置 dsh 命令：{error:#}"))
+}
+
 pub(super) fn origin(state: &Snapshot) -> Option<String> {
     let url = Url::parse(state.url.as_deref()?).ok()?;
     Some(url.origin().ascii_serialization())
@@ -66,12 +86,13 @@ pub(super) fn expose(window: &WebviewWindow, url: &Url, state: &Snapshot) {
         state.url,
         state.dsh_home,
         state.runtime_revision.as_deref() != super::RUNTIME_REVISION,
-        startup::SUPPORTED
+        startup::SUPPORTED,
+        cli::SUPPORTED
     ]);
     // Old settings pages only know the version field.
     // Recheck in the document: navigation can change between PageLoad and eval.
     let _ = window.eval(&format!(
-        r#"(([origin, instance, dshVersion, webUrl, dshHome, runtimeUpdate, canRegisterStartup]) => {{
+        r#"(([origin, instance, dshVersion, webUrl, dshHome, runtimeUpdate, canRegisterStartup, canRegisterDsh]) => {{
             if (window !== window.top || location.origin !== origin || window.__WINGMATE_BACKEND__) return;
             const invoke = window.__TAURI_INTERNALS__.invoke;
             Object.defineProperty(window, '__WINGMATE_BACKEND__', {{ value: Object.freeze({{
@@ -81,6 +102,7 @@ pub(super) fn expose(window: &WebviewWindow, url: &Url, state: &Snapshot) {
                 dshHome,
                 openDshHome: dshHome ? () => invoke('open_dsh_home', {{ instance }}) : undefined,
                 loginStartup: canRegisterStartup ? enabled => invoke('login_startup', {{ instance, enabled }}) : undefined,
+                dshCommand: canRegisterDsh ? enabled => invoke('dsh_command', {{ instance, enabled }}) : undefined,
                 copyWebLink: () => navigator.clipboard.writeText(webUrl),
                 manage: action => invoke('manage_backend', {{ action, instance }}),
             }}) }});

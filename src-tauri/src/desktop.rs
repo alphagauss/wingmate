@@ -1,5 +1,6 @@
 //! 桌面窗口、首页与连接观察；服务生命周期由独立 wingmate-service 库负责。
 mod bridge;
+mod dsh_command;
 mod login_startup;
 mod popup;
 mod startup_page;
@@ -381,6 +382,7 @@ pub fn run(home: PathBuf) -> Result<()> {
             manage_backend,
             bridge::open_dsh_home,
             bridge::login_startup,
+            bridge::dsh_command,
             titlebar::window_chrome
         ])
         .setup(move |app| {
@@ -498,6 +500,7 @@ mod tests {
             runtime: "dsh-test".into(),
             runtime_revision: None,
             dsh_home: None,
+            agents_home: None,
             pid: 1,
             engine_pid: Some(1),
             phase: phase.into(),

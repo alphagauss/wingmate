@@ -223,7 +223,7 @@ mod tests {
         fs::create_dir_all(&home_paths)?;
         fs::write(
             home_paths.join("index.js"),
-            "exports.resolveDshHome = require('node:os').homedir;",
+            "exports.resolveDshHome = exports.resolveAgentsHome = require('node:os').homedir;",
         )?;
         fs::write(
             bin.join("bin.js"),

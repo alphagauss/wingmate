@@ -29,6 +29,24 @@ fn main() {
         Ok(bytes) => {
             let data: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(data["format"], 1);
+            let target = env::var("TARGET").unwrap();
+            if data["target"].as_str() != Some(target.as_str()) {
+                assert!(
+                    !bundled,
+                    "运行包目标与 {target} 不匹配，请运行 pnpm runtime:prepare"
+                );
+                // The preparation tool itself must build before it can replace a stale dev manifest.
+                fs::write(
+                    generated,
+                    "static ARCHIVES: &[(&str, Archive)] = &[];\nstatic MANIFEST: &str = \"\";\n",
+                )
+                .unwrap();
+                return;
+            }
+            if bundled {
+                let node_arch = data["node_arch"].as_str().expect("运行包未声明 Node 架构");
+                println!("cargo:rustc-env=WINGMATE_NODE_ARCH={node_arch}");
+            }
             for (name, part) in data["components"].as_object().unwrap() {
                 let hash = part["sha256"].as_str().unwrap();
                 assert!(hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()));

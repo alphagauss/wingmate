@@ -10,5 +10,5 @@ commands.allow = ["manage_backend"]
 
 [[permission]]
 identifier = "allow-backend-settings"
-description = "Allows the verified DSH workbench to open its data directory and manage Wingmate login startup."
-commands.allow = ["open_dsh_home", "login_startup"]
+description = "Allows the verified DSH workbench to open its data directory and manage Wingmate login startup and the DSH command."
+commands.allow = ["open_dsh_home", "login_startup", "dsh_command"]

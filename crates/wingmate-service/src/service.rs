@@ -34,6 +34,8 @@ pub struct Snapshot {
     pub runtime_revision: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dsh_home: Option<std::path::PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agents_home: Option<std::path::PathBuf>,
     pub pid: u32,
     pub engine_pid: Option<u32>,
     pub phase: String,
@@ -50,7 +52,8 @@ pub enum StartupStage {
     Stopping,
 }
 
-pub(crate) fn operation_lock(home: &Path) -> Result<File> {
+/// Hold while performing an operation that must not race with backend replacement.
+pub fn operation_lock(home: &Path) -> Result<File> {
     let file = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -130,6 +133,12 @@ pub fn status(home: &Path) -> Result<Option<Snapshot>> {
         return Ok(None);
     }
     result.map(Some)
+}
+
+/// Find the installed CLI that belongs to a verified backend, including an
+/// older runtime that the desktop may still be connected to.
+pub fn dsh_entry(home: &Path, state: &Snapshot) -> Result<std::path::PathBuf> {
+    crate::runtime::installed_dsh_entry(home, state.runtime_revision.as_deref())
 }
 
 fn wait_ready(home: &Path, mut child: Option<&mut Child>) -> Result<Snapshot> {
@@ -322,6 +331,7 @@ mod tests {
             engine_pid: Some(1),
             runtime_revision: None,
             dsh_home: None,
+            agents_home: None,
             phase: "running".into(),
             url: None,
             error: None,

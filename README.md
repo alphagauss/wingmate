@@ -2,30 +2,31 @@
 
 Wingmate 是面向个人使用的 DeepSeek Harness 发行版，提供运行时分发和后台管理，复用官方 Web 和插件生态。
 
-当前首个入口是 Windows 桌面端。单个可执行文件承载桌面与常驻后台，关闭窗口后任务继续运行。后续计划支持 TUI、移动端和远程连接，详见 [项目约定](docs/product.md#未来方向尚未交付)。
+当前首个入口是桌面端。单个可执行文件承载桌面与常驻后台，关闭窗口后任务继续运行。后续方向见[项目约定](docs/product.md#未来方向尚未交付)。
 
 ## 使用
 
-当前发行目标是 Windows x64，跨平台设计见[项目约定](docs/product.md#跨平台设计)。运行需要系统 Node.js >=24.9.0 和 WebView2；Node 暂不随程序分发。Zstd 解压库已内嵌，无需额外安装。
+发行目标为 Windows、macOS 和 Linux。请选择与系统和处理器架构对应的构建，并安装相同架构的 Node.js >=24.9.0。Windows 需要 WebView2，macOS 使用系统 WebKit，Linux 需要 WebKitGTK 4.1 及对应桌面运行库。Zstd 解压库已内嵌。各平台系统依赖见 [Tauri 前提条件](https://v2.tauri.app/start/prerequisites/)。
 
 Word、PowerPoint 及部分扩展格式使用随包提供的 [File Viewer 侧栏预览](plugins/wingmate-file-viewer/README.md)，发行包已移除 LibreOffice 引擎。能力范围与相对原版的取舍见[运行时维护指南](docs/runtime-maintenance.md#去重与精简取舍)。
 
-成品为 `target/release/wingmate.exe`，可以单独复制运行。双击打开桌面，在左下角账号菜单打开「设置 → 后台服务」，可查看、停止或重启后台。停止或重启会中断运行任务。后台停止后可在 Wingmate 首页再次启动。
+成品可单独复制运行，Windows 为 `target/release/wingmate.exe`，macOS 和 Linux 为 `target/release/wingmate`。打开桌面，在左下角账号菜单进入「设置 → 后台服务」，可查看、停止或重启后台，也可为当前用户启用 `dsh` 终端命令。停止或重启会中断运行任务。后台停止后可在 Wingmate 首页再次启动。
 
-也可在 PowerShell 中管理后台：
+终端也可以用 `wingmate status`、`wingmate start`、`wingmate stop` 和 `wingmate restart` 管理后台。可执行文件尚未加入 PATH 时，用完整或相对路径调用，例如：
+
+```sh
+./target/release/wingmate status
+```
 
 ```powershell
 & ./target/release/wingmate.exe status | Out-Host
-& ./target/release/wingmate.exe start | Out-Host
-& ./target/release/wingmate.exe stop | Out-Host
-& ./target/release/wingmate.exe restart | Out-Host
 ```
 
-关闭所有桌面窗口后即可替换 Windows EXE，运行中的 DSH 任务会继续。新版携带不同的运行包且 DSH 版本相同时，首页会询问是继续连接还是重启切换。若要切换 DSH 版本，请先用原版本显式停止后台。数据位置见 [服务模块](crates/wingmate-service/README.md)，运行包释放及切换见 [运行时维护指南](docs/runtime-maintenance.md#释放与复用)。
+关闭所有桌面窗口后即可替换可执行文件，运行中的 DSH 任务会继续。新版携带不同的运行包且 DSH 版本相同时，首页会询问是继续连接还是重启切换。若要切换 DSH 版本，请先用原版本显式停止后台。数据位置见 [服务模块](crates/wingmate-service/README.md)，运行包释放及切换见 [运行时维护指南](docs/runtime-maintenance.md#释放与复用)。
 
 ## 开发入口
 
-构建需要 Node/npm、pnpm、Rust 及平台 Tauri 构建工具。当前在目标平台本机构建，尚未验证跨平台发行。
+在目标平台和架构上使用同架构的 Node/npm、Rust、pnpm 及平台 Tauri 构建工具。本地发行和验收规则见[运行时维护指南](docs/runtime-maintenance.md#打包范围与所有权)。
 
 ```powershell
 pnpm install --frozen-lockfile

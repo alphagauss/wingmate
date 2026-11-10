@@ -27,7 +27,21 @@ const target = process.env.TAURI_ENV_TARGET_TRIPLE;
 const host = spawnSync('rustc', ['-vV'], { encoding: 'utf8', windowsHide: true });
 if (host.status !== 0) throw new Error('无法读取 Rust 构建目标');
 const hostTarget = host.stdout.match(/^host: (.+)$/m)?.[1];
-if (target && target !== hostTarget) throw new Error('首版只支持在目标平台本机构建运行包');
+if (!hostTarget) throw new Error('无法读取 Rust 主机目标');
+if (target && target !== hostTarget) throw new Error(`请在目标平台和架构上本机构建运行包：${target}（当前 ${hostTarget}）`);
+const rustArch = hostTarget.split('-')[0]
+  .replace(/^x86_64$/, 'x64')
+  .replace(/^i[3-6]86$/, 'ia32')
+  .replace(/^aarch64$/, 'arm64')
+  .replace(/^(?:armv\d.*|thumbv\d.*)$/, 'arm')
+  .replace(/^powerpc64(?:le)?$/, 'ppc64')
+  .replace(/^riscv64gc$/, 'riscv64');
+const rustPlatform = hostTarget.includes('-windows-') ? 'win32'
+  : hostTarget.endsWith('-apple-darwin') ? 'darwin'
+  : hostTarget.includes('-linux-') ? 'linux' : undefined;
+if (rustPlatform !== process.platform || rustArch !== process.arch) {
+  throw new Error(`Node ${process.platform}-${process.arch} 与 Rust ${hostTarget} 的平台或架构不匹配`);
+}
 const nodeTarget = `${process.platform}-${process.arch}/node-${process.versions.modules}`;
 const out = join(root, 'work/build/runtime');
 const cache = join(root, 'work/cache/npm');
@@ -135,7 +149,9 @@ components.config = await archiveComponent('config', digest(pluginPatchBytes), [
   await writeFile(join(scratch.path, pluginPatch), pluginPatchBytes);
   return { cwd: scratch.path };
 });
-await publish('manifest.json', JSON.stringify({ format: 1, components }, null, 2) + '\n');
+await publish('manifest.json', JSON.stringify({
+  format: 1, target: hostTarget, node_arch: process.arch, components,
+}, null, 2) + '\n');
 
 function digest(...values) {
   const hash = createHash('sha256');
