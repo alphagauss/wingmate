@@ -6,6 +6,7 @@
 
 | 任务 | 补充阅读 |
 | --- | --- |
+| 多内核、远程网关、独立服务宿主、TUI、Android 阶段任务 | [临时架构与实施方案](ARCHITECTURE_PLAN.md)；先核对任务依赖和当前状态 |
 | DSH 版本获取、依赖、打包、裁剪、压缩、运行目录复用 | [运行时维护指南](docs/runtime-maintenance.md) |
 | 开发或调试 DSH 插件 | [插件开发入口](plugins/README.md#开发-dsh-插件)及相关官方文档 |
 | 社区插件或自用插件集成、预装 | [运行时维护指南](docs/runtime-maintenance.md#社区和自用插件集成)、[插件模块](plugins/README.md)及该插件的集成记录（已有时） |

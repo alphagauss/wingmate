@@ -50,6 +50,7 @@ pnpm test:smoke
 
 - [AGENTS.md](AGENTS.md)：按任务选择文档及维护文档的约定。
 - [项目约定](docs/product.md)：产品边界、当前选择与未来方向。
+- [临时架构与实施方案](ARCHITECTURE_PLAN.md)：已确定的多内核、远程和多端设计，模块归属及待实施任务；完成后迁移约定并移除。
 - [运行时维护指南](docs/runtime-maintenance.md)：DSH 获取、升级、精简取舍、适配和插件集成。
 
 | 模块 | 责任 |
