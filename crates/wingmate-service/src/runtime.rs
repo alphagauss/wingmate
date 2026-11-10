@@ -13,6 +13,10 @@ pub const WEB_PATCH: &str = "plugins/cordis.patch.yml";
 #[cfg(feature = "bundled-runtime")]
 // 桌面和 CLI 的进度回调类型不同，解压代码的各个实例共用同一份归档。
 static ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/runtime.tar.zst"));
+#[cfg(feature = "bundled-runtime")]
+const RELEASE_SUFFIX_LEN: usize = 6;
+#[cfg(feature = "bundled-runtime")]
+const RELEASE_REVISION_FILE: &str = ".wingmate-revision";
 
 #[cfg(not(feature = "bundled-runtime"))]
 pub fn dev_root() -> &'static Path {
@@ -89,8 +93,8 @@ fn is_fingerprint(name: &str) -> bool {
     name.len() == 64 && name.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-#[cfg(any(test, feature = "bundled-runtime"))]
-fn is_release_directory(name: &str) -> bool {
+#[cfg(feature = "bundled-runtime")]
+fn is_release_directory(parent: &Path, name: &str) -> bool {
     name.strip_prefix("dsh-")
         .and_then(|name| name.rsplit_once('-'))
         .is_some_and(|(version, hash)| {
@@ -98,11 +102,14 @@ fn is_release_directory(name: &str) -> bool {
                 && version
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b".-+".contains(&b))
-                && is_fingerprint(hash)
+                && hash.len() == RELEASE_SUFFIX_LEN
+                // A legacy version-only directory can also end in a hex string.
+                && fs::read_to_string(parent.join(name).join(RELEASE_REVISION_FILE))
+                    .is_ok_and(|revision| is_fingerprint(&revision) && revision.starts_with(hash))
         })
 }
 
-fn prune(parent: &Path, keep: &[String], managed: fn(&str) -> bool) -> Result<()> {
+fn prune(parent: &Path, keep: &[String], managed: impl Fn(&str) -> bool) -> Result<()> {
     if !parent.exists() {
         return Ok(());
     }
@@ -125,11 +132,10 @@ fn prune(parent: &Path, keep: &[String], managed: fn(&str) -> bool) -> Result<()
 
 #[cfg(feature = "bundled-runtime")]
 fn cleanup(home: &Path) -> Result<()> {
-    prune(
-        &home.join("runtimes"),
-        &[release_directory()],
-        is_release_directory,
-    )
+    let parent = home.join("runtimes");
+    prune(&parent, &[release_directory()], |name| {
+        is_release_directory(&parent, name)
+    })
 }
 
 #[cfg(not(feature = "bundled-runtime"))]
@@ -186,21 +192,34 @@ fn cleanup(_: &Path) -> Result<()> {
 pub fn prepare(home: &Path, on_extract: impl FnOnce()) -> Result<PathBuf> {
     let parent = home.join("runtimes");
     let destination = parent.join(release_directory());
-    if destination.is_dir() {
-        return Ok(destination);
+    let revision = REVISION.unwrap();
+    match destination.symlink_metadata() {
+        Ok(metadata) => {
+            anyhow::ensure!(
+                metadata.is_dir()
+                    && fs::read_to_string(destination.join(RELEASE_REVISION_FILE))
+                        .is_ok_and(|stored| stored == revision),
+                "运行目录 {} 已被占用且无法确认指纹一致，请检查后手动移走该目录再启动",
+                destination.display()
+            );
+            return Ok(destination);
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error).with_context(|| format!("检查 {}", destination.display())),
     }
     on_extract();
     fs::create_dir_all(&parent)?;
     // 解压完成后才发布版本目录，避免中途退出留下被误用的半成品目录。
     let staging = tempfile::tempdir_in(&parent)?;
     tar::Archive::new(zstd::stream::read::Decoder::new(ARCHIVE)?).unpack(staging.path())?;
+    fs::write(staging.path().join(RELEASE_REVISION_FILE), revision)?;
     fs::rename(staging.path(), &destination).context("无法提交运行包")?;
     Ok(destination)
 }
 
 #[cfg(feature = "bundled-runtime")]
 fn release_directory() -> String {
-    format!("{ID}-{}", REVISION.unwrap())
+    format!("{ID}-{}", &REVISION.unwrap()[..RELEASE_SUFFIX_LEN])
 }
 
 #[cfg(test)]
@@ -226,11 +245,6 @@ mod cleanup_tests {
         for name in [&active, &pending, ".install-in-progress", "user-data"] {
             assert!(root.path().join(name).join("file").exists());
         }
-        assert!(is_release_directory(&format!(
-            "dsh-0.2.2-rc.1-{}",
-            "a".repeat(64)
-        )));
-        assert!(!is_release_directory("dsh-personal-backup"));
         Ok(())
     }
 
@@ -269,22 +283,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn existing_fingerprint_directory_is_reused_without_validation() {
-        let home = tempfile::tempdir().unwrap();
-        let destination = home.path().join("runtimes").join(release_directory());
-        fs::create_dir_all(&destination).unwrap();
-        fs::write(destination.join("local-note"), "keep").unwrap();
+    fn short_directory_is_reused_when_full_fingerprint_matches() -> Result<()> {
+        let home = tempfile::tempdir()?;
+        let parent = home.path().join("runtimes");
+        let revision = REVISION.unwrap();
+        let destination = parent.join(format!("{ID}-{}", &revision[..6]));
+        fs::create_dir_all(&destination)?;
+        fs::write(destination.join(RELEASE_REVISION_FILE), revision)?;
 
         assert_eq!(
-            prepare(home.path(), || panic!("复用目录时不应报告解压")).unwrap(),
+            prepare(home.path(), || panic!("复用目录时不应报告解压"))?,
             destination
         );
-        assert_eq!(
-            fs::read_to_string(destination.join("local-note")).unwrap(),
-            "keep"
-        );
         assert!(!destination.join("node_modules").exists());
-        assert!(!destination.join(".complete").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn short_name_collision_rejects_startup_and_preserves_directory() -> Result<()> {
+        let home = tempfile::tempdir()?;
+        let destination = home.path().join("runtimes").join(release_directory());
+        fs::create_dir_all(&destination)?;
+        let mut collision = REVISION.unwrap().to_owned();
+        let last = if collision.ends_with('0') { "1" } else { "0" };
+        collision.replace_range(63.., last);
+        let marker = destination.join(RELEASE_REVISION_FILE);
+        fs::write(&marker, &collision)?;
+
+        let error = prepare(home.path(), || panic!("撞号时不应解压")).unwrap_err();
+        assert!(error.to_string().contains("无法确认指纹一致"));
+        assert_eq!(fs::read_to_string(marker)?, collision);
+        Ok(())
     }
 }
 

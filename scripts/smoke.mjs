@@ -61,11 +61,12 @@ try {
   }
   assert.equal((await cli('status')).phase, 'stopped');
   assert.ok(existsSync(env.WINGMATE_HOME), '被测 EXE 未使用隔离管理目录，请提供发行模式 EXE');
-  const oldRuntime = join(env.WINGMATE_HOME, 'runtimes', `dsh-0.0.0-${'a'.repeat(64)}`);
-  const unmanaged = join(env.WINGMATE_HOME, 'runtimes', 'user-notes');
+  const oldRevision = 'a'.repeat(64);
+  const oldRuntime = join(env.WINGMATE_HOME, 'runtimes', `dsh-0.0.0-${oldRevision.slice(0, 6)}`);
+  const unmanaged = join(env.WINGMATE_HOME, 'runtimes', 'dsh-0.0.0-abcdef');
   await mkdir(oldRuntime, { recursive: true });
   await mkdir(unmanaged, { recursive: true });
-  await writeFile(join(oldRuntime, 'fixture.txt'), 'obsolete');
+  await writeFile(join(oldRuntime, '.wingmate-revision'), oldRevision);
   await writeFile(join(unmanaged, 'keep.txt'), 'keep');
   // Wait for both launchers even if one fails, before attempting shutdown and deletion.
   const starts = await Promise.allSettled([cli('start'), cli('start')]);
@@ -85,7 +86,8 @@ try {
   assert.equal(a.runtime, `dsh-${manifest.dependencies['@deepseek-ai/dsh']}`);
   assert.match(a.runtime_revision, /^[0-9a-f]{64}$/);
   if (expectedRevision) assert.equal(a.runtime_revision, expectedRevision);
-  const runtimePath = join(env.WINGMATE_HOME, 'runtimes', `${a.runtime}-${a.runtime_revision}`);
+  const runtimePath = join(env.WINGMATE_HOME, 'runtimes', `${a.runtime}-${a.runtime_revision.slice(0, 6)}`);
+  assert.equal(await readFile(join(runtimePath, '.wingmate-revision'), 'utf8'), a.runtime_revision);
   const reuseProbe = join(runtimePath, 'reuse-probe.txt');
   await writeFile(reuseProbe, 'keep');
   await writeFile(join(runtimePath, 'control.mjs'), 'throw new Error("old control must not run");\n');
@@ -150,7 +152,7 @@ try {
   assert.equal(restarted.runtime, a.runtime);
   assert.equal(restarted.runtime_revision, a.runtime_revision);
   assert.equal(await readFile(reuseProbe, 'utf8'), 'keep');
-  checks.push('按运行包指纹释放，重启直接复用相同内容的目录');
+  checks.push('按六位短指纹命名，重启按完整指纹复用释放目录');
   checks.push('重启使用 EXE 内嵌的控制入口，旧 DSH 已退出');
   await cli('stop');
   assert.equal((await cli('status')).phase, 'stopped');
