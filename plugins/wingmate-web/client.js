@@ -160,8 +160,8 @@ window.__ModuleLoader__.load({
             updateMessage: '启动项指向的程序路径已变化。',
           }),
           bridge.dshCommand && h(RegistrationRow, {
-            label: '启用 dsh 命令',
-            description: '在新开的终端中使用当前后台的 DSH 运行时和数据目录。',
+            label: '启用终端命令',
+            description: '在新开的终端中使用 wingmate 管理后台，或用 dsh 访问当前后台的运行时和数据目录。',
             configure: bridge.dshCommand,
             pending,
             updateMessage: '命令注册需要更新。',

@@ -20,6 +20,18 @@ fn main() {
 }
 
 fn entry(command: Option<&str>) -> Result<()> {
+    if matches!(command, Some("--help" | "-h")) {
+        println!(
+            "用法: wingmate [命令]\n\n\
+             无参数     打开桌面，关闭窗口后后台继续运行\n\
+             start      启动后台\n\
+             status     查看后台状态\n\
+             stop       停止后台\n\
+             restart    重启后台\n\
+             -h, --help 显示帮助"
+        );
+        return Ok(());
+    }
     let home = wingmate_service::directory()?;
     match command {
         None => desktop::run(home),
@@ -38,10 +50,6 @@ fn entry(command: Option<&str>) -> Result<()> {
         }
         Some("restart") => {
             print_state(Some(service::restart(&home)?));
-            Ok(())
-        }
-        Some("--help") => {
-            println!("wingmate [start|status|stop|restart]\n无参数打开桌面；关闭窗口保留后台。需要系统 Node.js >=24.9.0。");
             Ok(())
         }
         Some(_) => bail!("未知命令，请使用 wingmate --help"),

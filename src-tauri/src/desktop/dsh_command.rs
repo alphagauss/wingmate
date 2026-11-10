@@ -6,8 +6,8 @@ mod windows;
 use anyhow::{Context, Result};
 use std::{
     fs::{self, File, OpenOptions},
-    io,
-    path::Path,
+    io::{self, Write},
+    path::{Path, PathBuf},
 };
 use wingmate_service::service::{self, Snapshot};
 
@@ -15,6 +15,7 @@ pub(super) const SUPPORTED: bool =
     cfg!(any(windows, target_os = "linux", target_os = "macos")) && !wingmate_service::IS_DEV;
 const OWNER: &str = "// Wingmate dsh command\n";
 const LAUNCHER: &str = include_str!("dsh_command/launch.cjs");
+const WINGMATE_OWNER: &str = "// Wingmate desktop command\n";
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,7 +25,7 @@ pub(super) struct Status {
 }
 
 pub(super) fn configure(home: &Path, state: Snapshot, enabled: Option<bool>) -> Result<Status> {
-    anyhow::ensure!(SUPPORTED, "dsh 命令仅适用于支持此功能的发行版");
+    anyhow::ensure!(SUPPORTED, "终端命令注册仅适用于支持此功能的发行版");
     let _operation = (enabled == Some(true))
         .then(|| service::operation_lock(home))
         .transpose()?;
@@ -43,14 +44,15 @@ pub(super) fn configure(home: &Path, state: Snapshot, enabled: Option<bool>) -> 
             .context("后台未提供 Agent 数据目录，请用当前版本重启后台后再注册")?;
         launcher(&entry, &dsh_home, &agents_home)
     };
+    let wingmate = wingmate_launcher(&std::env::current_exe()?, home)?;
     #[cfg(windows)]
-    return windows::configure(enabled, launcher);
+    return windows::configure(enabled, launcher, &wingmate);
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    return unix::configure(enabled, launcher);
+    return unix::configure(enabled, launcher, &wingmate);
     #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
-        let _ = launcher;
-        anyhow::bail!("此平台不支持注册 dsh 命令")
+        let _ = (launcher, wingmate);
+        anyhow::bail!("此平台不支持注册终端命令")
     }
 }
 
@@ -58,6 +60,14 @@ fn launcher(entry: &Path, dsh_home: &Path, agents_home: &Path) -> Result<String>
     let config = serde_json::to_string(&(entry, dsh_home, agents_home))?;
     Ok(format!(
         "{OWNER}const [entry, dshHome, agentsHome] = {config};\n{LAUNCHER}"
+    ))
+}
+
+fn wingmate_launcher(executable: &Path, home: &Path) -> Result<String> {
+    let config = serde_json::to_string(&(executable, home))?;
+    Ok(format!(
+        "{WINGMATE_OWNER}const [executable, home] = {config};\n{}",
+        include_str!("dsh_command/wingmate.cjs")
     ))
 }
 
@@ -75,11 +85,63 @@ fn registration_lock(bin: &Path, enabled: Option<bool>) -> Result<Option<File>> 
     Ok(Some(lock))
 }
 
-fn read(path: &Path) -> Result<Option<String>> {
-    match path.symlink_metadata() {
-        Ok(metadata) if metadata.is_file() => Ok(Some(fs::read_to_string(path)?)),
-        Ok(_) => anyhow::bail!("命令文件已被占用：{}", path.display()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.into()),
+struct CommandFile {
+    path: PathBuf,
+    occupied: bool,
+    current: Option<String>,
+}
+
+impl CommandFile {
+    fn open(bin: &Path, name: &str, owned: impl FnOnce(&str) -> bool) -> Result<Self> {
+        let path = bin.join(name);
+        let (exists, current) = match path.symlink_metadata() {
+            Ok(metadata) if metadata.is_file() => match fs::read_to_string(&path) {
+                Ok(text) => (true, Some(text).filter(|text| owned(text))),
+                Err(error) if error.kind() == io::ErrorKind::InvalidData => (true, None),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => (false, None),
+                Err(error) => return Err(error.into()),
+            },
+            Ok(_) => (true, None),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => (false, None),
+            Err(error) => return Err(error.into()),
+        };
+        Ok(Self {
+            path,
+            occupied: exists && current.is_none(),
+            current,
+        })
+    }
+
+    fn ensure_available(&self) -> Result<()> {
+        anyhow::ensure!(
+            !self.occupied,
+            "命令目录已有同名文件：{}",
+            self.path.display()
+        );
+        Ok(())
+    }
+
+    fn install(&self, content: &str) -> Result<()> {
+        let mut file = tempfile::NamedTempFile::new_in(self.path.parent().unwrap())?;
+        file.write_all(content.as_bytes())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.as_file()
+                .set_permissions(fs::Permissions::from_mode(0o755))?;
+        }
+        if self.current.is_some() {
+            file.persist(&self.path)?;
+        } else {
+            file.persist_noclobber(&self.path)?;
+        }
+        Ok(())
+    }
+
+    fn remove(&self) -> Result<()> {
+        if self.current.is_some() {
+            fs::remove_file(&self.path)?;
+        }
+        Ok(())
     }
 }

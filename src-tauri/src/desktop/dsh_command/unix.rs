@@ -1,4 +1,4 @@
-use super::{read, registration_lock, Status, OWNER};
+use super::{registration_lock, CommandFile, Status, OWNER, WINGMATE_OWNER};
 use anyhow::{Context, Result};
 use std::{
     fs,
@@ -51,6 +51,7 @@ end
 pub(super) fn configure(
     enabled: Option<bool>,
     launcher: impl FnOnce() -> Result<String>,
+    wingmate: &str,
 ) -> Result<Status> {
     let home = dirs::home_dir().context("无法确定用户主目录")?;
     let config_dir = |name| {
@@ -60,7 +61,7 @@ pub(super) fn configure(
     };
     let zsh = config_dir("ZDOTDIR").unwrap_or_else(|| home.clone());
     let fish = config_dir("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config"));
-    configure_in(&home, &zsh, &fish, enabled, launcher)
+    configure_in(&home, &zsh, &fish, enabled, launcher, wingmate)
 }
 
 fn configure_in(
@@ -69,18 +70,19 @@ fn configure_in(
     fish: &Path,
     enabled: Option<bool>,
     launcher: impl FnOnce() -> Result<String>,
+    wingmate: &str,
 ) -> Result<Status> {
     let bin = home.join(".wingmate/bin");
     let _lock = registration_lock(&bin, enabled)?;
-    let command = bin.join("dsh");
-    let current = read(&command)?;
-    anyhow::ensure!(
-        current.as_deref().is_none_or(|text| text
-            .strip_prefix(SHEBANG)
-            .is_some_and(|text| text.starts_with(OWNER))),
-        "命令目录已有同名文件：{}",
-        command.display()
-    );
+    let owned = |owner| {
+        move |text: &str| {
+            text.strip_prefix(SHEBANG)
+                .is_some_and(|text| text.starts_with(owner))
+        }
+    };
+    let dsh = CommandFile::open(&bin, "dsh", owned(OWNER))?;
+    let wingmate_file = CommandFile::open(&bin, "wingmate", owned(WINGMATE_OWNER))?;
+    let wingmate = format!("{SHEBANG}{wingmate}");
     let login_profiles = [".bash_profile", ".bash_login", ".profile"].map(|name| home.join(name));
     let bash_login = login_profiles
         .iter()
@@ -97,20 +99,15 @@ fn configure_in(
     ];
     match enabled {
         Some(true) => {
+            dsh.ensure_available()?;
+            wingmate_file.ensure_available()?;
             let script = format!("{SHEBANG}{}", launcher()?);
             for (path, block) in profiles {
                 update_profile(path, block, true)
                     .with_context(|| format!("更新 {}", path.display()))?;
             }
-            let mut file = tempfile::NamedTempFile::new_in(&bin)?;
-            file.write_all(script.as_bytes())?;
-            file.as_file()
-                .set_permissions(fs::Permissions::from_mode(0o755))?;
-            if current.is_some() {
-                file.persist(command)?;
-            } else {
-                file.persist_noclobber(command)?;
-            }
+            dsh.install(&script)?;
+            wingmate_file.install(&wingmate)?;
             Ok(Status {
                 enabled: true,
                 needs_update: false,
@@ -128,28 +125,32 @@ fn configure_in(
                 update_profile(path, block, false)
                     .with_context(|| format!("更新 {}", path.display()))?;
             }
-            if current.is_some() {
-                fs::remove_file(command)?;
-            }
+            wingmate_file.remove()?;
+            dsh.remove()?;
             Ok(Status {
                 enabled: false,
                 needs_update: false,
             })
         }
         None => {
-            let Some(current) = current else {
-                return Ok(Status {
-                    enabled: false,
-                    needs_update: false,
-                });
-            };
-            let needs_update = launcher().ok().as_deref() != current.strip_prefix(SHEBANG)
-                || fs::metadata(command)?.permissions().mode() & 0o100 == 0
-                || profiles.iter().any(|(path, [block, _])| {
-                    !fs::read_to_string(path).is_ok_and(|text| text.contains(block))
-                });
+            let enabled = dsh.current.is_some() || wingmate_file.current.is_some();
+            let needs_update = enabled
+                && (dsh.current.is_none()
+                    || launcher().ok().as_deref()
+                        != dsh
+                            .current
+                            .as_deref()
+                            .and_then(|text| text.strip_prefix(SHEBANG))
+                    || wingmate_file.current.as_deref() != Some(wingmate.as_str())
+                    || [&dsh, &wingmate_file].iter().any(|file| {
+                        !fs::metadata(&file.path)
+                            .is_ok_and(|metadata| metadata.permissions().mode() & 0o100 != 0)
+                    })
+                    || profiles.iter().any(|(path, [block, _])| {
+                        !fs::read_to_string(path).is_ok_and(|text| text.contains(block))
+                    }));
             Ok(Status {
-                enabled: true,
+                enabled,
                 needs_update,
             })
         }
@@ -215,12 +216,17 @@ mod tests {
         fs::write(home.join(".bash_login"), original)?;
         let launcher =
             || super::super::launcher(&home.join("entry.js"), home, &home.join("agents"));
-        assert!(!configure_in(home, &zsh, &fish, None, launcher)?.enabled);
-        assert!(configure_in(home, &zsh, &fish, Some(true), launcher)?.enabled);
-        assert!(!configure_in(home, &zsh, &fish, None, launcher)?.needs_update);
+        let wingmate = super::super::wingmate_launcher(&home.join("desktop"), home)?;
+        let configure = |enabled| configure_in(home, &zsh, &fish, enabled, launcher, &wingmate);
+        assert!(!configure(None)?.enabled);
+        assert!(configure(Some(true))?.enabled);
+        assert!(!configure(None)?.needs_update);
+        let wingmate_path = home.join(".wingmate/bin/wingmate");
+        fs::remove_file(&wingmate_path)?;
+        assert!(configure(None)?.needs_update);
         fs::write(&bash_target, format!("{original}{}", SH_PATH[1]))?;
-        assert!(configure_in(home, &zsh, &fish, None, launcher)?.needs_update);
-        configure_in(home, &zsh, &fish, Some(true), launcher)?;
+        configure(Some(true))?;
+        assert!(!configure(None)?.needs_update);
         assert_eq!(
             fs::read_to_string(&bash_target)?,
             format!("{original}{}", SH_PATH[0])
@@ -235,13 +241,25 @@ mod tests {
                 & 0o100
                 != 0
         );
-        assert!(!configure_in(home, &zsh, &fish, Some(false), launcher)?.enabled);
+        assert!(wingmate_path.metadata()?.permissions().mode() & 0o100 != 0);
+        assert!(!configure(Some(false))?.enabled);
         assert_eq!(fs::read_to_string(bash_target)?, original);
         assert_eq!(fs::read_to_string(home.join(".bash_login"))?, original);
         assert!(home.join(".bash_profile").symlink_metadata()?.is_symlink());
         assert_eq!(fs::read_to_string(zsh.join(".zshrc"))?, "");
         assert_eq!(fs::read_to_string(fish.join("fish/config.fish"))?, "");
         assert!(!home.join(".wingmate/bin/dsh").exists());
+        assert!(!wingmate_path.exists());
+
+        configure(Some(true))?;
+        let dsh_path = home.join(".wingmate/bin/dsh");
+        fs::write(&dsh_path, "user's command")?;
+        let status = configure(None)?;
+        assert!(status.enabled && status.needs_update);
+        assert!(configure(Some(true)).is_err());
+        assert!(!configure(Some(false))?.enabled);
+        assert_eq!(fs::read_to_string(dsh_path)?, "user's command");
+        assert!(!wingmate_path.exists());
         Ok(())
     }
 }

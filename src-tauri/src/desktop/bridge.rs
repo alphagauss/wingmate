@@ -53,7 +53,7 @@ pub(super) async fn dsh_command(
     tauri::async_runtime::spawn_blocking(move || cli::configure(&home, state, enabled))
         .await
         .map_err(|error| error.to_string())?
-        .map_err(|error| format!("无法配置 dsh 命令：{error:#}"))
+        .map_err(|error| format!("无法配置终端命令：{error:#}"))
 }
 
 pub(super) fn origin(state: &Snapshot) -> Option<String> {
