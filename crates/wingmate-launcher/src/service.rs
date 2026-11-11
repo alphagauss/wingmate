@@ -135,6 +135,19 @@ fn start_local(
     }
     let state = if let Some(state) = host::call(&endpoint, "status", None)?.business {
         report(StartupStage::Connecting);
+        let deadline = Instant::now() + Duration::from_secs(150);
+        let mut state = state;
+        while state.phase == "starting" {
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "等待业务后台就绪超时，请检查 service.log"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+            state = host::call(&endpoint, "status", None)?
+                .business
+                .context("业务后台已退出")?;
+        }
+        anyhow::ensure!(state.phase == "running", "业务后台正在停止，请稍后重试");
         state
     } else {
         prepare(home, &report)?;
@@ -285,6 +298,9 @@ pub fn restart_host(home: &Path) -> Result<()> {
 
 pub fn start_host(home: &Path) -> Result<()> {
     let _bootstrap = bootstrap_lock(home)?;
-    ensure_host(home)?;
+    let endpoint = ensure_host(home)?;
+    if host::call(&endpoint, "status", None)?.business.is_none() {
+        prepare(home, |_| {})?;
+    }
     Ok(())
 }

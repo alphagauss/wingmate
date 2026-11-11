@@ -19,9 +19,12 @@ if (args[1]) {
   await mkdir(work);
 }
 const executable = join(work, process.platform === 'win32' ? 'wingmate.exe' : 'wingmate');
+let activeExecutable = executable;
+const upgradedExecutable = join(work, 'wingmate-upgraded.exe');
 const env = { ...process.env, WINGMATE_HOME: join(work, 'wingmate'), DSH_HOME: join(work, 'dsh'), DSH_AGENTS_HOME: join(work, 'agents') };
 for (const key of Object.keys(env)) if (/API_KEY|ACCESS_TOKEN|AUTH_TOKEN/.test(key)) delete env[key];
 const endpointFile = join(env.WINGMATE_HOME, 'endpoint.json');
+const hostFile = join(env.WINGMATE_HOME, 'host.json');
 const checks = [];
 let expectedRevision;
 let mayHaveStarted = false;
@@ -29,7 +32,7 @@ let failure, cleanupError;
 function cli(action, success = true) {
   if (action === 'start' || action === 'restart') mayHaveStarted = true;
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, [action], { cwd: work, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(activeExecutable, [action], { cwd: work, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '', error = '';
     child.stdout.on('data', chunk => output += chunk);
     child.stderr.on('data', chunk => error += chunk);
@@ -45,6 +48,16 @@ function cli(action, success = true) {
       } catch (error) { reject(error); }
     });
   });
+}
+async function hostRpc(action, expected_instance = null) {
+  const endpoint = JSON.parse(await readFile(hostFile, 'utf8'));
+  const response = await fetch(`http://127.0.0.1:${endpoint.port}/rpc`, {
+    method: 'POST', headers: { Authorization: `Bearer ${endpoint.token}`,
+      'X-Wingmate-Instance': endpoint.instance, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, expected_instance }),
+  });
+  assert.equal(response.status, 200, `管理服务 ${action} 失败: ${await response.clone().text()}`);
+  return response.json();
 }
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 try {
@@ -85,7 +98,21 @@ try {
   checks.push('新版就绪后清理旧运行目录，保留非托管内容');
   await copyFile(original, executable);
   assert.equal((await cli('status')).instance, a.instance);
-  checks.push('只有 DSH 的 Node 进程常驻，覆盖桌面 EXE 后仍能连接');
+  const host = await cli('service-status');
+  assert.notEqual(host.pid, a.engine_pid);
+  assert.equal(host.business.instance, a.instance);
+  assert.ok(alive(host.pid));
+  const serviceBinary = await readFile(join(env.WINGMATE_HOME, 'services', host.revision,
+    `wingmate-service${process.platform === 'win32' ? '.exe' : ''}`));
+  const componentsDirectory = fileURLToPath(new URL('../work/build/runtime/', import.meta.url));
+  const componentsManifest = JSON.parse(await readFile(join(componentsDirectory, 'manifest.json'), 'utf8'));
+  for (const [name, { sha256 }] of Object.entries(componentsManifest.components)) {
+    const archive = await readFile(join(componentsDirectory, `${name}-${sha256}.tar.zst`));
+    assert.equal(serviceBinary.indexOf(archive), -1, `管理服务错误内嵌运行资源 ${name}`);
+  }
+  checks.push('管理服务与业务进程独立，服务不携带运行资源，发行入口可替换');
+  assert.notEqual((await cli('service-stop', false)).code, 0);
+  assert.equal((await cli('status')).instance, a.instance);
   const manifest = JSON.parse(await readFile(new URL('../runtime/package.json', import.meta.url), 'utf8'));
   assert.equal(a.runtime, `dsh-${manifest.dependencies['@deepseek-ai/dsh']}`);
   assert.match(a.runtime_revision, /^[0-9a-f]{64}$/);
@@ -175,6 +202,17 @@ try {
   assert.equal((await cli('status')).phase, 'stopped');
   assert.equal(alive(restarted.engine_pid), false);
   checks.push('停止等待运行锁释放及 DSH 退出');
+  assert.equal((await cli('service-status')).instance, host.instance);
+  const remoteStarted = (await hostRpc('start')).business;
+  assert.equal(remoteStarted.phase, 'running');
+  assert.equal(remoteStarted.runtime_revision, a.runtime_revision);
+  await hostRpc('stop', remoteStarted.instance);
+  checks.push('业务停止后管理服务仍存活，无发行入口参与也能再次启动业务');
+  await cli('service-restart');
+  const replacementHost = await cli('service-status');
+  assert.notEqual(replacementHost.instance, host.instance);
+  assert.equal(alive(host.pid), false);
+  checks.push('显式重启服务切换管理实例，业务仍为停止状态');
   if (process.platform === 'win32') {
     const crash = await cli('start');
     process.kill(crash.pid, 'SIGKILL');
@@ -185,6 +223,46 @@ try {
     assert.equal((await cli('start')).phase, 'running');
     await cli('stop');
     checks.push('DSH 异常退出后，陈旧发现文件不阻止重新启动');
+    const business = await cli('start');
+    const beforeCrash = await cli('service-status');
+    process.kill(beforeCrash.pid, 'SIGKILL');
+    const hostDeadline = Date.now() + 10_000;
+    while (alive(beforeCrash.pid) && Date.now() < hostDeadline) await new Promise(r => setTimeout(r, 100));
+    assert.ok(alive(business.engine_pid));
+    assert.notEqual((await cli('status', false)).code, 0);
+    assert.equal((await cli('start')).instance, business.instance);
+    assert.notEqual((await cli('service-status')).instance, beforeCrash.instance);
+    await cli('stop');
+    checks.push('管理服务异常退出不终止业务，重新引导后恢复同一业务实例');
+    // 只改 PE 的 DOS 提示文字，模拟新服务指纹，不额外编译另一份程序。
+    const packageBytes = await readFile(executable);
+    const serviceOffset = packageBytes.indexOf(serviceBinary);
+    assert.notEqual(serviceOffset, -1, '发行入口没有内嵌服务组件');
+    assert.equal(packageBytes.indexOf(serviceBinary, serviceOffset + serviceBinary.length), -1);
+    const textOffset = serviceBinary.indexOf(Buffer.from('This program cannot be run in DOS mode'));
+    assert.notEqual(textOffset, -1);
+    packageBytes[serviceOffset + textOffset] = 't'.charCodeAt(0);
+    await writeFile(upgradedExecutable, packageBytes);
+    const oldBusiness = await cli('start');
+    const oldHost = await cli('service-status');
+    activeExecutable = upgradedExecutable;
+    assert.equal((await cli('start')).instance, oldBusiness.instance);
+    assert.equal((await cli('service-status')).instance, oldHost.instance);
+    assert.notEqual((await cli('service-restart', false)).code, 0);
+    await cli('stop');
+    await cli('service-restart');
+    const newHost = await cli('service-status');
+    assert.notEqual(newHost.revision, oldHost.revision);
+    assert.notEqual(newHost.instance, oldHost.instance);
+    await assert.rejects(access(join(env.WINGMATE_HOME, 'services', oldHost.revision)), { code: 'ENOENT' });
+    const newBusiness = await cli('start');
+    assert.equal(newBusiness.runtime_revision, oldBusiness.runtime_revision);
+    assert.equal(await readFile(reuseProbe, 'utf8'), 'keep');
+    activeExecutable = executable;
+    assert.equal((await cli('start')).instance, newBusiness.instance);
+    assert.equal((await cli('service-status')).revision, newHost.revision);
+    await cli('stop');
+    checks.push('新服务组件不会自动替换旧实例，显式切换后回收旧组件，旧入口不降级服务');
   }
 } catch (error) {
   failure = error;
@@ -193,17 +271,21 @@ try {
     if (mayHaveStarted) {
       await cli('stop');
       assert.equal((await cli('status')).phase, 'stopped', '后台未退出，保留测试目录');
+      await cli('service-stop');
+      assert.equal((await cli('service-status')).phase, 'stopped', '管理服务未退出，保留测试目录');
     }
   } catch (error) { cleanupError = error; }
   // Save diagnostics before deletion too: cleanup itself can fail partway through.
-  try { await copyFile(join(env.WINGMATE_HOME, 'service.log'), join(work, 'service.log')); }
-  catch (error) { if (error.code !== 'ENOENT') cleanupError ??= error; }
+  for (const name of ['service.log', 'host.log']) {
+    try { await copyFile(join(env.WINGMATE_HOME, name), join(work, name)); }
+    catch (error) { if (error.code !== 'ENOENT') cleanupError ??= error; }
+  }
   if (!keepWork && !cleanupError) {
     try {
-      for (const path of [env.WINGMATE_HOME, env.DSH_HOME, env.DSH_AGENTS_HOME, executable]) {
+      for (const path of [env.WINGMATE_HOME, env.DSH_HOME, env.DSH_AGENTS_HOME, executable, upgradedExecutable]) {
         await rm(path, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
       }
-      if (!failure) await rm(join(work, 'service.log'), { force: true });
+      if (!failure) for (const name of ['service.log', 'host.log']) await rm(join(work, name), { force: true });
     } catch (error) { cleanupError = error; }
   }
 }

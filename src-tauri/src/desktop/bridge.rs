@@ -51,7 +51,7 @@ pub(super) async fn dsh_command(
         .connected_workspace(&window, &instance)?
         .clone();
     let home = desktop.home.clone();
-    tauri::async_runtime::spawn_blocking(move || cli::configure(&home, state, enabled))
+    tauri::async_runtime::spawn_blocking(move || cli::configure(&home, Some(state), enabled))
         .await
         .map_err(|error| error.to_string())?
         .map_err(|error| format!("无法配置终端命令：{error:#}"))

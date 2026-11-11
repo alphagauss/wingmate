@@ -24,7 +24,7 @@ pub struct Status {
     needs_update: bool,
 }
 
-pub fn configure(home: &Path, state: Snapshot, enabled: Option<bool>) -> Result<Status> {
+pub fn configure(home: &Path, state: Option<Snapshot>, enabled: Option<bool>) -> Result<Status> {
     anyhow::ensure!(SUPPORTED, "终端命令注册仅适用于支持此功能的发行版");
     let _operation = (enabled == Some(true))
         .then(|| service::operation_lock(home))
@@ -32,10 +32,15 @@ pub fn configure(home: &Path, state: Snapshot, enabled: Option<bool>) -> Result<
     let launcher = || {
         let state = if enabled == Some(true) {
             service::status(home)?
-                .filter(|current| current.instance == state.instance && current.phase == "running")
+                .filter(|current| {
+                    state
+                        .as_ref()
+                        .is_none_or(|state| current.instance == state.instance)
+                        && current.phase == "running"
+                })
                 .context("后台实例已更换，请重新连接")?
         } else {
-            state
+            state.context("业务后台尚未连接")?
         };
         let entry = service::dsh_entry(home, &state)?;
         let dsh_home = state.dsh_home.context("后台未提供 DSH 数据目录")?;

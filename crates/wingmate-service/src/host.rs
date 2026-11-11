@@ -56,8 +56,7 @@ pub fn try_lock(home: &Path) -> Result<Option<File>> {
         Ok(()) => Ok(Some(file)),
         Err(error)
             if error.kind() == std::io::ErrorKind::WouldBlock
-                || Some(error.raw_os_error())
-                    == Some(fs2::lock_contended_error().raw_os_error()) =>
+                || error.raw_os_error() == fs2::lock_contended_error().raw_os_error() =>
         {
             Ok(None)
         }

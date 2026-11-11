@@ -84,8 +84,11 @@ fn run() -> Result<()> {
         }
         Some("commands") => {
             let enabled = setting(args.next())?;
-            let state =
-                service::status(&home)?.ok_or_else(|| anyhow::anyhow!("请先启动业务后台"))?;
+            let state = if enabled == Some(false) {
+                None
+            } else {
+                service::status(&home)?
+            };
             serde_json::to_value(integration::dsh_command::configure(&home, state, enabled)?)?
         }
         Some("login-startup") => serde_json::to_value(integration::login_startup::configure(
