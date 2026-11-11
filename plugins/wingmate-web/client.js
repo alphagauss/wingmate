@@ -1,8 +1,11 @@
+import { createPreinstalledTab } from './preinstalled.tsx';
+
 // DSH loads browser plugins as lazy factories and supplies the shared React runtime.
 window.__ModuleLoader__.load({
   id: 'dsh-wingmate-web',
   factory(require) {
-    const { createElement: h, useEffect, useLayoutEffect, useState, useSyncExternalStore } = require('react');
+    const react = require('react');
+    const { createElement: h, useEffect, useLayoutEffect, useState, useSyncExternalStore } = react;
     const {
       Button, IconCopyOutlineRegular, IconFolderOpenOutlineRegular, Modal, Switch, Tag,
     } = require('@deepseek-ai/dsh-client-ui-primitives');
@@ -195,7 +198,13 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots'],
       apply(ctx) {
-        if (typeof window.__TAURI_INTERNALS__?.invoke !== 'function') return;
+        const desktop = typeof window.__TAURI_INTERNALS__?.invoke === 'function';
+        ctx.inject(['remote', 'remote.pluginInventory'], tabContext => {
+          tabContext.slots.inject('plugins.tab', () => tabContext.slots.register({
+            name: 'plugins.tab', id: 'wingmate-preinstalled', label: 'Wingmate 预装',
+          }, createPreinstalledTab(tabContext, react, { Button, Tag }, desktop)));
+        });
+        if (!desktop) return;
         window.__WINGMATE_TITLEBAR__?.prepare();
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay', id: 'wingmate-window-titlebar',

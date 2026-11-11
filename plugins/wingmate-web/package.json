@@ -5,16 +5,25 @@
   "type": "module",
   "exports": {
     ".": "./host.mjs",
-    "./client": "./client.js",
+    "./client": "./dist/client.js",
     "./package.json": "./package.json"
   },
-  "files": ["host.mjs", "client.js", "cordis.patch.yml"],
+  "files": ["host.mjs", "dist/client.js", "cordis.patch.yml"],
   "engines": { "dsh": "0.2.2-rc.1" },
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },
     "client": {
       "platform": "web",
-      "inject": ["@deepseek-ai/dsh-client-ui-settings"]
+      "inject": ["@deepseek-ai/dsh-client-ui-settings", "@deepseek-ai/dsh-client-ui-plugin-manager", "@deepseek-ai/dsh-client-ui-sidebar-documentpreview"]
     }
+  },
+  "scripts": {
+    "build": "tsc && node build.mjs",
+    "typecheck": "tsc"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "esbuild": "0.27.7",
+    "typescript": "6.0.3"
   }
 }
