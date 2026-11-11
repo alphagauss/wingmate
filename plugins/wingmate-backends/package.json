@@ -6,19 +6,23 @@
   "exports": {
     ".": "./dist/host.mjs",
     "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "engines": {
     "dsh": "0.2.2-rc.1"
   },
   "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-ui-sidebar"
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-api-remote-access"
       ]
     }
   },
+  "files": ["dist", "client.js", "cordis.patch.yml", "LICENSE.remote"],
   "devDependencies": {
     "@agentclientprotocol/sdk": "2.5.0",
     "esbuild": "0.27.7"

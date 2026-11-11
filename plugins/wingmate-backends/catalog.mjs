@@ -1,9 +1,12 @@
 // Adapted from ds-harness-remote virtual-catalog.ts and virtual-harness.ts.
 import { assistantBaseline } from './journal.mjs';
+import { normalize } from 'node:path';
 
 export function workspace(backend, path, time) {
+  path = normalize(path);
+  const identity = process.platform === 'win32' ? path.toLowerCase() : path;
   return {
-    workspaceId: `${backend}:cwd:${encodeURIComponent(path)}`,
+    workspaceId: `${backend}:cwd:${encodeURIComponent(identity)}`,
     path,
     title: path.split(/[\\/]/).filter(Boolean).at(-1) || path,
     sessionIds: [],

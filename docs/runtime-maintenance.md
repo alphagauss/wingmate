@@ -91,7 +91,9 @@
 
 ## 社区和自用插件集成
 
-当前预装 [Wingmate 后台服务](../plugins/wingmate-web/README.md)和[文件预览](../plugins/wingmate-file-viewer/README.md)。构建脚本明确指定预装哪些包，[启动补丁](../plugins/cordis.patch.yml)决定 Wingmate 启动 Web 时默认启用哪些插件。开发版和发行版均随运行包携带这份补丁，并将它计入构建指纹。参考仓库、本地开发插件、发行预装组件是不同状态，创建目录或加入开发 workspace 不会自动改变发行内容。
+当前预装 [Wingmate 后台服务](../plugins/wingmate-web/README.md)、[文件预览](../plugins/wingmate-file-viewer/README.md)和[执行后端](../plugins/wingmate-backends/README.md)。构建脚本明确指定预装哪些包，[启动补丁](../plugins/cordis.patch.yml)决定 Wingmate 启动 Web 时默认启用哪些插件。开发版和发行版均随运行包携带这份补丁，并将它计入构建指纹。参考仓库、本地开发插件、发行预装组件是不同状态，创建目录或加入开发 workspace 不会自动改变发行内容。
+
+执行后端插件内联 ACP SDK，外部 Agent 适配器由主机安装，部署入口见[插件文档](../plugins/wingmate-backends/README.md#主机依赖)。选择 Codex 时才启动适配器，缺少它不影响 DSH 启动。构建和发行不读取参考仓库或主机上的 Agent 安装内容。
 
 第一次实际集成时建立简短记录：本项目维护的插件写在所属 `plugins/<名称>/README.md`；仅消费外部发布包的组件写在 `docs/integrations/<名称>.md`。后者目录在实际需要时创建。记录包含：
 
@@ -116,4 +118,4 @@
 
 实际 DSH 升级、预装组件变化或兼容性调整时，在 `docs/records/` 新增有日期的简短记录：变更目标与前后版本、输入/来源、此次取舍及适配变化、验证环境和结论、已有安装的处理方式、未验证项。只记录发生的工作，不预建空台账。
 
-当前约定更新在本指南或所属模块；历史记录保留当时结论，不持续改写成最新状态。已有记录包括 [2026-11-05 运行时体积优化](records/2026-11-05-runtime-size.md)、[2026-11-08 Wingmate 后台服务插件](records/2026-11-08-wingmate-web.md)、[2026-11-10 文件预览与 LibreOffice 裁剪](records/2026-11-10-file-viewer.md)、[开发依赖复用与运行目录回收](records/2026-11-10-runtime-reuse.md)和[2026-11-11 独立管理服务与无 GUI 引导](records/2026-11-11-management-service.md)。
+当前约定更新在本指南或所属模块；历史记录保留当时结论，不持续改写成最新状态。已有记录包括 [2026-11-05 运行时体积优化](records/2026-11-05-runtime-size.md)、[2026-11-08 Wingmate 后台服务插件](records/2026-11-08-wingmate-web.md)、[2026-11-10 文件预览与 LibreOffice 裁剪](records/2026-11-10-file-viewer.md)、[开发依赖复用与运行目录回收](records/2026-11-10-runtime-reuse.md)、[2026-11-11 独立管理服务与无 GUI 引导](records/2026-11-11-management-service.md)和[ACP 执行后端插件](records/2026-11-11-acp-backends.md)。

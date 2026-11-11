@@ -62,6 +62,20 @@ test('检查实际归档中的宿主、客户端和每个补丁，源目录不�
   }
 });
 
+test('执行后端归档携带页面 transport 和复用代码的许可证', async () => {
+  const files = ['dist/transport.js', 'dist/LICENSE.acp-sdk', 'LICENSE.remote'];
+  for (const missing of [undefined, ...files]) {
+    await using scratch = await mkdtempDisposable(join(tmpdir(), 'wingmate-backends-package-'));
+    const archive = await archiveFixture(scratch.path, {
+      manifest: { name: 'dsh-wingmate-backends' },
+      extraFiles: Object.fromEntries(files.map(file => [file, 'fixture'])),
+      omit: missing ? [missing] : [],
+    });
+    if (missing) await assert.rejects(validatePluginArchive(archive, 'test-version'), /插件包检查失败/);
+    else await validatePluginArchive(archive, 'test-version');
+  }
+});
+
 test('运行依赖未部署时明确失败，包括可选与 peer 依赖', async () => {
   for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
     await using scratch = await mkdtempDisposable(join(tmpdir(), 'wingmate-plugin-test-'));

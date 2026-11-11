@@ -169,6 +169,14 @@ try {
   assert.equal(client.status, 200);
   assert.match(await client.text(), /wingmate-backend/);
   checks.push('释放的 DSH Web 完成认证并提供后台服务插件');
+  const backends = JSON.parse(boot[1]).entries.find(row => row.id === 'dsh-wingmate-backends');
+  assert.ok(backends, '释放的运行包未加载执行后端插件');
+  const backendClient = await fetch(new URL(backends.url, a.url), { headers: { Cookie: cookie } });
+  assert.equal(backendClient.status, 200);
+  assert.match(await backendClient.text(), /wingmate-agent-picker/);
+  assert.match(html, /__WINGMATE_AGENTS__/);
+  assert.match(html, /wingmateAgent/);
+  checks.push('执行后端插件与页面 transport 随单文件释放，缺少外部 Agent 不阻塞 DSH');
   const fileViewer = JSON.parse(boot[1]).entries.find(row => row.id === 'dsh-wingmate-file-viewer');
   assert.ok(fileViewer, '释放的运行包未加载文件预览插件');
   const viewerClient = await fetch(new URL(fileViewer.url, a.url), { headers: { Cookie: cookie } });

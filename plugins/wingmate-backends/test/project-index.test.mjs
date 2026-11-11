@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createWorkbench } from '../projection.mjs';
 import { projectIndex } from '../project-index.mjs';
+import { workspace } from '../catalog.mjs';
 
 test('concurrent workspace writes preserve directory aliases across host restarts', async () => {
   await using scratch = await mkdtempDisposable(join(tmpdir(), 'wingmate-backends-index-'));
@@ -25,4 +26,10 @@ test('concurrent workspace writes preserve directory aliases across host restart
   assert.equal(reopened.workspace.title, 'Alias');
   assert.equal(reopened.workspace.path, paths[0]);
   await restored.dispose();
+});
+
+test('Windows workspace identity follows filesystem case and path separators', { skip: process.platform !== 'win32' }, () => {
+  const first = workspace('codex', 'D:/Project/Wingmate', 'now');
+  const second = workspace('codex', 'd:\\project\\wingmate', 'now');
+  assert.equal(first.workspaceId, second.workspaceId);
 });

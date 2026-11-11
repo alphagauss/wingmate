@@ -70,7 +70,7 @@ function npm(args, options) {
 
 await using pluginBuild = await mkdtempDisposable(join(tmpdir(), 'wingmate-plugin-'));
 const plugins = [];
-for (const name of ['wingmate-web', 'wingmate-file-viewer']) {
+for (const name of ['wingmate-web', 'wingmate-file-viewer', 'wingmate-backends']) {
   const directory = `plugins/${name}`;
   const source = join(root, directory);
   const build = npm(['run', 'build', '--if-present'], { cwd: source, stdio: 'inherit' });

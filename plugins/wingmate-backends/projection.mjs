@@ -1,8 +1,8 @@
 import { EventEmitter, on } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import { stat } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { isAbsolute } from 'node:path';
+import { isAbsolute, normalize } from 'node:path';
 import { acpConnection } from './acp.mjs';
 import { projections, snapshot, summary, workspace } from './catalog.mjs';
 import { applyUpdate, beginTurn, finishTurn, record, replay } from './journal.mjs';
@@ -34,12 +34,15 @@ export function createWorkbench(id, label, resolveCommand, index) {
       if (history) history.push(update);
       else {
         applyUpdate(session, update);
-        if (update.sessionUpdate === 'config_option_update') configure(session, update);
+        if (update.sessionUpdate === 'config_option_update') {
+          configure(session, update);
+          publish(session);
+        }
         if (update.sessionUpdate === 'session_info_update' && update.title && session.title !== update.title) {
           session.title = update.title;
           record(session, 'wingmate/metadata', { title: session.title });
+          publish(session);
         }
-        publish(session);
       }
     },
     permission(params, signal) {
@@ -80,13 +83,16 @@ export function createWorkbench(id, label, resolveCommand, index) {
     let session = sessions.get(key);
     if (!session) {
       session = {
-        id: key, nativeId: info.sessionId, backend: id, cwd: info.cwd,
+        id: key, nativeId: info.sessionId, backend: id, cwd: normalize(info.cwd),
         title: info.title ?? label, createdAt: Date.now(), updatedAt: Date.parse(info.updatedAt) || Date.now(),
         blank: false, running: false, loaded: false, records: [], turn: 0, step: 1, revision: 0,
         events: new EventEmitter(), requests: new Set(),
       };
       session.events.setMaxListeners(0);
       sessions.set(key, session);
+    } else if (!session.running) {
+      session.title = info.title ?? session.title;
+      session.updatedAt = Math.max(session.updatedAt, Date.parse(info.updatedAt) || 0);
     }
     const project = ensureProject(info.cwd);
     if (!project.sessionIds.includes(key)) project.sessionIds.push(key);
@@ -186,8 +192,10 @@ export function createWorkbench(id, label, resolveCommand, index) {
 
   async function create(args) {
     const project = projects.get(args.workspaceId);
-    const cwd = args.cwd ?? project?.path;
-    if (!cwd || !isAbsolute(cwd) || !(await stat(cwd)).isDirectory()) throw new Error('Select an existing host directory');
+    const requested = args.cwd ?? project?.path;
+    if (!requested || !isAbsolute(requested)) throw new Error('Select an existing host directory');
+    const cwd = await realpath(requested);
+    if (!(await stat(cwd)).isDirectory()) throw new Error('Select an existing host directory');
     const existing = sessions.get(args.sessionId);
     if (existing?.cwd === cwd && existing.blank && !existing.running) return { sessionId: existing.id };
     const { agent } = await connection.connect();
@@ -240,6 +248,7 @@ export function createWorkbench(id, label, resolveCommand, index) {
     },
     async 'workspace/create'({ path }) {
       if (!isAbsolute(path) || !(await stat(path)).isDirectory()) throw new Error('Select an existing host directory');
+      path = await realpath(path);
       const candidate = workspace(id, path, new Date().toISOString());
       const created = !projects.has(candidate.workspaceId);
       const project = projects.get(candidate.workspaceId) ?? candidate;
@@ -339,7 +348,7 @@ export function createWorkbench(id, label, resolveCommand, index) {
     label,
     permissionOptions: () => permissionOptions,
     handles(endpoint) {
-      return /^(workspace|session|commands|skills)\//.test(endpoint)
+      return /^(workspace|session|commands|skills|messageFeedback)\//.test(endpoint)
         && !['session/openWorkspacePath', 'session/canOpenWorkspacePath', 'session/workspacePathApplications'].includes(endpoint);
     },
     async call(endpoint, args) {

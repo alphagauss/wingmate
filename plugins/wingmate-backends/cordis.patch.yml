@@ -1,0 +1,3 @@
+- insert:
+    - id: wingmate-backends
+      name: ./dist/host.mjs

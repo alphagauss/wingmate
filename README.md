@@ -10,6 +10,8 @@ Wingmate 是面向个人使用的 DeepSeek Harness 发行版，提供运行时�
 
 Word、PowerPoint 及部分扩展格式使用随包提供的 [File Viewer 侧栏预览](plugins/wingmate-file-viewer/README.md)，发行包已移除 LibreOffice 引擎。能力范围与相对原版的取舍见[运行时维护指南](docs/runtime-maintenance.md#去重与精简取舍)。
 
+侧栏底部可在 DSH 和 Codex 间切换工作台。Codex 通过主机安装的 ACP 适配器接入，安装方式和能力范围见[执行后端插件](plugins/wingmate-backends/README.md)。切换后原后端的任务继续运行。
+
 成品可单独复制运行，Windows 为 `target/release/wingmate.exe`，macOS 和 Linux 为 `target/release/wingmate`。打开桌面，在左下角账号菜单进入「设置 → 后台服务」，可查看、停止或重启后台，也可为当前用户启用 `wingmate` 和 `dsh` 终端命令。停止或重启业务会中断运行任务。后台停止后管理服务继续存在，可在 Wingmate 首页或 CLI 再次启动。`service-stop` 仅在业务已停止后退出管理服务，`service-restart` 显式切换管理服务组件。
 
 在终端运行 `wingmate --help` 或 `wingmate -h` 可查看后台管理命令。可执行文件尚未加入 PATH 时，用完整或相对路径调用，例如：
