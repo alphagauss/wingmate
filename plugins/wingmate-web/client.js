@@ -1,4 +1,4 @@
-import { registerPreinstalledItems } from './preinstalled.tsx';
+import { detailHeading, detailSection, registerPreinstalledItems } from './preinstalled.tsx';
 
 // DSH loads browser plugins as lazy factories and supplies the shared React runtime.
 window.__ModuleLoader__.load({
@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     const react = require('react');
     const { createElement: h, useEffect, useLayoutEffect, useState, useSyncExternalStore } = react;
     const {
-      Button, IconCopyOutlineRegular, IconFolderOpenOutlineRegular, Modal, Switch, Tag,
+      Button, IconCopyOutlineRegular, IconFolderOpenOutlineRegular, Input, Modal, Switch, Tag,
     } = require('@deepseek-ai/dsh-client-ui-primitives');
     const bridgeEvent = 'wingmate:backend-bridge';
     const getBridge = () => window.__WINGMATE_BACKEND__;
@@ -15,7 +15,7 @@ window.__ModuleLoader__.load({
     const getRemoteHost = () => remoteHost;
     const recovery = '/_wingmate/recovery';
     const detailStyle = { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, lineHeight: '18px' };
-    const alertStyle = { ...detailStyle, color: 'var(--dsw-alias-state-error-primary)' };
+    const alertStyle = { ...detailStyle, color: 'var(--dsw-alias-label-error)' };
     const valueStyle = { display: 'block', ...detailStyle, overflowWrap: 'anywhere' };
     const actionsStyle = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 };
     const rowStyle = {
@@ -28,8 +28,9 @@ window.__ModuleLoader__.load({
       return () => window.removeEventListener(bridgeEvent, update);
     }
 
-    function SettingRow({ label, children, control, last }) {
-      return h('div', { style: { ...rowStyle, borderBottom: last ? undefined : '0.5px solid var(--dsw-alias-border-l2)' } },
+    function SettingRow({ label, children, control, last, compact }) {
+      return h('div', { style: { ...rowStyle, padding: compact ? 0 : rowStyle.padding,
+        borderBottom: last ? undefined : '0.5px solid var(--dsw-alias-border-l2)' } },
         h('div', { style: { display: 'grid', gap: 4, minWidth: 0, flex: 1 } },
           h('div', { style: { fontSize: 14, lineHeight: '20px' } }, label),
           children,
@@ -79,13 +80,14 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function ShareSettings() {
+    function ShareSettings({ openSettings }) {
       const bridge = useSyncExternalStore(subscribe, getBridge);
       const share = bridge?.share;
       const [status, setStatus] = useState(null);
       const [address, setAddress] = useState('');
       const [pending, setPending] = useState(false);
-      const [message, setMessage] = useState('');
+      const [error, setError] = useState('');
+      const [copyStatus, setCopyStatus] = useState('');
 
       useEffect(() => {
         if (!share) return;
@@ -94,54 +96,87 @@ window.__ModuleLoader__.load({
           if (!active) return;
           setStatus(value);
           setAddress(value.suggested_address ?? '');
-        }).catch(error => { if (active) setMessage(String(error)); });
+        }).catch(failure => { if (active) setError(String(failure)); });
         return () => { active = false; };
       }, [share]);
 
-      if (!share) return null;
       async function run(command) {
         setPending(true);
-        setMessage('');
+        setError('');
+        setCopyStatus('');
         try { setStatus(await share(command)); }
-        catch (error) { setMessage(String(error)); }
+        catch (failure) { setError(String(failure)); }
         finally { setPending(false); }
       }
       async function copy() {
         try {
           await navigator.clipboard.writeText(status.pairing_url);
-          setMessage('配对链接已复制');
+          setCopyStatus('已复制');
         } catch {
-          setMessage('请手动复制配对链接');
+          setCopyStatus('请选中链接并手动复制');
         }
       }
 
-      return h('section', { 'aria-label': '局域网分享', style: { display: 'grid', gap: 8 } },
-        h('strong', null, '局域网分享'),
-        status?.address ? h('div', { style: actionsStyle },
-          h('code', { style: valueStyle }, 'http://' + status.address),
-          h(Button, { size: 'sm', disabled: pending, onClick: () => run({ action: 'pair' }) }, '生成配对链接'),
-          h(Button, { size: 'sm', disabled: pending, onClick: () => run({ action: 'disable' }) }, '关闭分享'),
-        ) : h('div', { style: actionsStyle },
-          h('input', {
-            'aria-label': '本机 IPv4 地址', placeholder: '本机 IPv4 地址',
-            value: address, onChange: event => setAddress(event.target.value), disabled: pending,
-          }),
-          h(Button, { size: 'sm', disabled: pending || !status, onClick: () => run({ action: 'enable', address: address.trim() || null }) }, '开启分享'),
+      const listening = Boolean(status?.address);
+      const fieldStyle = { width: '100%', minWidth: 0, boxSizing: 'border-box' };
+      return h(react.Fragment, null,
+        share && h('section', { 'aria-label': '局域网分享', style: detailSection },
+          h('h2', { style: detailHeading }, '局域网分享'),
+          h(SettingRow, {
+            label: '允许局域网访问', compact: true, last: true,
+            control: h(Switch, {
+              label: '允许局域网访问', checked: listening, disabled: pending || !status,
+              onChange: enabled => run(enabled ? { action: 'enable', address: address.trim() || null } : { action: 'disable' }),
+            }),
+          }, h('div', { style: detailStyle }, '允许已配对的设备访问本机工作台。')),
+          h('div', { style: { display: 'grid', gap: 5, width: 'min(100%, 320px)', fontSize: 14 } },
+            listening
+              ? h(react.Fragment, null, h('span', null, '监听地址'), h('code', { style: valueStyle }, 'http://' + status.address))
+              : h(react.Fragment, null,
+                h('label', { htmlFor: 'wingmate-share-address' }, '监听地址'),
+                h(Input, {
+                  id: 'wingmate-share-address', placeholder: '留空自动选择本机 IPv4', style: fieldStyle,
+                  value: address, onChange: event => setAddress(event.target.value), disabled: pending || !status,
+                }),
+              ),
+          ),
+          listening && h(SettingRow, {
+            label: '配对链接', compact: true, last: true,
+            control: h(Button, { size: 'sm', variant: 'outline', disabled: pending, onClick: () => run({ action: 'pair' }) }, '生成配对链接'),
+          }, h('div', { style: detailStyle }, '链接和二维码可供一台设备使用，有效期为 5 分钟。')),
+          status?.pairing_url && h('div', { style: { display: 'grid', gap: 8, width: 'min(100%, 420px)' } },
+            status.qr && h('img', {
+              src: 'data:image/svg+xml,' + encodeURIComponent(status.qr), width: 144, height: 144,
+              alt: '局域网配对二维码', style: { background: 'white', borderRadius: 8 },
+            }),
+            h('div', { style: { ...actionsStyle, flexWrap: 'nowrap' } },
+              h('div', { style: { flex: 1, minWidth: 0, display: 'grid' } }, h(Input, {
+                'aria-label': '配对链接', style: fieldStyle, readOnly: true, value: status.pairing_url,
+              })),
+              h(Button, { size: 'sm', variant: 'outline', icon: h(IconCopyOutlineRegular), disabled: pending, onClick: copy }, '复制'),
+            ),
+            copyStatus && h('div', { role: 'status', style: detailStyle }, copyStatus),
+          ),
+          error && h('div', { role: 'alert', style: alertStyle }, error),
         ),
-        status?.pairing_url && h('div', null,
-          h('img', { src: 'data:image/svg+xml,' + encodeURIComponent(status.qr), width: 192, height: 192, alt: '局域网配对二维码' }),
-          h('code', { style: valueStyle }, status.pairing_url),
-          h(Button, { size: 'sm', disabled: pending, onClick: copy }, '复制一次性链接'),
+        share && h('section', { 'aria-label': '已配对设备', style: detailSection },
+          h('div', { style: { ...actionsStyle, justifyContent: 'space-between' } },
+            h('h2', { style: detailHeading }, '已配对设备'),
+            h(Button, { size: 'sm', variant: 'ghost', disabled: pending || (!status && !error), onClick: () => run({ action: 'status' }) }, '刷新'),
+          ),
+          status?.devices.length === 0 && h('span', { style: detailStyle }, '暂无已配对设备'),
+          status?.devices.map((device, index) => h(SettingRow, {
+            key: device.id, label: device.id.slice(0, 8), last: index === status.devices.length - 1,
+            control: h(Button, { size: 'sm', variant: 'outline', disabled: pending, onClick: () => run({ action: 'revoke', id: device.id }) }, '撤销'),
+          }, h('div', { style: detailStyle }, new Date(device.paired_at * 1000).toLocaleString()))),
         ),
-        status?.devices.length > 0 && h('strong', null, '已配对设备'),
-        status?.devices.map(device => h('div', { key: device.id, style: actionsStyle },
-          h('span', { style: detailStyle }, device.id.slice(0, 8) + ' · ' + new Date(device.paired_at * 1000).toLocaleString()),
-          h(Button, { size: 'sm', disabled: pending, onClick: () => run({ action: 'revoke', id: device.id }) }, '撤销'),
-        )),
-        (status || message) && h('div', null,
-          h(Button, { size: 'sm', disabled: pending, onClick: () => run({ action: 'status' }) }, '刷新分享状态'),
+        openSettings && h('section', { style: detailSection, 'aria-label': '后台服务设置' },
+          h('h2', { style: detailHeading }, '后台服务'),
+          h(SettingRow, {
+            label: '运行与启动', compact: true, last: true,
+            control: h(Button, { size: 'sm', variant: 'outline', onClick: openSettings }, '打开设置'),
+          }, h('div', { style: detailStyle }, '查看运行状态，管理后台启停和本机命令。')),
         ),
-        message && h('div', { role: 'status', style: detailStyle }, message),
       );
     }
 
@@ -240,7 +275,7 @@ window.__ModuleLoader__.load({
             control: h(Button, {
               size: 'sm', variant: 'outline', disabled: pending,
               onClick: () => bridge.openConnections().catch(failure => setError(String(failure))),
-            }, '打开连接面板'),
+            }, '打开远程连接'),
           }),
         ),
         h(SettingRow, {

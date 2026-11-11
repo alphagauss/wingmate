@@ -73,8 +73,9 @@ function createDiagnosticsSource() {
 }
 
 const connectionLabels = {
-  unchecked: '尚未检查连接', connected: '最近一次连接成功', failed: '最近一次连接失败', disconnected: '连接已断开',
+  unchecked: '已找到适配器，尚未检查连接', connected: '最近一次连接成功', failed: '最近一次连接失败', disconnected: '连接已断开',
 };
+const diagnosticText = { fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-secondary)', overflowWrap: 'anywhere' } as const;
 const agentStatusEvent = 'wingmate:agent-status';
 function subscribeToAgentError(listener: () => void) {
   window.addEventListener(agentStatusEvent, listener);
@@ -176,22 +177,27 @@ window.__ModuleLoader__.load({
 
         function DiagnosticsPanel() {
           const { rows, checking, readFailed } = useDiagnostics();
-          return <div style={{ display: 'grid', gap: 8 }}>
-            {!rows && !readFailed && <div role="status">正在读取连接状态…</div>}
-            {readFailed && <div role="alert">无法读取连接状态，请重试。</div>}
+          return <div style={{ display: 'grid', gap: 12 }}>
+            {readFailed && <div role="alert" style={{ ...diagnosticText, color: 'var(--dsw-alias-label-error)' }}>无法读取连接状态，请重试。</div>}
             {agents.map(agent => {
               const row = rows?.find(item => item.id === agent.id);
-              return <div key={agent.id} style={{ display: 'grid', gap: 6 }}>
-                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-                  <strong>{agent.label}</strong>
-                  {row && <span role="status">{row.adapterAvailable
-                    ? `已找到适配器 · ${connectionLabels[row.connection]}` : '适配器不可用'}</span>}
+              return <div key={agent.id} style={{ display: 'grid', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 14, lineHeight: '20px' }}>{agent.label}</div>
+                    <div role="status" style={diagnosticText}>{row ? (row.adapterAvailable
+                      ? connectionLabels[row.connection] : '适配器不可用') : readFailed ? '连接状态未知' : '正在读取连接状态…'}</div>
+                  </div>
                   <Button size="sm" variant="outline" disabled={checking !== undefined}
                     onClick={() => { void diagnostics.request(agent.id); }}>{checking === agent.id ? '正在检查…' : '检查连接'}</Button>
                 </div>
-                {row?.detail && <div style={{ color: 'var(--dsw-alias-label-secondary)', overflowWrap: 'anywhere' }}>{row.detail}</div>}
-                {row && !row.adapterAvailable && agent.id === 'codex' && <div>
-                  在 Wingmate 主机上安装并登录 Codex，再运行 <code style={{ overflowWrap: 'anywhere' }}>npm install -g @agentclientprotocol/codex-acp@2.6.0</code>。
+                {row?.detail && <div style={diagnosticText}>{row.detail}</div>}
+                {row && !row.adapterAvailable && agent.id === 'codex' && <div style={diagnosticText}>
+                  在 Wingmate 主机上安装并登录 Codex，再运行：
+                  <code style={{ display: 'block', width: 'fit-content', marginTop: 6, padding: '5px 8px',
+                    borderRadius: 'var(--dsw-radius-sm, 8px)', background: 'var(--dsw-alias-interactive-bg-hover)' }}>
+                    npm install -g @agentclientprotocol/codex-acp@2.6.0
+                  </code>
                 </div>}
               </div>;
             })}

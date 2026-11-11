@@ -40,6 +40,9 @@ const plugins = [
 type Plugin = typeof plugins[number];
 const noPreviews: readonly Preview[] = [];
 const emptyRegistry: PreviewRegistry = { getSnapshot: () => noPreviews, subscribe: () => () => {} };
+export const detailSection = { display: 'grid', gap: 12 };
+export const detailHeading = { margin: 0, fontSize: 14, lineHeight: '20px', fontWeight: 600 };
+const detailText = { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, lineHeight: '18px' };
 
 function statusOf(entries: readonly InventoryEntry[] | undefined, plugin: Plugin) {
   if (!entries) return { label: '状态未知' };
@@ -51,7 +54,7 @@ function statusOf(entries: readonly InventoryEntry[] | undefined, plugin: Plugin
 }
 
 export function registerPreinstalledItems(ctx: ClientContext, react: typeof import('react'),
-  { Button, Tag }: Primitives, desktop: boolean, ShareSettings: ComponentType) {
+  { Button, Tag }: Primitives, desktop: boolean, ShareSettings: ComponentType<{ openSettings?: () => void }>) {
   const { createElement: h, useEffect, useState, useSyncExternalStore } = react;
 
   function Details({ plugin, renderSlot }: { plugin: Plugin; renderSlot: ItemProps['renderSlot'] }) {
@@ -73,21 +76,29 @@ export function registerPreinstalledItems(ctx: ClientContext, react: typeof impo
 
     const settings = desktop && plugin.id === 'dsh-wingmate-web' ? ctx.slots.entries('sidebar.settings')[0]?.store : undefined;
     const status = statusOf(entries, plugin);
-    return <div style={{ display: 'grid', gap: 12 }}>
-      {loading && <div role="status">正在读取插件状态…</div>}
-      {!loading && entries && <div><Tag tone={status.tone}>{status.label}</Tag></div>}
-      {!loading && !entries && <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        无法读取插件状态。
-        <Button size="sm" variant="outline" onClick={() => { setLoading(true); setRefresh(refresh + 1); }}>重试</Button>
-      </div>}
-      {plugin.id === 'dsh-wingmate-backends' && renderSlot('wingmate.preinstalled.backends', {})}
-      {extensions && <div>支持格式：{extensions.map(extension => `.${extension}`).join('、')}</div>}
-      {settings && <div>
-        <Button size="sm" variant="outline" onClick={() => settings.create().actions.openSection('wingmate-backend')}>
-          打开后台服务设置
-        </Button>
-      </div>}
-      {plugin.id === 'dsh-wingmate-web' && <ShareSettings />}
+    return <div style={{ display: 'grid', gap: 26 }}>
+      {plugin.id === 'dsh-wingmate-backends' && <section aria-label="连接检查" style={detailSection}>
+        <h2 style={detailHeading}>连接检查</h2>
+        {renderSlot('wingmate.preinstalled.backends', {})}
+      </section>}
+      {plugin.id === 'dsh-wingmate-file-viewer' && <section aria-label="支持格式" style={detailSection}>
+        <h2 style={detailHeading}>支持格式</h2>
+        {extensions?.length ? <ul style={{ display: 'flex', flexWrap: 'wrap', gap: 8, maxWidth: 520, listStyle: 'none', padding: 0, margin: 0 }}>
+          {extensions.map(extension => <li key={extension} style={{
+            ...detailText, padding: '3px 8px', borderRadius: 'var(--dsw-radius-sm, 8px)', background: 'var(--dsw-alias-interactive-bg-hover)',
+          }}><code>.{extension}</code></li>)}
+        </ul> : <span style={detailText}>尚未注册预览格式。</span>}
+      </section>}
+      {plugin.id === 'dsh-wingmate-web' && <ShareSettings openSettings={settings && (() => settings.create().actions.openSection('wingmate-backend'))} />}
+      <div style={{ ...detailText, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+        <span>插件状态</span>
+        {loading ? <span role="status">正在读取…</span>
+          : entries ? <Tag tone={status.tone}>{status.label}</Tag>
+            : <>
+              <span role="alert">无法读取</span>
+              <Button size="sm" variant="outline" onClick={() => { setLoading(true); setRefresh(refresh + 1); }}>重试</Button>
+            </>}
+      </div>
     </div>;
   }
 
