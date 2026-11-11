@@ -71,10 +71,12 @@ fn run() -> Result<()> {
             |state: &service::Snapshot| emit(BootstrapEvent::Ready(Box::new(state.clone())));
         if command.as_deref() == Some("internal-start") {
             service::start_with_progress(&home, report, ready)?;
-        } else if let Some(instance) = args.next() {
-            service::restart_instance_with_progress(&home, &instance, report, ready)?;
         } else {
-            service::restart_with_progress(&home, report, ready)?;
+            let target = args
+                .next()
+                .map(|value| serde_json::from_str(&value))
+                .transpose()?;
+            service::restart_with_progress(&home, target.as_ref(), report, ready)?;
         }
         return Ok(());
     }

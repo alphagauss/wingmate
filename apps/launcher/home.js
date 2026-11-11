@@ -8,6 +8,7 @@ const details = document.getElementById('details');
 const errorText = document.getElementById('error');
 const start = document.getElementById('start');
 const update = document.getElementById('update');
+const showRestart = document.getElementById('show-restart');
 const connectLocal = document.getElementById('connect-local');
 const local = location.protocol === 'tauri:' || location.hostname === 'tauri.localhost';
 
@@ -26,7 +27,15 @@ window.renderWingmateHome = ({ message, hint, waiting, error, actions }) => {
   errorText.textContent = error ?? '';
   start.hidden = actions !== 'retry' && actions !== 'start';
   start.textContent = actions === 'retry' ? '重试' : '启动后台';
-  update.hidden = actions !== 'update';
+  const idleUpdate = actions === 'update-idle';
+  update.hidden = actions !== 'update' && !idleUpdate;
+  if (!update.hidden) {
+    update.querySelector('[data-backend-action="continue"]').textContent = idleUpdate ? '继续并启动' : '继续使用';
+    showRestart.textContent = idleUpdate ? '更新并启动' : '重启并更新';
+    document.getElementById('restart-title').textContent = idleUpdate ? '更新管理服务并启动后台？' : '重启并更新后台？';
+    document.getElementById('restart-hint').textContent = idleUpdate ? '已启用的远程连接会短暂中断。' : '这会中断正在运行的任务。';
+    confirmation.querySelector('[data-backend-action="restart"]').textContent = idleUpdate ? '确认更新' : '确认重启';
+  }
   actionError.hidden = true;
   for (const button of controls) button.disabled = waiting;
 };
@@ -96,7 +105,7 @@ if (local) {
   refresh();
 }
 
-document.getElementById('show-restart').addEventListener('click', () => confirmation.showModal());
+showRestart.addEventListener('click', () => confirmation.showModal());
 // The modal makes elements outside it inert, including the custom window controls.
 confirmation.addEventListener('toggle', () => {
   const titlebar = document.querySelector('[data-wingmate-titlebar]');

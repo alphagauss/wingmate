@@ -8,13 +8,37 @@ use std::{
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
-pub use wingmate_service::host::{ShareCommand, ShareStatus};
+pub use wingmate_service::host::{ShareCommand, ShareStatus, Status as HostStatus};
 use wingmate_service::{engine, host, runtime::Runtime};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub enum BootstrapEvent {
     Stage(StartupStage),
     Ready(Box<Snapshot>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RestartTarget {
+    pub service: String,
+    pub business: Option<String>,
+}
+
+impl RestartTarget {
+    pub fn from_status(status: &HostStatus) -> Self {
+        Self {
+            service: status.instance.clone(),
+            business: status.business.as_ref().map(|state| state.instance.clone()),
+        }
+    }
+
+    pub fn matches(&self, status: &HostStatus) -> bool {
+        self.service == status.instance
+            && self.business.as_deref()
+                == status
+                    .business
+                    .as_ref()
+                    .map(|state| state.instance.as_str())
+    }
 }
 
 pub(crate) fn bootstrap_lock(home: &Path) -> Result<File> {
@@ -28,16 +52,7 @@ pub(crate) fn bootstrap_lock(home: &Path) -> Result<File> {
 }
 
 pub fn status(home: &Path) -> Result<Option<Snapshot>> {
-    match host::endpoint(home)? {
-        Some(endpoint) => Ok(host::call(&endpoint, "status", None)?.business),
-        None => {
-            anyhow::ensure!(
-                engine::status(home)?.is_none(),
-                "管理服务已退出，请使用 wingmate start 恢复连接"
-            );
-            Ok(None)
-        }
-    }
+    Ok(connection_status(home)?.and_then(|host| host.business))
 }
 
 pub fn share(home: &Path, command: &ShareCommand) -> Result<ShareStatus> {
@@ -124,7 +139,7 @@ fn prepare(home: &Path, report: impl Fn(StartupStage)) -> Result<()> {
 
 fn start_local(
     home: &Path,
-    expected: Option<&str>,
+    expected: Option<&RestartTarget>,
     restart: bool,
     report: impl Fn(StartupStage),
     ready: impl FnOnce(&Snapshot),
@@ -132,19 +147,26 @@ fn start_local(
     let _bootstrap = bootstrap_lock(home)?;
     report(StartupStage::Checking);
     let desired = crate::components::service_revision()?;
-    let mut endpoint = ensure_host(home)?;
+    let mut endpoint = if let Some(target) = expected {
+        let current = host::endpoint(home)?.context("原管理服务已退出，请重新检查")?;
+        anyhow::ensure!(
+            current.instance == target.service,
+            "管理服务实例已更换，请重新检查"
+        );
+        current
+    } else {
+        ensure_host(home)?
+    };
     let mut prepared = false;
     if restart {
         let current = host::call(&endpoint, "status", None)?;
-        let instance = expected.or_else(|| {
-            current
-                .business
-                .as_ref()
-                .map(|state| state.instance.as_str())
-        });
-        if let Some(instance) = instance {
+        anyhow::ensure!(
+            expected.is_none_or(|target| target.matches(&current)),
+            "后台实例已更换，请重新检查"
+        );
+        if let Some(state) = current.business {
             report(StartupStage::Stopping);
-            host::call(&endpoint, "stop", Some(instance))?;
+            host::call(&endpoint, "stop", Some(&state.instance))?;
         }
         if endpoint.revision != desired {
             report(StartupStage::Stopping);
@@ -210,7 +232,7 @@ fn start_local(
 
 fn start_client(
     home: &Path,
-    expected: Option<&str>,
+    expected: Option<&RestartTarget>,
     restart: bool,
     report: impl Fn(StartupStage),
     ready: impl FnOnce(&Snapshot),
@@ -228,8 +250,8 @@ fn start_client(
         } else {
             "internal-start"
         });
-        if let Some(instance) = expected {
-            command.arg(instance);
+        if let Some(target) = expected {
+            command.arg(serde_json::to_string(target)?);
         }
         let mut child = command
             .env("WINGMATE_HOME", home)
@@ -273,22 +295,15 @@ pub fn start_with_progress(
     start_client(home, None, false, report, ready)
 }
 pub fn restart(home: &Path) -> Result<Snapshot> {
-    start_client(home, None, true, |_| {}, |_| {})
+    restart_with_progress(home, None, |_| {}, |_| {})
 }
 pub fn restart_with_progress(
     home: &Path,
+    target: Option<&RestartTarget>,
     report: impl Fn(StartupStage),
     ready: impl FnOnce(&Snapshot),
 ) -> Result<Snapshot> {
-    start_client(home, None, true, report, ready)
-}
-pub fn restart_instance_with_progress(
-    home: &Path,
-    instance: &str,
-    report: impl Fn(StartupStage),
-    ready: impl FnOnce(&Snapshot),
-) -> Result<Snapshot> {
-    start_client(home, Some(instance), true, report, ready)
+    start_client(home, target, true, report, ready)
 }
 pub fn stop(home: &Path) -> Result<()> {
     stop_request(home, None)
@@ -311,10 +326,19 @@ fn stop_request(home: &Path, instance: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-pub fn host_status(home: &Path) -> Result<Option<host::Status>> {
+pub fn host_status(home: &Path) -> Result<Option<HostStatus>> {
     host::endpoint(home)?
         .map(|endpoint| host::call(&endpoint, "status", None))
         .transpose()
+}
+
+pub fn connection_status(home: &Path) -> Result<Option<HostStatus>> {
+    let host = host_status(home)?;
+    anyhow::ensure!(
+        host.is_some() || engine::status(home)?.is_none(),
+        "管理服务已退出，请使用 wingmate start 恢复连接"
+    );
+    Ok(host)
 }
 fn shutdown_endpoint(home: &Path, endpoint: &host::Endpoint) -> Result<()> {
     host::call(endpoint, "shutdown", None)?;

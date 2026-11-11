@@ -128,7 +128,7 @@ window.__ModuleLoader__.load({
               label: '允许局域网访问', checked: listening, disabled: pending || !status,
               onChange: enabled => run(enabled ? { action: 'enable', address: address.trim() || null } : { action: 'disable' }),
             }),
-          }, h('div', { style: detailStyle }, '允许已配对的设备访问本机工作台。')),
+          }, h('div', { style: detailStyle }, !status && !error ? '正在读取分享状态…' : '允许已配对的设备访问本机工作台。')),
           h('div', { style: { display: 'grid', gap: 5, width: 'min(100%, 320px)', fontSize: 14 } },
             listening
               ? h(react.Fragment, null, h('span', null, '监听地址'), h('code', { style: valueStyle }, 'http://' + status.address))
@@ -237,9 +237,9 @@ window.__ModuleLoader__.load({
           h('div', { role: 'status', style: detailStyle },
             bridge ? 'DSH ' + (bridge.dshVersion ?? bridge.version) : remote ? '当前远程主机' : '正在连接 Wingmate 桌面…',
           ),
-          bridge?.runtimeUpdate && h('div', { role: 'status', style: { ...actionsStyle, ...detailStyle } },
+          (bridge?.runtimeUpdate || bridge?.serviceUpdate) && h('div', { role: 'status', style: { ...actionsStyle, ...detailStyle } },
             h(Tag, { tone: 'warning' }, '待切换'),
-            h('span', null, '新运行包将在重启后台后启用。'),
+            h('span', null, `${[bridge.serviceUpdate && '管理服务', bridge.runtimeUpdate && 'DSH 运行包'].filter(Boolean).join('和')}将在重启后台后更新。`),
           ),
         ),
         bridge && h('div', null,

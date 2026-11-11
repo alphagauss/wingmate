@@ -69,13 +69,21 @@ impl CardStatus {
         }
     }
 
-    pub(super) fn update_available() -> Self {
+    pub(super) fn update_available(service: bool, runtime: bool, running: bool) -> Self {
         Self {
-            message: "有新的后台运行包可用",
-            hint: "可继续使用当前后台，或重启后台以启用新版功能。",
+            message: match (service, runtime) {
+                (true, true) => "管理服务和 DSH 运行包待更新",
+                (true, false) => "管理服务待更新",
+                _ => "DSH 运行包待更新",
+            },
+            hint: if running {
+                "可继续使用当前后台，或重启并更新。"
+            } else {
+                "可用当前管理服务启动 DSH，或先更新管理服务。"
+            },
             waiting: false,
             error: None,
-            actions: "update",
+            actions: if running { "update" } else { "update-idle" },
         }
     }
 }

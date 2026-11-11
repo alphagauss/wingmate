@@ -97,14 +97,14 @@
     <button class="actions primary" id="start" type="button" data-backend-action="start" hidden>启动后台</button>
     <button class="actions" id="connect-local" type="button" hidden>连接其他主机</button>
     <div class="actions" id="update" hidden>
-      <button class="primary" type="button" data-backend-action="continue">继续连接</button>
-      <button id="show-restart" type="button">重启后台以启用新版</button>
+      <button class="primary" type="button" data-backend-action="continue">继续使用</button>
+      <button id="show-restart" type="button">重启并更新</button>
     </div>
     <p id="action-error" role="alert" hidden></p>
   </main>
   <dialog id="restart-confirmation" aria-labelledby="restart-title">
-    <h2 id="restart-title">重启后台？</h2>
-    <p>这会中断正在运行的任务。</p>
+    <h2 id="restart-title">重启并更新后台？</h2>
+    <p id="restart-hint">这会中断正在运行的任务。</p>
     <form class="actions" method="dialog">
       <button autofocus>取消</button>
       <button class="primary" type="button" data-backend-action="restart">确认重启</button>

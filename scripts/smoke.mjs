@@ -333,6 +333,13 @@ try {
     assert.notEqual(newHost.revision, oldHost.revision);
     assert.notEqual(newHost.instance, oldHost.instance);
     assert.notEqual(newBusiness.instance, oldBusiness.instance);
+    for (const target of [
+      { service: oldHost.instance, business: newBusiness.instance },
+      { service: newHost.instance, business: oldBusiness.instance },
+    ]) {
+      assert.notEqual((await cli('internal-restart', false, JSON.stringify(target))).code, 0);
+    }
+    assert.equal((await cli('status')).instance, newBusiness.instance);
     await assert.rejects(access(join(env.WINGMATE_HOME, 'services', oldHost.revision.slice(0, 6))), { code: 'ENOENT' });
     assert.equal(newBusiness.runtime_revision, oldBusiness.runtime_revision);
     assert.equal(await readFile(reuseProbe, 'utf8'), 'keep');
@@ -340,7 +347,7 @@ try {
     assert.equal((await cli('start')).instance, newBusiness.instance);
     assert.equal((await cli('service-status')).revision, newHost.revision);
     await cli('stop');
-    checks.push('新服务组件不会自动替换旧实例，显式切换后回收旧组件，旧入口不降级服务');
+    checks.push('显式重启切换新服务并回收旧组件，拒绝指向已更换实例的确认');
   }
 } catch (error) {
   failure = error;

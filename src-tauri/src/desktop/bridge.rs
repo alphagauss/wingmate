@@ -76,7 +76,7 @@ pub(super) fn authorize(app: &AppHandle, origin: &str) -> tauri::Result<()> {
     )
 }
 
-pub(super) fn expose(window: &WebviewWindow, url: &Url, state: &Snapshot) {
+pub(super) fn expose(window: &WebviewWindow, url: &Url, state: &Snapshot, service_update: bool) {
     let Some(origin) = origin(state) else { return };
     if url.origin().ascii_serialization() != origin {
         return;
@@ -89,19 +89,21 @@ pub(super) fn expose(window: &WebviewWindow, url: &Url, state: &Snapshot) {
         state.url,
         state.dsh_home,
         state.runtime_revision.as_deref() != super::RUNTIME_REVISION,
+        service_update,
         startup::SUPPORTED,
         cli::SUPPORTED
     ]);
     // Old settings pages only know the version field.
     // Recheck in the document: navigation can change between PageLoad and eval.
     let _ = window.eval(&format!(
-        r#"(([origin, instance, dshVersion, webUrl, dshHome, runtimeUpdate, canRegisterStartup, canRegisterDsh]) => {{
+        r#"(([origin, instance, dshVersion, webUrl, dshHome, runtimeUpdate, serviceUpdate, canRegisterStartup, canRegisterDsh]) => {{
             if (window !== window.top || location.origin !== origin || window.__WINGMATE_BACKEND__) return;
             const invoke = window.__TAURI_INTERNALS__.invoke;
             Object.defineProperty(window, '__WINGMATE_BACKEND__', {{ value: Object.freeze({{
                 version: runtimeUpdate ? `${{dshVersion}} · 新运行包将在重启后台后启用` : dshVersion,
                 dshVersion,
                 runtimeUpdate,
+                serviceUpdate,
                 dshHome,
                 openDshHome: dshHome ? () => invoke('open_dsh_home', {{ instance }}) : undefined,
                 loginStartup: canRegisterStartup ? enabled => invoke('login_startup', {{ instance, enabled }}) : undefined,

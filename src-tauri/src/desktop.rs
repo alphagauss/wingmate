@@ -12,7 +12,7 @@ use startup_page::{CardStatus, StartupPage};
 use std::{
     cell::Cell,
     collections::HashSet,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -20,7 +20,7 @@ use tauri::{
     webview::PageLoadEvent, AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 use wingmate_launcher::{
-    service::{self, Snapshot, StartupStage},
+    service::{self, HostStatus, RestartTarget, Snapshot, StartupStage},
     RUNTIME_REVISION,
 };
 
@@ -29,13 +29,13 @@ enum View {
     #[default]
     Home,
     Workspace(Snapshot),
-    UpdateAvailable(String),
+    UpdateAvailable(RestartTarget),
 }
 
 enum Observation {
     Ignore,
     KeepPage { disconnected: bool },
-    Connect(Snapshot),
+    Connect(HostStatus),
     ShowHome(CardStatus),
 }
 
@@ -45,7 +45,8 @@ struct ConnectionState {
     active_operations: usize,
     exit_pending: bool,
     revision: u64,
-    last: Option<String>,
+    last: Option<RestartTarget>,
+    service_update: bool,
     view: View,
     authorized_origins: HashSet<String>,
     titlebar_theme: titlebar::Theme,
@@ -123,34 +124,57 @@ impl ConnectionState {
         &mut self,
         app: &tauri::AppHandle,
         page: &StartupPage,
-        state: Snapshot,
-        continue_instance: Option<&str>,
+        host: HostStatus,
+        desired_service: &str,
+        continued: bool,
     ) {
-        self.last = Some(state.instance.clone());
-        if state.runtime_revision.as_deref() != RUNTIME_REVISION
-            && continue_instance != Some(&state.instance)
-        {
-            self.view = View::UpdateAvailable(state.instance);
-            page.show(app, CardStatus::update_available());
-        } else if let Err(error) = self.open_workspace(app, page, state) {
-            self.view = View::Home;
+        let target = RestartTarget::from_status(&host);
+        self.last = Some(target.clone());
+        self.service_update = host.revision != desired_service;
+        let runtime_update = host
+            .business
+            .as_ref()
+            .is_some_and(|state| state.runtime_revision.as_deref() != RUNTIME_REVISION);
+        if !continued && (self.service_update || runtime_update) {
+            self.view = View::UpdateAvailable(target);
             page.show(
                 app,
-                CardStatus::failure(StartupStage::Connecting, format!("{error:#}")),
+                CardStatus::update_available(
+                    self.service_update,
+                    runtime_update,
+                    host.business.is_some(),
+                ),
             );
+        } else if let Some(state) = host.business {
+            if self
+                .workspace()
+                .is_some_and(|workspace| workspace.instance == state.instance)
+            {
+                return;
+            }
+            if let Err(error) = self.open_workspace(app, page, state) {
+                self.view = View::Home;
+                page.show(
+                    app,
+                    CardStatus::failure(StartupStage::Connecting, format!("{error:#}")),
+                );
+            }
+        } else {
+            self.view = View::Home;
+            page.show(app, CardStatus::stopped());
         }
     }
 
     fn finish_operation(
         &mut self,
         app: &tauri::AppHandle,
-        page: &StartupPage,
-        title: &str,
-        continue_instance: Option<&str>,
-        outcome: Result<Option<Snapshot>, CardStatus>,
+        desktop: &Desktop,
+        continued: bool,
+        outcome: Result<Option<HostStatus>, CardStatus>,
     ) {
+        let page = &desktop.page;
         match outcome {
-            Ok(Some(state)) => self.connect(app, page, state, continue_instance),
+            Ok(Some(state)) => self.connect(app, page, state, &desktop.service_revision, continued),
             Ok(None) => {
                 page.show(app, CardStatus::stopped());
                 self.last = None;
@@ -162,43 +186,54 @@ impl ConnectionState {
             }
         }
         if let Some(window) = desktop_window(app) {
-            titlebar::connection_title(&window, title, false);
+            titlebar::connection_title(&window, desktop.title, false);
         }
         self.busy = false;
     }
 
-    fn observe(&mut self, revision: u64, status: Result<Option<Snapshot>>) -> Observation {
+    fn observe(
+        &mut self,
+        revision: u64,
+        status: Result<Option<HostStatus>>,
+        desired_service: &str,
+    ) -> Observation {
         // 操作开始前发出的轮询不能覆盖操作结果。
         if self.observation_revision() != Some(revision) {
             return Observation::Ignore;
         }
         match status {
-            Ok(Some(state)) => match state.phase.as_str() {
-                "starting" | "stopping" => Observation::Ignore,
-                "running" if self.last.as_deref() != Some(&state.instance) => {
-                    Observation::Connect(state)
+            Ok(Some(host)) => {
+                let phase = host.business.as_ref().map(|state| state.phase.as_str());
+                if matches!(phase, Some("starting" | "stopping")) {
+                    return Observation::Ignore;
                 }
-                "running" => Observation::KeepPage {
-                    disconnected: false,
-                },
-                _ if !matches!(self.view, View::Home) => {
+                if phase == Some("running") || (phase.is_none() && host.revision != desired_service)
+                {
+                    return if self
+                        .last
+                        .as_ref()
+                        .is_some_and(|target| target.matches(&host))
+                    {
+                        Observation::KeepPage {
+                            disconnected: false,
+                        }
+                    } else {
+                        Observation::Connect(host)
+                    };
+                }
+                if let Some(state) = host.business {
+                    if matches!(self.view, View::Home) {
+                        return Observation::Ignore;
+                    }
                     self.view = View::Home;
-                    Observation::ShowHome(CardStatus::failure(
+                    return Observation::ShowHome(CardStatus::failure(
                         StartupStage::Connecting,
                         state.error.unwrap_or_else(|| "后台未运行".into()),
-                    ))
+                    ));
                 }
-                _ => Observation::KeepPage {
-                    disconnected: false,
-                },
-            },
-            Ok(None) => {
-                self.last = None;
-                match std::mem::take(&mut self.view) {
-                    View::Home => Observation::Ignore,
-                    _ => Observation::ShowHome(CardStatus::stopped()),
-                }
+                self.observe_stopped()
             }
+            Ok(None) => self.observe_stopped(),
             Err(_) if self.workspace().is_some() => {
                 // 短暂断连不销毁页面和输入草稿。
                 Observation::KeepPage { disconnected: true }
@@ -206,58 +241,94 @@ impl ConnectionState {
             Err(_) => Observation::Ignore,
         }
     }
+
+    fn observe_stopped(&mut self) -> Observation {
+        self.last = None;
+        match std::mem::take(&mut self.view) {
+            View::Home => Observation::Ignore,
+            _ => Observation::ShowHome(CardStatus::stopped()),
+        }
+    }
 }
 
 enum Operation {
     Start,
-    Continue(String),
+    Continue(RestartTarget),
     Stop(String),
-    Restart(String),
+    Restart(RestartTarget),
 }
 
 fn run_operation(
     app: &tauri::AppHandle,
-    page: &StartupPage,
-    home: &Path,
+    desktop: &Desktop,
     action: &Operation,
-    ready: impl FnOnce(Option<Snapshot>),
+    ready: impl FnOnce(Result<Option<HostStatus>, CardStatus>),
 ) -> Result<(), CardStatus> {
+    let home = &desktop.home;
     let stage = Cell::new(StartupStage::Checking);
     let report = |next| {
         stage.set(next);
-        page.show_progress(app, next);
+        desktop.page.show_progress(app, next);
     };
-    let result = match action {
-        Operation::Stop(instance) => {
-            report(StartupStage::Stopping);
-            service::stop_instance(home, instance).map(|()| ready(None))
-        }
-        Operation::Restart(instance) => {
-            service::restart_instance_with_progress(home, instance, report, |state| {
-                ready(Some(state.clone()))
-            })
-            .map(drop)
-        }
-        Operation::Start => {
-            service::start_with_progress(home, report, |state| ready(Some(state.clone()))).map(drop)
-        }
-        Operation::Continue(_) => {
-            report(StartupStage::Connecting);
-            service::status(home).and_then(|state| {
-                anyhow::ensure!(
-                    state.as_ref().is_none_or(|state| state.phase == "running"),
-                    "后台正在切换，请稍后重试"
-                );
-                ready(state);
-                Ok(())
-            })
-        }
+    let connected = |state: &Snapshot| {
+        (|| -> Result<Option<HostStatus>> {
+            let host =
+                service::host_status(home)?.ok_or_else(|| anyhow::anyhow!("管理服务已退出"))?;
+            anyhow::ensure!(
+                host.business.as_ref().is_some_and(
+                    |current| current.instance == state.instance && current.phase == "running"
+                ),
+                "业务后台实例已更换，请重新检查"
+            );
+            Ok(Some(host))
+        })()
+        .map_err(|error| CardStatus::failure(StartupStage::Connecting, format!("{error:#}")))
     };
+    let result = (|| -> Result<()> {
+        match action {
+            Operation::Stop(instance) => {
+                report(StartupStage::Stopping);
+                service::stop_instance(home, instance).map(|()| ready(Ok(None)))
+            }
+            Operation::Restart(target) => {
+                service::restart_with_progress(home, Some(target), report, |state| {
+                    ready(connected(state))
+                })
+                .map(drop)
+            }
+            Operation::Start => {
+                if let Some(host) = service::host_status(home)?.filter(|host| {
+                    host.business.is_none() && host.revision != desktop.service_revision
+                }) {
+                    ready(Ok(Some(host)));
+                    Ok(())
+                } else {
+                    service::start_with_progress(home, report, |state| ready(connected(state)))
+                        .map(drop)
+                }
+            }
+            Operation::Continue(target) => {
+                report(StartupStage::Connecting);
+                let host = service::host_status(home)?
+                    .ok_or_else(|| anyhow::anyhow!("管理服务已退出，请重新检查"))?;
+                anyhow::ensure!(target.matches(&host), "后台实例已更换，请重新检查");
+                if let Some(state) = &host.business {
+                    anyhow::ensure!(state.phase == "running", "后台正在切换，请稍后重试");
+                    ready(Ok(Some(host)));
+                    Ok(())
+                } else {
+                    service::start_with_progress(home, report, |state| ready(connected(state)))
+                        .map(drop)
+                }
+            }
+        }
+    })();
     result.map_err(|error| CardStatus::failure(stage.get(), format!("{error:#}")))
 }
 
 struct Desktop {
     home: PathBuf,
+    service_revision: String,
     window_label: String,
     title: &'static str,
     page: StartupPage,
@@ -270,19 +341,14 @@ fn desktop_window(app: &AppHandle) -> Option<WebviewWindow> {
 
 impl Desktop {
     fn run_operation(&self, app: &tauri::AppHandle, action: Operation) {
-        let continue_instance = match &action {
-            Operation::Continue(instance) => Some(instance.as_str()),
-            _ => None,
-        };
+        let continued = matches!(&action, Operation::Continue(_));
         let publish = |outcome| {
             let mut current = self.connection.lock().unwrap();
             if !current.exit_pending {
-                current.finish_operation(app, &self.page, self.title, continue_instance, outcome);
+                current.finish_operation(app, self, continued, outcome);
             }
         };
-        if let Err(status) = run_operation(app, &self.page, &self.home, &action, |state| {
-            publish(Ok(state));
-        }) {
+        if let Err(status) = run_operation(app, self, &action, publish) {
             publish(Err(status));
         }
         if self.connection.lock().unwrap().operation_finished() {
@@ -313,13 +379,13 @@ fn home_backend(
     let operation = match action.as_str() {
         "start" => Operation::Start,
         "continue" | "restart" => {
-            let View::UpdateAvailable(instance) = &current.view else {
+            let View::UpdateAvailable(target) = &current.view else {
                 return Err("没有待切换的后台，请重新连接".into());
             };
             if action == "continue" {
-                Operation::Continue(instance.clone())
+                Operation::Continue(target.clone())
             } else {
-                Operation::Restart(instance.clone())
+                Operation::Restart(target.clone())
             }
         }
         _ => return Err("未知的后台操作".into()),
@@ -341,7 +407,7 @@ fn manage_backend(
     current.connected_workspace(&window, &instance)?;
     let operation = match action.as_str() {
         "stop" => Operation::Stop(instance),
-        "restart" => Operation::Restart(instance),
+        "restart" => Operation::Restart(current.last.clone().ok_or("后台实例不可用，请重新连接")?),
         _ => return Err("未知的后台操作".into()),
     };
     if !current.begin_operation() {
@@ -355,6 +421,11 @@ fn manage_backend(
 }
 
 pub fn run(home: PathBuf) -> Result<()> {
+    let service_revision = match std::env::var("WINGMATE_SERVICE_REVISION") {
+        Ok(revision) => revision,
+        Err(std::env::VarError::NotPresent) => wingmate_launcher::components::service_revision()?,
+        Err(error) => return Err(error.into()),
+    };
     let primary = window_state::PrimaryWindow::claim(&home)?;
     let window_label = if primary.is_some() {
         "main".into()
@@ -370,6 +441,7 @@ pub fn run(home: PathBuf) -> Result<()> {
     connection.begin_operation();
     let desktop = Arc::new(Desktop {
         home,
+        service_revision,
         window_label,
         title,
         page: StartupPage::new(),
@@ -414,6 +486,7 @@ pub fn run(home: PathBuf) -> Result<()> {
                             current.titlebar.start(&window);
                         }
                         let workspace = current.workspace().cloned();
+                        let service_update = current.service_update;
                         let theme = current.titlebar_theme;
                         let navigation = current.titlebar.navigation();
                         let source = current
@@ -423,7 +496,7 @@ pub fn run(home: PathBuf) -> Result<()> {
                         drop(current);
                         if let (PageLoadEvent::Finished, Some(state)) = (event.event(), &workspace)
                         {
-                            bridge::expose(&window, event.url(), state);
+                            bridge::expose(&window, event.url(), state, service_update);
                         }
                         if let Some(source) = source {
                             titlebar::expose(&window, &source, theme, navigation);
@@ -485,20 +558,27 @@ pub fn run(home: PathBuf) -> Result<()> {
                 let Some(window) = desktop_window(&handle) else {
                     continue;
                 };
-                let status = service::status(&desktop.home);
+                let status = service::connection_status(&desktop.home);
                 let mut current = desktop.connection.lock().unwrap();
-                let disconnected = match current.observe(revision, status) {
-                    Observation::Ignore => continue,
-                    Observation::KeepPage { disconnected } => disconnected,
-                    Observation::Connect(state) => {
-                        current.connect(&handle, &desktop.page, state, None);
-                        false
-                    }
-                    Observation::ShowHome(status) => {
-                        desktop.page.show(&handle, status);
-                        false
-                    }
-                };
+                let disconnected =
+                    match current.observe(revision, status, &desktop.service_revision) {
+                        Observation::Ignore => continue,
+                        Observation::KeepPage { disconnected } => disconnected,
+                        Observation::Connect(state) => {
+                            current.connect(
+                                &handle,
+                                &desktop.page,
+                                state,
+                                &desktop.service_revision,
+                                false,
+                            );
+                            false
+                        }
+                        Observation::ShowHome(status) => {
+                            desktop.page.show(&handle, status);
+                            false
+                        }
+                    };
                 titlebar::connection_title(&window, title, disconnected);
             });
             Ok(())
@@ -520,7 +600,27 @@ pub fn run(home: PathBuf) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CardStatus, ConnectionState, Observation, Snapshot, StartupStage, View};
+    use super::{
+        CardStatus, ConnectionState, HostStatus, Observation, RestartTarget, Snapshot,
+        StartupStage, View,
+    };
+
+    const SERVICE: &str = "current-service-revision";
+
+    fn host(business: Option<Snapshot>) -> HostStatus {
+        HostStatus {
+            product: "wingmate-service".into(),
+            protocol: 1,
+            instance: "service".into(),
+            pid: 1,
+            revision: SERVICE.into(),
+            business,
+        }
+    }
+
+    fn target(instance: &str) -> RestartTarget {
+        RestartTarget::from_status(&host(Some(snapshot(instance, "running"))))
+    }
 
     fn snapshot(instance: &str, phase: &str) -> Snapshot {
         Snapshot {
@@ -542,67 +642,89 @@ mod tests {
     #[test]
     fn transient_disconnect_and_recovery_keep_the_current_workspace() {
         let mut connection = ConnectionState {
-            last: Some("current".into()),
+            last: Some(target("current")),
             view: View::Workspace(snapshot("current", "running")),
             ..ConnectionState::default()
         };
         let revision = connection.observation_revision().unwrap();
 
         assert!(matches!(
-            connection.observe(revision, Err(anyhow::anyhow!("connection lost"))),
+            connection.observe(revision, Err(anyhow::anyhow!("connection lost")), SERVICE),
             Observation::KeepPage { disconnected: true }
         ));
         for phase in ["starting", "stopping"] {
             assert!(matches!(
-                connection.observe(revision, Ok(Some(snapshot("current", phase)))),
+                connection.observe(
+                    revision,
+                    Ok(Some(host(Some(snapshot("current", phase))))),
+                    SERVICE
+                ),
                 Observation::Ignore
             ));
         }
         assert!(matches!(
-            connection.observe(revision, Ok(Some(snapshot("current", "running")))),
+            connection.observe(
+                revision,
+                Ok(Some(host(Some(snapshot("current", "running"))))),
+                SERVICE
+            ),
             Observation::KeepPage {
                 disconnected: false
             }
         ));
         assert_eq!(connection.workspace().unwrap().instance, "current");
         assert!(matches!(
-            connection.observe(revision, Ok(Some(snapshot("replacement", "running")))),
-            Observation::Connect(state) if state.instance == "replacement"
+            connection.observe(revision, Ok(Some(host(Some(snapshot("replacement", "running"))))), SERVICE),
+            Observation::Connect(state) if state.business.as_ref().is_some_and(|business| business.instance == "replacement")
+        ));
+    }
+
+    #[test]
+    fn an_idle_old_service_is_detected_and_a_replaced_service_requires_a_new_decision() {
+        let mut connection = ConnectionState::default();
+        let revision = connection.observation_revision().unwrap();
+        let mut service = host(None);
+        service.revision = "old-revision".into();
+        connection.last = Some(RestartTarget::from_status(&service));
+        service.instance = "replacement-service".into();
+        assert!(matches!(
+            connection.observe(revision, Ok(Some(service)), SERVICE),
+            Observation::Connect(host) if host.instance == "replacement-service" && host.business.is_none()
         ));
     }
 
     #[test]
     fn only_confirmed_stop_forgets_the_last_instance() {
         let mut connection = ConnectionState {
-            last: Some("current".into()),
-            view: View::UpdateAvailable("current".into()),
+            last: Some(target("current")),
+            view: View::UpdateAvailable(target("current")),
             ..ConnectionState::default()
         };
         let revision = connection.observation_revision().unwrap();
 
         assert!(matches!(
-            connection.observe(revision, Err(anyhow::anyhow!("connection lost"))),
+            connection.observe(revision, Err(anyhow::anyhow!("connection lost")), SERVICE),
             Observation::Ignore
         ));
         assert!(
-            matches!(connection.view, View::UpdateAvailable(ref instance) if instance == "current")
+            matches!(connection.view, View::UpdateAvailable(ref update) if update == &target("current"))
         );
         assert!(matches!(
-            connection.observe(revision, Ok(Some(snapshot("current", "failed")))),
+            connection.observe(revision, Ok(Some(host(Some(snapshot("current", "failed"))))), SERVICE),
             Observation::ShowHome(status) if status == CardStatus::failure(StartupStage::Connecting, "后台未运行".into())
         ));
         assert!(matches!(connection.view, View::Home));
-        assert_eq!(connection.last.as_deref(), Some("current"));
+        assert_eq!(connection.last, Some(target("current")));
 
-        connection.view = View::UpdateAvailable("current".into());
+        connection.view = View::UpdateAvailable(target("current"));
         assert!(matches!(
-            connection.observe(revision, Ok(None)),
+            connection.observe(revision, Ok(None), SERVICE),
             Observation::ShowHome(status) if status == CardStatus::stopped()
         ));
         assert!(matches!(connection.view, View::Home));
         assert_eq!(connection.last, None);
         assert!(matches!(
-            connection.observe(revision, Ok(None)),
+            connection.observe(revision, Ok(None), SERVICE),
             Observation::Ignore
         ));
     }
@@ -616,15 +738,15 @@ mod tests {
         assert!(!connection.begin_operation());
         assert_eq!(connection.observation_revision(), None);
         assert!(matches!(
-            connection.observe(revision, Ok(None)),
+            connection.observe(revision, Ok(None), SERVICE),
             Observation::Ignore
         ));
 
         connection.busy = false;
-        connection.last = Some("replacement".into());
+        connection.last = Some(target("replacement"));
         connection.view = View::Workspace(snapshot("replacement", "running"));
         assert!(matches!(
-            connection.observe(revision, Ok(None)),
+            connection.observe(revision, Ok(None), SERVICE),
             Observation::Ignore
         ));
         assert_eq!(connection.workspace().unwrap().instance, "replacement");

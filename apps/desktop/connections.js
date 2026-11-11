@@ -175,9 +175,11 @@ function selectTab(tab) {
     document.getElementById(item.getAttribute('aria-controls')).hidden = !selected;
   }
   message.textContent = '';
-  if (tab.id === 'share-tab') {
-    shareStatusRequest ??= updateShare('status').catch(error => {
+  if (tab.id === 'share-tab' && !shareStatusRequest) {
+    shareStatus.textContent = '正在读取分享状态…';
+    shareStatusRequest = updateShare('status').catch(error => {
       shareStatusRequest = undefined;
+      shareStatus.textContent = '无法读取分享状态';
       report(error);
     });
   }
