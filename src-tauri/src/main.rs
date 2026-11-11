@@ -12,7 +12,10 @@ fn main() {
                 .join(format!("wingmate{}", std::env::consts::EXE_SUFFIX)),
         );
     }
-    if let Err(error) = wingmate_launcher::directory().and_then(desktop::run) {
+    if let Err(error) = wingmate_launcher::directory().and_then(|home| {
+        let _lease = wingmate_launcher::components::desktop_lease(&home)?;
+        desktop::run(home)
+    }) {
         eprintln!("{error:#}");
         std::process::exit(1);
     }

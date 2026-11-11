@@ -93,7 +93,7 @@ try {
   assert.notEqual(host.pid, a.engine_pid);
   assert.equal(host.business.instance, a.instance);
   assert.ok(alive(host.pid));
-  const serviceBinary = await readFile(join(env.WINGMATE_HOME, 'services', host.revision,
+  const serviceBinary = await readFile(join(env.WINGMATE_HOME, 'services', host.revision.slice(0, 6),
     `wingmate-service${process.platform === 'win32' ? '.exe' : ''}`));
   const componentsDirectory = fileURLToPath(new URL('../work/build/runtime/', import.meta.url));
   const componentsManifest = JSON.parse(await readFile(join(componentsDirectory, 'manifest.json'), 'utf8'));
@@ -328,13 +328,12 @@ try {
     assert.equal((await cli('start')).instance, oldBusiness.instance);
     assert.equal((await cli('service-status')).instance, oldHost.instance);
     assert.notEqual((await cli('service-restart', false)).code, 0);
-    await cli('stop');
-    await cli('service-restart');
+    const newBusiness = await cli('restart');
     const newHost = await cli('service-status');
     assert.notEqual(newHost.revision, oldHost.revision);
     assert.notEqual(newHost.instance, oldHost.instance);
-    await assert.rejects(access(join(env.WINGMATE_HOME, 'services', oldHost.revision)), { code: 'ENOENT' });
-    const newBusiness = await cli('start');
+    assert.notEqual(newBusiness.instance, oldBusiness.instance);
+    await assert.rejects(access(join(env.WINGMATE_HOME, 'services', oldHost.revision.slice(0, 6))), { code: 'ENOENT' });
     assert.equal(newBusiness.runtime_revision, oldBusiness.runtime_revision);
     assert.equal(await readFile(reuseProbe, 'utf8'), 'keep');
     activeExecutable = executable;

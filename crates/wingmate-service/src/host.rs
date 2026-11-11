@@ -18,6 +18,7 @@ use std::{
 };
 
 const PRODUCT: &str = "wingmate-service";
+// 已发行服务使用这套发现格式和 /rpc 的 status、stop、shutdown 完成跨版本交接。
 const PROTOCOL: u32 = 1;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -123,8 +124,19 @@ fn call_local<T: serde::de::DeserializeOwned>(
         .header("X-Wingmate-Instance", &endpoint.instance)
         .json(body)
         .send()?;
-    if !response.status().is_success() {
-        anyhow::bail!("{}", response.text()?);
+    let status = response.status();
+    if !status.is_success() {
+        if path == "/share" && status == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!(
+                "当前管理服务版本不支持局域网分享，请重启后台以更新管理服务（wingmate restart）"
+            );
+        }
+        let message = response.text()?;
+        anyhow::ensure!(
+            !message.trim().is_empty(),
+            "管理服务请求失败（HTTP {status}）"
+        );
+        anyhow::bail!("{message}");
     }
     Ok(response.json()?)
 }

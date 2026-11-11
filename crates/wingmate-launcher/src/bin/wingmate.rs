@@ -34,7 +34,7 @@ fn run() -> Result<()> {
     anyhow::ensure!(remaining.len() <= max, "命令参数过多");
     let mut args = remaining.into_iter();
     if matches!(command.as_deref(), Some("--help" | "-h")) {
-        println!("用法: wingmate [命令]\n\n无参数         打开桌面\nstart          准备运行内容并启动业务后台\nstatus         查看业务后台状态\nstop           停止业务后台，保留管理服务\nrestart        重启业务后台并切换运行内容\nservice-status 查看管理服务状态\nservice-start  启动管理服务\nservice-stop   业务停止后退出管理服务\nservice-restart 业务停止后切换管理服务版本\nshare-status   查看局域网分享状态\nshare-enable [IPv4] 开启局域网分享\nshare-disable  关闭局域网分享\nshare-pair     生成一次性配对链接\nshare-revoke <设备 ID> 撤销已配对设备\ncommands [on|off] 注册或撤销终端命令\nlogin-startup [on|off] 设置登录启动\n-h, --help     显示帮助");
+        println!("用法: wingmate [命令]\n\n无参数         打开桌面\nstart          准备运行内容并启动业务后台\nstatus         查看业务后台状态\nstop           停止业务后台，保留管理服务\nrestart        重启业务后台并切换变更的服务和运行内容\nservice-status 查看管理服务状态\nservice-start  启动管理服务\nservice-stop   业务停止后退出管理服务\nservice-restart 业务停止后切换管理服务版本\nshare-status   查看局域网分享状态\nshare-enable [IPv4] 开启局域网分享\nshare-disable  关闭局域网分享\nshare-pair     生成一次性配对链接\nshare-revoke <设备 ID> 撤销已配对设备\ncommands [on|off] 注册或撤销终端命令\nlogin-startup [on|off] 设置登录启动\n-h, --help     显示帮助");
         return Ok(());
     }
     let home = wingmate_launcher::directory()?;
@@ -122,13 +122,7 @@ fn run() -> Result<()> {
         None => {
             #[cfg(feature = "desktop")]
             {
-                let desktop = wingmate_launcher::desktop_component(&home)?;
-                let mut command = std::process::Command::new(desktop);
-                command
-                    .env("WINGMATE_LAUNCHER", std::env::current_exe()?)
-                    .env("WINGMATE_HOME", &home);
-                command.spawn()?;
-                return Ok(());
+                return wingmate_launcher::open_desktop(&home);
             }
             #[cfg(not(feature = "desktop"))]
             bail!("此构建不包含桌面，请使用 wingmate --help 查看命令");

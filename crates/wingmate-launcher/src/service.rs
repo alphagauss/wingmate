@@ -3,7 +3,7 @@ use anyhow::{Context, Result};
 pub use engine::{operation_lock, Snapshot, StartupStage};
 use std::{
     fs::{File, OpenOptions},
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Write},
     path::Path,
     process::{Command, Stdio},
     time::{Duration, Instant},
@@ -17,7 +17,7 @@ pub enum BootstrapEvent {
     Ready(Box<Snapshot>),
 }
 
-fn bootstrap_lock(home: &Path) -> Result<File> {
+pub(crate) fn bootstrap_lock(home: &Path) -> Result<File> {
     let file = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -83,9 +83,6 @@ fn ensure_host(home: &Path) -> Result<host::Endpoint> {
                     endpoint.pid == child.id() && endpoint.revision == host::revision(&binary)?,
                     "启动期间管理服务实例已更换"
                 );
-                if let Err(error) = crate::components::cleanup_services(home, &binary) {
-                    eprintln!("旧服务组件清理失败: {error:#}");
-                }
                 return Ok(endpoint);
             }
         }
@@ -134,10 +131,30 @@ fn start_local(
 ) -> Result<Snapshot> {
     let _bootstrap = bootstrap_lock(home)?;
     report(StartupStage::Checking);
-    let endpoint = ensure_host(home)?;
+    let desired = crate::components::service_revision()?;
+    let mut endpoint = ensure_host(home)?;
+    let mut prepared = false;
     if restart {
-        report(StartupStage::Stopping);
-        host::call(&endpoint, "stop", expected)?;
+        let current = host::call(&endpoint, "status", None)?;
+        let instance = expected.or_else(|| {
+            current
+                .business
+                .as_ref()
+                .map(|state| state.instance.as_str())
+        });
+        if let Some(instance) = instance {
+            report(StartupStage::Stopping);
+            host::call(&endpoint, "stop", Some(instance))?;
+        }
+        if endpoint.revision != desired {
+            report(StartupStage::Stopping);
+            shutdown_endpoint(home, &endpoint).context("退出旧管理服务失败")?;
+            prepare(home, &report)?;
+            prepared = true;
+            report(StartupStage::Starting);
+            endpoint = ensure_host(home).context("启动新版管理服务失败")?;
+            anyhow::ensure!(endpoint.revision == desired, "管理服务指纹未切换");
+        }
     }
     let state = if let Some(state) = host::call(&endpoint, "status", None)?.business {
         report(StartupStage::Connecting);
@@ -156,17 +173,36 @@ fn start_local(
         anyhow::ensure!(state.phase == "running", "业务后台正在停止，请稍后重试");
         state
     } else {
-        prepare(home, &report)?;
+        if !prepared {
+            prepare(home, &report)?;
+        }
         report(StartupStage::Starting);
         host::call(&endpoint, "start", None)?
             .business
             .context("业务后台未就绪")?
     };
+    anyhow::ensure!(
+        !restart
+            || (endpoint.revision == desired
+                && state.runtime_revision.as_deref() == crate::RUNTIME_REVISION),
+        "启动的后台与目标组件不一致，请重新连接"
+    );
     ready(&state);
-    let _operation = operation_lock(home)?;
-    if let Some(current) = engine::status(home)? {
-        if current.instance == state.instance {
-            crate::runtime::cleanup_after_ready(home, &current);
+    if endpoint.revision == desired {
+        let cleanup = (|| -> Result<()> {
+            let _operation = operation_lock(home)?;
+            if let Some(current) = engine::status(home)?.filter(|current| {
+                current.instance == state.instance
+                    && current.phase == "running"
+                    && current.runtime_revision.as_deref() == crate::RUNTIME_REVISION
+            }) {
+                crate::runtime::cleanup_after_ready(home, &current);
+                crate::components::cleanup_services(home, &desired)?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = cleanup {
+            log_cleanup_error(home, error);
         }
     }
     Ok(state)
@@ -280,26 +316,45 @@ pub fn host_status(home: &Path) -> Result<Option<host::Status>> {
         .map(|endpoint| host::call(&endpoint, "status", None))
         .transpose()
 }
-fn shutdown_locked(home: &Path) -> Result<()> {
-    if let Some(endpoint) = host::endpoint(home)? {
-        host::call(&endpoint, "shutdown", None)?;
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while host::try_lock(home)?.is_none() {
-            anyhow::ensure!(Instant::now() < deadline, "管理服务尚未退出");
-            std::thread::sleep(Duration::from_millis(50));
-        }
+fn shutdown_endpoint(home: &Path, endpoint: &host::Endpoint) -> Result<()> {
+    host::call(endpoint, "shutdown", None)?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while host::try_lock(home)?.is_none() {
+        anyhow::ensure!(Instant::now() < deadline, "管理服务尚未退出");
+        std::thread::sleep(Duration::from_millis(50));
     }
     Ok(())
 }
 pub fn shutdown(home: &Path) -> Result<()> {
     let _bootstrap = bootstrap_lock(home)?;
-    shutdown_locked(home)
+    if let Some(endpoint) = host::endpoint(home)? {
+        shutdown_endpoint(home, &endpoint)?;
+    }
+    Ok(())
 }
 pub fn restart_host(home: &Path) -> Result<()> {
     let _bootstrap = bootstrap_lock(home)?;
-    shutdown_locked(home)?;
-    ensure_host(home)?;
+    let desired = crate::components::service_revision()?;
+    if let Some(endpoint) = host::endpoint(home)? {
+        shutdown_endpoint(home, &endpoint)?;
+    }
+    let endpoint = ensure_host(home)?;
+    anyhow::ensure!(endpoint.revision == desired, "管理服务指纹未切换");
+    if let Err(error) = crate::components::cleanup_services(home, &desired) {
+        log_cleanup_error(home, error);
+    }
     Ok(())
+}
+
+fn log_cleanup_error(home: &Path, error: anyhow::Error) {
+    let message = format!("组件清理失败，下次启动重试: {error:#}");
+    eprintln!("{message}");
+    if let Ok(mut log) = OpenOptions::new()
+        .append(true)
+        .open(home.join("service.log"))
+    {
+        let _ = writeln!(log, "{message}");
+    }
 }
 
 pub fn start_host(home: &Path) -> Result<()> {
