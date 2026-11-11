@@ -18,7 +18,7 @@
 
 先按变更范围执行静态检查和相关自动化测试。需要运行时证据时，先读 [运行时调试](docs/runtime-debugging.md)，优先使用 Wingmate CLI、日志、进程证据和真实 Tauri WebView 的 CDP。Computer Use 仅在这些手段和人工反馈都无法提供必要的原生界面证据时兜底，使用前说明缺少的证据。
 
-开发调试默认使用当前工作副本的 dev 模式，可按任务需要修改或清理 dev 模式产生的运行数据。
+开发模式、构建目录和应用占用的处理见[本地开发与构建](docs/runtime-debugging.md#本地开发与构建)。
 
 ## Git 提交约定
 

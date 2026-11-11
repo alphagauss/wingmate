@@ -38,7 +38,7 @@ pnpm build
 pnpm build --headless
 ```
 
-`pnpm dev` 复用 DSH 依赖并准备插件运行目录，再启动桌面，开发后台和正式后台可以同时运行。开发窗口关闭后，运行 `pnpm dev:stop` 可以停止本工作副本的业务和管理服务。依赖复用与自动清理见 [运行时维护指南](docs/runtime-maintenance.md#打包范围与所有权)，数据目录见 [服务模块](crates/wingmate-service/README.md#数据与管理边界)。
+开发模式、构建目录和停机步骤见[本地开发与构建](docs/runtime-debugging.md#本地开发与构建)。依赖复用与自动清理见[运行时维护指南](docs/runtime-maintenance.md#打包范围与所有权)。
 
 验证入口：
 
