@@ -1,5 +1,7 @@
 //! 同一用户的本机管理端点；运行资源由发行入口准备。
 use crate::engine::{self, Snapshot};
+use crate::gateway;
+pub use crate::gateway::{Command as ShareCommand, ShareStatus};
 use anyhow::{Context, Result};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
@@ -82,24 +84,14 @@ pub fn endpoint(home: &Path) -> Result<Option<Endpoint>> {
 }
 
 pub fn call(endpoint: &Endpoint, action: &str, expected_instance: Option<&str>) -> Result<Status> {
-    let client = reqwest::blocking::Client::builder()
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(180))
-        .build()?;
-    let response = client
-        .post(format!("http://127.0.0.1:{}/rpc", endpoint.port))
-        .bearer_auth(&endpoint.token)
-        .header("X-Wingmate-Instance", &endpoint.instance)
-        .json(&Request {
+    let state: Status = call_local(
+        endpoint,
+        "/rpc",
+        &Request {
             action: action.into(),
             expected_instance: expected_instance.map(str::to_owned),
-        })
-        .send()?;
-    if !response.status().is_success() {
-        anyhow::bail!("{}", response.text()?);
-    }
-    let state: Status = response.json()?;
+        },
+    )?;
     anyhow::ensure!(
         state.product == endpoint.product
             && state.protocol == endpoint.protocol
@@ -109,6 +101,32 @@ pub fn call(endpoint: &Endpoint, action: &str, expected_instance: Option<&str>) 
         "管理服务身份检查失败"
     );
     Ok(state)
+}
+
+pub fn share(endpoint: &Endpoint, command: &ShareCommand) -> Result<ShareStatus> {
+    call_local(endpoint, "/share", command)
+}
+
+fn call_local<T: serde::de::DeserializeOwned>(
+    endpoint: &Endpoint,
+    path: &str,
+    body: &impl Serialize,
+) -> Result<T> {
+    let client = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(180))
+        .build()?;
+    let response = client
+        .post(format!("http://127.0.0.1:{}{path}", endpoint.port))
+        .bearer_auth(&endpoint.token)
+        .header("X-Wingmate-Instance", &endpoint.instance)
+        .json(body)
+        .send()?;
+    if !response.status().is_success() {
+        anyhow::bail!("{}", response.text()?);
+    }
+    Ok(response.json()?)
 }
 
 pub fn revision(executable: &Path) -> Result<String> {
@@ -141,13 +159,15 @@ pub fn run(home: &Path) -> Result<()> {
     });
     let stopping = Arc::new(AtomicBool::new(false));
     let mutations = Arc::new(Mutex::new(()));
+    let gateway = Arc::new(gateway::Control::new(home.to_owned())?);
     let mut workers = Vec::new();
     for _ in 0..4 {
-        let (server, endpoint, stopping, mutations, home) = (
+        let (server, endpoint, stopping, mutations, gateway, home) = (
             server.clone(),
             endpoint.clone(),
             stopping.clone(),
             mutations.clone(),
+            gateway.clone(),
             home.to_owned(),
         );
         workers.push(std::thread::spawn(move || -> Result<()> {
@@ -161,28 +181,34 @@ pub fn run(home: &Path) -> Result<()> {
                         .iter()
                         .any(|header| header.field.equiv(name) && header.value.as_str() == value)
                 };
-                let code =
-                    if request.method() != &tiny_http::Method::Post || request.url() != "/rpc" {
-                        404
-                    } else if !authorized("Authorization", &format!("Bearer {}", endpoint.token))
-                        || !authorized("X-Wingmate-Instance", &endpoint.instance)
-                    {
-                        401
-                    } else if !request
-                        .body_length()
-                        .is_some_and(|length| length > 0 && length <= 4096)
-                    {
-                        400
-                    } else {
-                        200
-                    };
+                let share = request.url() == "/share";
+                let code = if request.method() != &tiny_http::Method::Post
+                    || (!share && request.url() != "/rpc")
+                {
+                    404
+                } else if !authorized("Authorization", &format!("Bearer {}", endpoint.token))
+                    || !authorized("X-Wingmate-Instance", &endpoint.instance)
+                {
+                    401
+                } else if !request
+                    .body_length()
+                    .is_some_and(|length| length > 0 && length <= 4096)
+                {
+                    400
+                } else {
+                    200
+                };
                 if code != 200 {
                     let _ = request.respond(tiny_http::Response::empty(code));
                     continue;
                 }
-                let result = (|| -> Result<Status> {
+                let result = (|| -> Result<String> {
                     let mut body = String::new();
                     request.as_reader().take(4097).read_to_string(&mut body)?;
+                    if share {
+                        let state = gateway.call(serde_json::from_str(&body)?)?;
+                        return Ok(serde_json::to_string(&state)?);
+                    }
                     let command: Request = serde_json::from_str(&body)?;
                     if command.action != "status" {
                         let _mutation = mutations
@@ -221,17 +247,17 @@ pub fn run(home: &Path) -> Result<()> {
                             _ => anyhow::bail!("未知管理操作"),
                         }
                     }
-                    Ok(Status {
+                    Ok(serde_json::to_string(&Status {
                         product: endpoint.product.clone(),
                         protocol: PROTOCOL,
                         instance: endpoint.instance.clone(),
                         pid: endpoint.pid,
                         revision: endpoint.revision.clone(),
                         business: engine::status(&home)?,
-                    })
+                    })?)
                 })();
                 let (code, body) = match result {
-                    Ok(state) => (200, serde_json::to_string(&state)?),
+                    Ok(body) => (200, body),
                     Err(error) => (409, format!("{error:#}")),
                 };
                 let _ = request.respond(

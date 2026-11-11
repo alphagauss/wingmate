@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>连接 Wingmate</title>
+<style>
+  :root { color-scheme: light dark; font: 16px system-ui, sans-serif; }
+  body { display: grid; min-height: 100dvh; margin: 0; place-items: center; }
+  main { margin: 1.5rem; max-width: 26rem; }
+</style>
+<main>
+  <h1>连接 Wingmate</h1>
+  <p id="message" role="status">正在配对…</p>
+</main>
+<script>
+  (async () => {
+    const message = document.getElementById('message');
+    const code = location.hash.slice(1);
+    history.replaceState(null, '', location.pathname);
+    if (!code) {
+      message.textContent = '请在主机上生成配对链接或扫描二维码。';
+      return;
+    }
+    try {
+      const response = await fetch(location.pathname, { method: 'POST', body: code });
+      if (!response.ok) {
+        message.textContent = '配对未成功，请从主机获取新的链接。';
+        return;
+      }
+      location.replace('/');
+    } catch {
+      message.textContent = '无法连接主机，请检查网络并重新打开配对链接。';
+    }
+  })();
+</script>
+</html>

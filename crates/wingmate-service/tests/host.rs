@@ -3,6 +3,8 @@ use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
+    io::{BufRead, BufReader, Write},
+    net::{Ipv4Addr, TcpStream},
     path::Path,
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
@@ -53,9 +55,33 @@ fn runtime(home: &Path) -> Result<()> {
     fs::write(
         entry,
         r#"
-console.log('dsh web: http://127.0.0.1:12345/?token=test');
+const { createServer } = require('node:http');
+const { createHash } = require('node:crypto');
+const server = createServer(async (request, response) => {
+  if (request.url === '/?token=test') {
+    response.writeHead(303, { 'set-cookie': 'dsh_test=owner; Path=/', location: '/' });
+    response.end();
+    return;
+  }
+  if (request.headers.cookie !== 'dsh_test=owner') {
+    response.writeHead(401).end();
+    return;
+  }
+  response.setHeader('set-cookie', 'dsh_test=hidden; Path=/');
+  response.setHeader('content-type', 'application/octet-stream');
+  for await (const chunk of request) response.write(chunk);
+  response.end('DSH');
+});
+server.on('upgrade', (request, socket) => {
+  if (request.headers.cookie !== 'dsh_test=owner') return socket.destroy();
+  const accept = createHash('sha1').update(request.headers['sec-websocket-key'] +
+    '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+  socket.write('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n' +
+    'Sec-WebSocket-Accept: ' + accept + '\r\n\r\n');
+});
+server.listen(0, '127.0.0.1', () => console.log('dsh web: http://127.0.0.1:' +
+  server.address().port + '/?token=test'));
 process.on('SIGTERM', () => process.exit(0));
-setInterval(() => {}, 1000);
 "#,
     )?;
     let paths = directory.join("node_modules/@deepseek-ai/dsh-home-paths");
@@ -85,6 +111,110 @@ setInterval(() => {}, 1000);
     };
     runtime.validate(home)?;
     host::publish(&home.join("runtime.json"), &runtime)
+}
+
+#[test]
+fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> Result<()> {
+    use host::ShareCommand::{Disable, Enable, Pair, Revoke, Status};
+    let home = tempfile::tempdir()?;
+    runtime(home.path())?;
+    let child = spawn(home.path())?;
+    let guard = Host { child, home };
+    let endpoint = wait(guard.home.path())?;
+    let share = |command| host::share(&endpoint, &command);
+    assert!(share(Status)?.address.is_none());
+    let address = share(Enable {
+        address: Some(Ipv4Addr::LOCALHOST),
+    })?
+    .address
+    .unwrap();
+    let origin = format!("http://{address}");
+    let url = |path: &str| format!("{origin}{path}");
+    let client = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(5))
+        .build()?;
+    assert_eq!(client.get(url("/")).send()?.status(), 401);
+    assert_eq!(
+        client
+            .get(url("/"))
+            .header("Host", "unrelated.invalid")
+            .send()?
+            .status(),
+        421
+    );
+    let link = share(Pair)?.pairing_url.unwrap();
+    let (pair, code) = link.split_once('#').unwrap();
+    let exchange = |origin: &str| {
+        client
+            .post(pair)
+            .header("Origin", origin)
+            .body(code.to_owned())
+            .send()
+    };
+    assert_eq!(exchange("http://unrelated.invalid")?.status(), 403);
+    let paired = exchange(&origin)?;
+    assert_eq!(paired.status(), 204);
+    let cookie = paired.headers()["set-cookie"]
+        .to_str()?
+        .split(';')
+        .next()
+        .unwrap();
+    assert_eq!(exchange(&origin)?.status(), 401);
+    assert_eq!(
+        client
+            .get(url("/"))
+            .header("Cookie", cookie)
+            .send()?
+            .status(),
+        503
+    );
+    let business = host::call(&endpoint, "start", None)?.business.unwrap();
+    let upload = client
+        .post(url("/file"))
+        .header("Cookie", cookie)
+        .header("Origin", &origin)
+        .body(vec![0, 1, 255])
+        .send()?;
+    assert_eq!(upload.status(), 200);
+    assert!(!upload.headers().contains_key("set-cookie"));
+    assert_eq!(upload.bytes()?.as_ref(), &[0, 1, 255, b'D', b'S', b'H']);
+    assert_eq!(
+        client
+            .get(url("/"))
+            .header("Cookie", cookie)
+            .header("Origin", "http://unrelated.invalid")
+            .send()?
+            .status(),
+        403
+    );
+    let mut socket = TcpStream::connect(address)?;
+    socket.set_read_timeout(Some(Duration::from_secs(5)))?;
+    write!(socket, "GET /api/remote.mux HTTP/1.1\r\nHost: {address}\r\nOrigin: {origin}\r\nCookie: {cookie}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")?;
+    let mut socket = BufReader::new(socket);
+    let mut line = String::new();
+    socket.read_line(&mut line)?;
+    assert!(line.starts_with("HTTP/1.1 101 "), "{line}");
+    while line != "\r\n" {
+        line.clear();
+        assert_ne!(socket.read_line(&mut line)?, 0);
+    }
+    let id = share(Status)?.devices[0].id;
+    share(Revoke { id })?;
+    assert_eq!(socket.read_line(&mut line)?, 0);
+    assert_eq!(
+        client
+            .get(url("/"))
+            .header("Cookie", cookie)
+            .send()?
+            .status(),
+        401
+    );
+    host::call(&endpoint, "stop", Some(&business.instance))?;
+    share(Disable)?;
+    assert!(share(Status)?.address.is_none());
+    Ok(())
 }
 
 #[test]

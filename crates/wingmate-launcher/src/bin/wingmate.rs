@@ -2,6 +2,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 use anyhow::{bail, Result};
 use wingmate_launcher::{integration, service};
+use wingmate_service::host::{self, ShareCommand};
 fn main() {
     #[cfg(windows)]
     if std::env::args_os().len() > 1 {
@@ -22,7 +23,7 @@ fn run() -> Result<()> {
     let remaining: Vec<_> = args.collect();
     let max = if matches!(
         command.as_deref(),
-        Some("commands" | "login-startup" | "internal-restart")
+        Some("commands" | "login-startup" | "internal-restart" | "share-enable" | "share-revoke")
     ) {
         1
     } else {
@@ -31,10 +32,33 @@ fn run() -> Result<()> {
     anyhow::ensure!(remaining.len() <= max, "命令参数过多");
     let mut args = remaining.into_iter();
     if matches!(command.as_deref(), Some("--help" | "-h")) {
-        println!("用法: wingmate [命令]\n\n无参数         打开桌面\nstart          准备运行内容并启动业务后台\nstatus         查看业务后台状态\nstop           停止业务后台，保留管理服务\nrestart        重启业务后台并切换运行内容\nservice-status 查看管理服务状态\nservice-start  启动管理服务\nservice-stop   业务停止后退出管理服务\nservice-restart 业务停止后切换管理服务版本\ncommands [on|off] 注册或撤销终端命令\nlogin-startup [on|off] 设置登录启动\n-h, --help     显示帮助");
+        println!("用法: wingmate [命令]\n\n无参数         打开桌面\nstart          准备运行内容并启动业务后台\nstatus         查看业务后台状态\nstop           停止业务后台，保留管理服务\nrestart        重启业务后台并切换运行内容\nservice-status 查看管理服务状态\nservice-start  启动管理服务\nservice-stop   业务停止后退出管理服务\nservice-restart 业务停止后切换管理服务版本\nshare-status   查看局域网分享状态\nshare-enable [IPv4] 开启局域网分享\nshare-disable  关闭局域网分享\nshare-pair     生成一次性配对链接\nshare-revoke <设备 ID> 撤销已配对设备\ncommands [on|off] 注册或撤销终端命令\nlogin-startup [on|off] 设置登录启动\n-h, --help     显示帮助");
         return Ok(());
     }
     let home = wingmate_launcher::directory()?;
+    let share = match command.as_deref() {
+        Some("share-status") => Some(ShareCommand::Status),
+        Some("share-enable") => Some(ShareCommand::Enable {
+            address: args.next().map(|value| value.parse()).transpose()?,
+        }),
+        Some("share-disable") => Some(ShareCommand::Disable),
+        Some("share-pair") => Some(ShareCommand::Pair),
+        Some("share-revoke") => Some(ShareCommand::Revoke {
+            id: args
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("缺少设备 ID"))?
+                .parse()?,
+        }),
+        _ => None,
+    };
+    if let Some(command) = share {
+        let endpoint = host::endpoint(&home)?.ok_or_else(|| anyhow::anyhow!("请先启动管理服务"))?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&host::share(&endpoint, &command)?)?
+        );
+        return Ok(());
+    }
     if matches!(
         command.as_deref(),
         Some("internal-start" | "internal-restart")
