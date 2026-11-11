@@ -202,6 +202,7 @@ window.__ModuleLoader__.load({
         ctx.inject(['remote', 'remote.pluginInventory'], tabContext => {
           tabContext.slots.inject('plugins.tab', () => tabContext.slots.register({
             name: 'plugins.tab', id: 'wingmate-preinstalled', label: 'Wingmate 预装',
+            children: { 'wingmate.preinstalled.backends': { kind: 'single', scope: 'root' } },
           }, createPreinstalledTab(tabContext, react, { Button, Tag }, desktop)));
         });
         if (!desktop) return;

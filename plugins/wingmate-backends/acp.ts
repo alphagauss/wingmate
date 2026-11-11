@@ -1,13 +1,27 @@
 import { spawn } from 'node:child_process';
+import type { ChildProcessByStdio } from 'node:child_process';
 import { Readable, Writable } from 'node:stream';
 import { ClientApp, ndJsonStream } from '@agentclientprotocol/sdk';
+import type { RequestPermissionRequest, RequestPermissionResponse, SendRequestOptions, SessionNotification } from '@agentclientprotocol/sdk';
 import { once } from 'node:events';
 import { setTimeout } from 'node:timers/promises';
 
-export function acpConnection(resolveCommand, { update, permission, disconnected }) {
-  let opening;
-  let child;
-  let connection;
+type Command = { command: string; args: string[]; env?: NodeJS.ProcessEnv };
+type Handlers = {
+  update(params: SessionNotification): void;
+  permission(params: RequestPermissionRequest, signal: AbortSignal): RequestPermissionResponse | Promise<RequestPermissionResponse>;
+  disconnected(): void;
+};
+
+export function acpDeadline(milliseconds: number, lifetime?: AbortSignal): SendRequestOptions {
+  const timeout = AbortSignal.timeout(milliseconds);
+  return { cancellationSignal: lifetime ? AbortSignal.any([lifetime, timeout]) : timeout, stopWaitingOnCancel: true };
+}
+
+export function acpConnection(resolveCommand: () => Command, { update, permission, disconnected }: Handlers) {
+  let opening: ReturnType<typeof start> | undefined;
+  let child: ChildProcessByStdio<Writable, Readable, null> | undefined;
+  let connection: ReturnType<ClientApp['connect']> | undefined;
   const lifetime = new AbortController();
 
   async function start() {
@@ -15,7 +29,7 @@ export function acpConnection(resolveCommand, { update, permission, disconnected
     const { command, args, env } = resolveCommand();
     const processHandle = spawn(command, args, { env, windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
     child = processHandle;
-    await new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       processHandle.once('spawn', resolve);
       processHandle.once('error', reject);
     });
@@ -26,7 +40,9 @@ export function acpConnection(resolveCommand, { update, permission, disconnected
     const app = new ClientApp()
       .onNotification('session/update', ({ params }) => update(params))
       .onRequest('session/request_permission', ({ params, signal }) => permission(params, signal));
-    const stream = ndJsonStream(Writable.toWeb(processHandle.stdin), Readable.toWeb(processHandle.stdout));
+    // Node's stdout supplies bytes; its BYOB typings differ from the SDK's DOM stream types.
+    const stdout = Readable.toWeb(processHandle.stdout) as unknown as Parameters<typeof ndJsonStream>[1];
+    const stream = ndJsonStream(Writable.toWeb(processHandle.stdin), stdout);
     const client = app.connect(stream);
     connection = client;
     void client.closed.then(() => {
@@ -39,7 +55,7 @@ export function acpConnection(resolveCommand, { update, permission, disconnected
     try {
       const { protocolVersion, agentCapabilities = {} } = await client.agent.request('initialize', {
         protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'wingmate', version: '0.1.0' },
-      }, { signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(15_000)]) });
+      }, acpDeadline(15_000, lifetime.signal));
       if (protocolVersion !== 1) throw new Error('Agent does not support ACP v1');
       return { agent: client.agent, capabilities: agentCapabilities };
     } catch (error) {

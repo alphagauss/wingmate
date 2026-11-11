@@ -10,7 +10,9 @@
 npm install -g @agentclientprotocol/codex-acp@2.6.0
 ```
 
-适配器的 npm 包带有匹配的 Codex，可通过其 `CODEX_PATH` 指向另一个 Codex。登录、设置和原生会话沿用适配器使用的 Codex 用户目录。可用 `WINGMATE_CODEX_ACP` 指定主机上适配器可执行文件或 JavaScript 入口的绝对路径。缺失或启动失败时，后端选择器显示诊断，DSH 可独立使用。
+适配器的 npm 包带有匹配的 Codex，可通过其 `CODEX_PATH` 指向另一个 Codex。登录、设置和原生会话沿用适配器使用的 Codex 用户目录。可用 `WINGMATE_CODEX_ACP` 指定主机上适配器可执行文件或 JavaScript 入口的绝对路径。
+
+「插件 → Wingmate 预装 → 执行后端」显示适配器是否可用及最近的连接结果。打开标签页只读取状态。「检查连接」尝试 ACP 握手，并读取 Agent 支持的会话列表，过程中不发送消息或切换工作台。适配器不可用时，侧栏选择器提供到该标签页的入口，安装后可以再次检查。
 
 ## 数据和能力
 
@@ -28,4 +30,4 @@ npm install -g @agentclientprotocol/codex-acp@2.6.0
 
 禁用或移除插件会关闭其持有的 ACP 连接并中断相关任务。重新启用后可从 Agent 原生会话恢复历史。
 
-运行 `pnpm --filter dsh-wingmate-backends test` 检查历史、并发发送、审批关联和页面路由，再按[插件验证入口](../README.md#在-wingmate-中验证)验证真实 Web。早期投影探针 `test/fixture.mjs` 可在隔离目录作为 `host.mjs` 使用，随它复制未打包的工作台模块和客户端。实际运行和发行证据进入有日期的验证记录。
+运行 `pnpm --filter dsh-wingmate-backends test` 检查历史、并发发送、审批关联、页面路由和连接检查，再按[插件验证入口](../README.md#在-wingmate-中验证)验证真实 Web。早期投影探针 `test/fixture.mjs` 可在隔离目录作为 `host.mjs` 使用，随它复制未打包的工作台模块和构建后的客户端。实际运行和发行证据进入有日期的验证记录。

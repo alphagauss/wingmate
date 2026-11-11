@@ -178,6 +178,13 @@ try {
   assert.match(await backendClient.text(), /wingmate-agent-picker/);
   assert.match(html, /__WINGMATE_AGENTS__/);
   assert.match(html, /wingmateAgent/);
+  const diagnosticsUrl = new URL('/api/wingmate-backends', a.url);
+  assert.equal((await fetch(diagnosticsUrl)).status, 401);
+  const diagnostics = await fetch(diagnosticsUrl, { headers: { Cookie: cookie } });
+  assert.equal(diagnostics.status, 200);
+  const codex = (await diagnostics.json()).find(row => row.id === 'codex');
+  assert.equal(codex?.connection, 'unchecked');
+  assert.equal(typeof codex.adapterAvailable, 'boolean');
   checks.push('执行后端插件与页面 transport 随单文件释放，缺少外部 Agent 不阻塞 DSH');
   const fileViewer = JSON.parse(boot[1]).entries.find(row => row.id === 'dsh-wingmate-file-viewer');
   assert.ok(fileViewer, '释放的运行包未加载文件预览插件');

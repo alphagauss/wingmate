@@ -13,5 +13,15 @@ await build({
   target: 'node24',
   legalComments: 'linked',
 });
+await build({
+  absWorkingDir: fileURLToPath(root),
+  entryPoints: ['client.tsx'],
+  outfile: 'dist/client.js',
+  bundle: true,
+  format: 'iife',
+  // The client factory supplies React. The type-checking config emits nothing.
+  tsconfigRaw: {},
+  jsxFactory: 'h',
+});
 await copyFile(new URL('node_modules/@agentclientprotocol/sdk/LICENSE', root), new URL('dist/LICENSE.acp-sdk', root));
 await copyFile(new URL('transport.js', root), new URL('dist/transport.js', root));

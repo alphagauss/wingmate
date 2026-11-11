@@ -31,8 +31,11 @@
       return request(input, { ...options, body: JSON.stringify(message) }).then(async response => {
         if (message.method === 'session/list') {
           const { result } = await response.clone().json();
-          globalThis.__WINGMATE_AGENT_ERROR__ = result.ok ? '' : result.error.message;
-          dispatchEvent(new Event('wingmate:agent-status'));
+          const error = result.ok ? '' : result.error.message;
+          if (error !== globalThis.__WINGMATE_AGENT_ERROR__) {
+            globalThis.__WINGMATE_AGENT_ERROR__ = error;
+            dispatchEvent(new Event('wingmate:agent-status'));
+          }
         }
         return response;
       });

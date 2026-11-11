@@ -44,7 +44,7 @@ export function createPreinstalledTab(ctx: ClientContext, react: typeof import('
   { Button, Tag }: Primitives, desktop: boolean) {
   const { createElement: h, useEffect, useState, useSyncExternalStore } = react;
 
-  return function PreinstalledTab() {
+  return function PreinstalledTab({ renderSlot }: { renderSlot(name: 'wingmate.preinstalled.backends', props: object): ReactNode }) {
     const [entries, setEntries] = useState<readonly InventoryEntry[]>();
     const [loading, setLoading] = useState(true);
     const [refresh, setRefresh] = useState(0);
@@ -78,6 +78,7 @@ export function createPreinstalledTab(ctx: ClientContext, react: typeof import('
             {!loading && <Tag tone={status.tone}>{status.label}</Tag>}
           </div>
           <div style={{ color: 'var(--dsw-alias-label-secondary)' }}>{plugin.detail}</div>
+          {plugin.id === 'dsh-wingmate-backends' && renderSlot('wingmate.preinstalled.backends', {})}
           {plugin.id === 'dsh-wingmate-file-viewer' && extensions && <div>
             支持格式：{extensions.map(extension => `.${extension}`).join('、')}
           </div>}

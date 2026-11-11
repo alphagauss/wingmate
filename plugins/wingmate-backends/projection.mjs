@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, normalize } from 'node:path';
-import { acpConnection } from './acp.mjs';
+import { acpConnection, acpDeadline } from './acp.ts';
 import { projections, snapshot, summary, workspace } from './catalog.mjs';
 import { applyUpdate, beginTurn, finishTurn, record, replay } from './journal.mjs';
 
@@ -19,6 +19,7 @@ export function createWorkbench(id, label, resolveCommand, index) {
   let permissionOptions = [];
   let indexed;
   let editing = Promise.resolve();
+  let connectionStatus = { connection: 'unchecked' };
 
   function loadIndex() {
     return indexed ??= Promise.resolve(index?.read() ?? []).then(items => {
@@ -72,6 +73,7 @@ export function createWorkbench(id, label, resolveCommand, index) {
       });
     },
     disconnected() {
+      if (connectionStatus.connection === 'connected') connectionStatus = { connection: 'disconnected' };
       for (const session of sessions.values()) {
         session.loaded = false;
       }
@@ -124,13 +126,31 @@ export function createWorkbench(id, label, resolveCommand, index) {
       if (capabilities.sessionCapabilities?.list) {
         let cursor;
         do {
-          const response = await agent.request('session/list', cursor ? { cursor } : {}, { signal: AbortSignal.timeout(15_000) });
+          const response = await agent.request('session/list', cursor ? { cursor } : {}, acpDeadline(15_000));
           for (const item of response.sessions) register(item);
           cursor = response.nextCursor;
         } while (cursor);
       }
     })();
-    try { await refreshing; } finally { refreshing = undefined; }
+    try {
+      await refreshing;
+      connectionStatus = { connection: 'connected' };
+    } catch (error) {
+      connectionStatus = { connection: 'failed', detail: error instanceof Error ? error.message : String(error) };
+      throw error;
+    } finally {
+      refreshing = undefined;
+    }
+  }
+
+  function diagnostics() {
+    try {
+      resolveCommand();
+      return { id, label, adapterAvailable: true, ...connectionStatus };
+    } catch (error) {
+      return { id, label, adapterAvailable: false, connection: connectionStatus.connection,
+        detail: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   function configure(session, response) {
@@ -177,7 +197,7 @@ export function createWorkbench(id, label, resolveCommand, index) {
       try {
         const response = await agent.request('session/load', {
           sessionId: session.nativeId, cwd: session.cwd, mcpServers: [],
-        }, { signal: AbortSignal.timeout(30_000) });
+        }, acpDeadline(30_000));
         session.records = [];
         session.turn = 0;
         session.attempt = undefined;
@@ -199,7 +219,7 @@ export function createWorkbench(id, label, resolveCommand, index) {
     const existing = sessions.get(args.sessionId);
     if (existing?.cwd === cwd && existing.blank && !existing.running) return { sessionId: existing.id };
     const { agent } = await connection.connect();
-    const response = await agent.request('session/new', { cwd, mcpServers: [] }, { signal: AbortSignal.timeout(30_000) });
+    const response = await agent.request('session/new', { cwd, mcpServers: [] }, acpDeadline(30_000));
     const session = register({ sessionId: response.sessionId, cwd });
     session.blank = true;
     session.loaded = true;
@@ -346,6 +366,12 @@ export function createWorkbench(id, label, resolveCommand, index) {
 
   return {
     label,
+    diagnostics,
+    async checkConnection() {
+      if (diagnostics().adapterAvailable) {
+        try { await refresh(); } catch { /* The latest error is returned in diagnostics. */ }
+      }
+    },
     permissionOptions: () => permissionOptions,
     handles(endpoint) {
       return /^(workspace|session|commands|skills|messageFeedback)\//.test(endpoint)

@@ -9,7 +9,7 @@ test('external sessions withdraw DSH feedback and fork controls without changing
     __WINGMATE_AGENTS__: [{ id: 'codex' }],
     __ModuleLoader__: { load(entry) { module = entry.factory(() => ({})); } },
   };
-  runInNewContext(await readFile(new URL('../client.js', import.meta.url), 'utf8'),
+  runInNewContext(await readFile(new URL('../dist/client.js', import.meta.url), 'utf8'),
     { window, URL, location: { href: 'http://localhost/?wingmate-agent=codex' } });
   const native = { getSnapshot: () => true };
   const source = () => native;
