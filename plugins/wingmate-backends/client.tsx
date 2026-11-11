@@ -1,10 +1,16 @@
-import type { ComponentType, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ComponentType, ReactNode, SVGProps } from 'react';
 import { diagnosticsPath } from './diagnostics.ts';
 import type { BackendStatus } from './diagnostics.ts';
 
 type Agent = { id: string; label: string };
-type Button = ComponentType<{
-  size: 'sm'; variant: 'outline' | 'ghost'; disabled?: boolean; onClick(): void; children: ReactNode;
+type Button = ComponentType<ButtonHTMLAttributes<HTMLButtonElement> & {
+  size: 'sm'; variant: 'outline' | 'ghost';
+}>;
+type Icon = ComponentType<SVGProps<SVGSVGElement> & { size: number }>;
+type MenuEntry = { id: string; label: string; disabled?: boolean } | { id: string; type: 'separator' };
+type Menu = ComponentType<{
+  open: boolean; anchor: ReactNode; items: readonly MenuEntry[]; selectedId: string;
+  onSelect(id: string): void; onClose(): void; side: 'top' | 'right'; portal: boolean; autoFocus: boolean;
 }>;
 type Observable = { getSnapshot(): boolean; subscribe(listener: () => void): () => void };
 type ClientModule = { inject: string[]; apply(ctx: ClientContext): void };
@@ -14,7 +20,7 @@ type ClientContext = {
   get(name: 'pluginNavigation'): { openList(): void } | undefined;
   slots: {
     inject(name: string, register: () => () => void): void;
-    register(options: { name: string; id?: string }, component: ComponentType): () => void;
+    register<Props>(options: { name: string; id?: string }, component: ComponentType<Props>): () => void;
     entries(name: string): readonly {
       options: { key?: string; id?: string };
       store?: { create(): { actions: { setTab(id: string): void } } };
@@ -78,8 +84,10 @@ function subscribeToAgentError(listener: () => void) {
 window.__ModuleLoader__.load({
   id: 'dsh-wingmate-backends',
   factory(require) {
-    const { createElement: h, useEffect, useSyncExternalStore } = require('react') as typeof import('react');
-    const { Button } = require('@deepseek-ai/dsh-client-ui-primitives') as { Button: Button };
+    const { createElement: h, useEffect, useState, useSyncExternalStore } = require('react') as typeof import('react');
+    const { Button, Menu, IconChevronDownOutlineRegular, IconCodeOutlineRegular } = require('@deepseek-ai/dsh-client-ui-primitives') as {
+      Button: Button; Menu: Menu; IconChevronDownOutlineRegular: Icon; IconCodeOutlineRegular: Icon;
+    };
     const agents = window.__WINGMATE_AGENTS__ ?? [];
     const unavailable = { getSnapshot: () => false, subscribe: () => () => {} };
 
@@ -113,30 +121,49 @@ window.__ModuleLoader__.load({
           }
         }
 
-        function AgentPicker() {
+        function AgentPicker({ wide }: { wide: boolean }) {
+          const [open, setOpen] = useState(false);
           const { rows } = useDiagnostics();
           const error = useSyncExternalStore(subscribeToAgentError, () => window.__WINGMATE_AGENT_ERROR__ ?? '');
           const missing = rows?.find(row => !row.adapterAvailable);
+          const current = agents.find(agent => agent.id === backend) ?? { id: '', label: 'DSH' };
           useEffect(() => subscribeToAgentError(() => { void diagnostics.request(); }), []);
+          const items: MenuEntry[] = [{ id: '', label: 'DSH' }];
+          for (const agent of agents) {
+            const disabled = rows?.some(row => row.id === agent.id && !row.adapterAvailable);
+            items.push({ id: agent.id, label: disabled ? `${agent.label}（适配器不可用）` : agent.label, disabled });
+          }
+          if (missing || error) items.push({ type: 'separator', id: '$separator' }, { id: '$diagnostics', label: '打开 Wingmate 预装' });
+
           return <div style={{ maxWidth: 220 }}>
-            <select aria-label="执行后端" style={{ font: 'inherit', color: 'inherit', background: 'transparent', borderRadius: 6, padding: '4px 8px' }}
-              value={agents.some(agent => agent.id === backend) ? backend ?? '' : ''}
-              onChange={event => {
+            <Menu open={open} autoFocus portal side={wide ? 'top' : 'right'} selectedId={current.id} items={items}
+              onClose={() => setOpen(false)}
+              onSelect={target => {
+                setOpen(false);
+                if (target === '$diagnostics') { openDiagnostics(); return; }
+                if (target === current.id) return;
                 const url = new URL(location.href);
-                const target = event.currentTarget.value;
                 if (target) url.searchParams.set('wingmate-agent', target);
                 else url.searchParams.delete('wingmate-agent');
                 url.hash = '';
                 location.assign(url);
-              }}>
-              <option value="">DSH</option>
-              {agents.map(agent => <option key={agent.id} value={agent.id}
-                disabled={rows?.some(row => row.id === agent.id && !row.adapterAvailable)}>{agent.label}</option>)}
-            </select>
-            {error && <div role="alert" style={{ whiteSpace: 'normal', overflowWrap: 'anywhere', fontSize: 12 }}>{error}</div>}
-            {(missing || error) && <div style={{ fontSize: 12 }}>
-              {missing && <span>{missing.label} 适配器不可用</span>}
-              <Button size="sm" variant="ghost" onClick={openDiagnostics}>查看连接设置</Button>
+              }}
+              anchor={<Button size="sm" variant="ghost" aria-label="执行后端" aria-description={`当前：${current.label}`}
+                aria-haspopup="menu" aria-expanded={open} title={`执行后端 · ${current.label}`}
+                onClick={() => setOpen(!open)} onKeyDown={event => {
+                  if (!open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+                    event.preventDefault();
+                    setOpen(true);
+                  }
+                }}>
+                {wide ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  {current.label}<IconChevronDownOutlineRegular size={12} aria-hidden="true" />
+                </span>
+                  : <IconCodeOutlineRegular size={16} aria-hidden="true" />}
+              </Button>} />
+            {wide && (error || missing) && <div role={error ? 'alert' : 'status'}
+              style={{ overflowWrap: 'anywhere', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+              {error || `${missing?.label} 适配器不可用`}
             </div>}
           </div>;
         }

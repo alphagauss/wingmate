@@ -1,4 +1,4 @@
-import type { ComponentType, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ComponentType, ReactNode, SVGProps } from 'react';
 
 type InventoryEntry = {
   moduleName: string;
@@ -18,9 +18,12 @@ type ClientContext = {
     store?: { create(): { actions: { openSection(id: string): void } } };
   }[] };
 };
+type Icon = ComponentType<SVGProps<SVGSVGElement> & { size: number }>;
 type Primitives = {
-  Button: ComponentType<{ size: 'sm'; variant: 'outline'; onClick(): void; children: ReactNode }>;
+  Button: ComponentType<ButtonHTMLAttributes<HTMLButtonElement> & { size: 'sm'; variant: 'outline' | 'ghost' }>;
   Tag: ComponentType<{ tone?: 'success' | 'warning'; children: ReactNode }>;
+  IconChevronLeftOutlineMedium: Icon;
+  IconChevronRightOutlineRegular: Icon;
 };
 
 const plugins = [
@@ -28,10 +31,11 @@ const plugins = [
   { id: 'dsh-wingmate-file-viewer', entry: 'wingmate-file-viewer/host.mjs', title: '文件预览', detail: '在工作台的文件侧栏预览文档和媒体。' },
   { id: 'dsh-wingmate-web', entry: 'wingmate-web/host.mjs', title: '后台服务', detail: '在 Wingmate 桌面端查看后台状态、停止或重启后台。' },
 ];
+type Plugin = typeof plugins[number];
 const noPreviews: readonly Preview[] = [];
 const emptyRegistry: PreviewRegistry = { getSnapshot: () => noPreviews, subscribe: () => () => {} };
 
-function statusOf(entries: readonly InventoryEntry[] | undefined, plugin: typeof plugins[number]) {
+function statusOf(entries: readonly InventoryEntry[] | undefined, plugin: Plugin) {
   if (!entries) return { label: '状态未知' };
   const entry = entries.find(({ moduleName }) => moduleName.replaceAll('\\', '/').endsWith(`/${plugin.entry}`));
   if (!entry?.enabled) return { label: '未加载' };
@@ -41,13 +45,14 @@ function statusOf(entries: readonly InventoryEntry[] | undefined, plugin: typeof
 }
 
 export function createPreinstalledTab(ctx: ClientContext, react: typeof import('react'),
-  { Button, Tag }: Primitives, desktop: boolean) {
+  { Button, Tag, IconChevronLeftOutlineMedium, IconChevronRightOutlineRegular }: Primitives, desktop: boolean) {
   const { createElement: h, useEffect, useState, useSyncExternalStore } = react;
 
   return function PreinstalledTab({ renderSlot }: { renderSlot(name: 'wingmate.preinstalled.backends', props: object): ReactNode }) {
     const [entries, setEntries] = useState<readonly InventoryEntry[]>();
     const [loading, setLoading] = useState(true);
     const [refresh, setRefresh] = useState(0);
+    const [view, setView] = useState<{ detail?: Plugin; focus?: string }>({});
     const previewRegistry = ctx.get('documentPreviews') ?? emptyRegistry;
     const previews = useSyncExternalStore(previewRegistry.subscribe, previewRegistry.getSnapshot);
     const extensions = previews.find(preview => preview.id === 'dsh-wingmate-file-viewer')?.extensions;
@@ -62,33 +67,54 @@ export function createPreinstalledTab(ctx: ClientContext, react: typeof import('
     }, [refresh]);
 
     const settings = desktop ? ctx.slots.entries('sidebar.settings')[0]?.store : undefined;
+    function statusTag(plugin: Plugin) {
+      const status = statusOf(entries, plugin);
+      return loading ? null : <Tag tone={status.tone}>{status.label}</Tag>;
+    }
+
+    const detail = view.detail;
     return <div style={{ display: 'grid', gap: 12, paddingBlock: 12 }}>
       {loading && <div role="status">正在读取插件状态…</div>}
       {!loading && !entries && <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         无法读取插件状态。
         <Button size="sm" variant="outline" onClick={() => { setLoading(true); setRefresh(refresh + 1); }}>重试</Button>
       </div>}
-      {plugins.map(plugin => {
-        const status = statusOf(entries, plugin);
-        return <section key={plugin.id} aria-label={plugin.title} style={{
-          display: 'grid', gap: 8, border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 12, padding: 16,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <strong>{plugin.title}</strong>
-            {!loading && <Tag tone={status.tone}>{status.label}</Tag>}
-          </div>
-          <div style={{ color: 'var(--dsw-alias-label-secondary)' }}>{plugin.detail}</div>
-          {plugin.id === 'dsh-wingmate-backends' && renderSlot('wingmate.preinstalled.backends', {})}
-          {plugin.id === 'dsh-wingmate-file-viewer' && extensions && <div>
-            支持格式：{extensions.map(extension => `.${extension}`).join('、')}
-          </div>}
-          {plugin.id === 'dsh-wingmate-web' && settings && <div>
-            <Button size="sm" variant="outline" onClick={() => settings.create().actions.openSection('wingmate-backend')}>
-              打开后台服务设置
-            </Button>
-          </div>}
-        </section>;
-      })}
+      {detail ? <section aria-label={detail.title} style={{ display: 'grid', gap: 12 }}>
+        <div>
+          <Button size="sm" variant="ghost" autoFocus onClick={() => setView({ focus: detail.id })}>
+            <IconChevronLeftOutlineMedium size={14} aria-hidden="true" />
+            返回预装列表
+          </Button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h2 style={{ margin: 0, fontSize: 18 }}>{detail.title}</h2>
+          {statusTag(detail)}
+        </div>
+        <div style={{ color: 'var(--dsw-alias-label-secondary)' }}>{detail.detail}</div>
+        {detail.id === 'dsh-wingmate-backends' && renderSlot('wingmate.preinstalled.backends', {})}
+        {detail.id === 'dsh-wingmate-file-viewer' && extensions && <div>
+          支持格式：{extensions.map(extension => `.${extension}`).join('、')}
+        </div>}
+        {detail.id === 'dsh-wingmate-web' && settings && <div>
+          <Button size="sm" variant="outline" onClick={() => settings.create().actions.openSection('wingmate-backend')}>
+            打开后台服务设置
+          </Button>
+        </div>}
+      </section> : <ul aria-label="Wingmate 预装插件" style={{ display: 'grid', gap: 8, listStyle: 'none', margin: 0, padding: 0 }}>
+        {plugins.map(plugin => <li key={plugin.id}>
+          <Button size="sm" variant="outline" autoFocus={view.focus === plugin.id} onClick={() => setView({ detail: plugin })}
+            style={{ width: '100%', height: 'auto', justifyContent: 'space-between', gap: 12, padding: '12px', textAlign: 'start' }}>
+            <span style={{ display: 'grid', gap: 2 }}>
+              <strong style={{ fontSize: 14 }}>{plugin.title}</strong>
+              <span style={{ color: 'var(--dsw-alias-label-secondary)' }}>{plugin.detail}</span>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              {statusTag(plugin)}
+              <IconChevronRightOutlineRegular size={14} aria-hidden="true" />
+            </span>
+          </Button>
+        </li>)}
+      </ul>}
     </div>;
   };
 }
