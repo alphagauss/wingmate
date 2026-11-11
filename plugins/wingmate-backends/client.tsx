@@ -23,7 +23,7 @@ type ClientContext = {
     register<Props>(options: { name: string; id?: string }, component: ComponentType<Props>): () => void;
     entries(name: string): readonly {
       options: { key?: string; id?: string };
-      store?: { create(): { actions: { setTab(id: string): void } } };
+      store?: { create(): { actions: { setView(view: { kind: 'item'; id: string }): void } } };
     }[];
   };
 };
@@ -85,8 +85,9 @@ window.__ModuleLoader__.load({
   id: 'dsh-wingmate-backends',
   factory(require) {
     const { createElement: h, useEffect, useState, useSyncExternalStore } = require('react') as typeof import('react');
-    const { Button, Menu, IconChevronDownOutlineRegular, IconCodeOutlineRegular } = require('@deepseek-ai/dsh-client-ui-primitives') as {
-      Button: Button; Menu: Menu; IconChevronDownOutlineRegular: Icon; IconCodeOutlineRegular: Icon;
+    const { Button, Menu, Tag, IconChevronDownOutlineRegular, IconCodeOutlineRegular } = require('@deepseek-ai/dsh-client-ui-primitives') as {
+      Button: Button; Menu: Menu; Tag: ComponentType<{ tone: 'info'; children: ReactNode }>;
+      IconChevronDownOutlineRegular: Icon; IconCodeOutlineRegular: Icon;
     };
     const agents = window.__WINGMATE_AGENTS__ ?? [];
     const unavailable = { getSnapshot: () => false, subscribe: () => () => {} };
@@ -116,8 +117,9 @@ window.__ModuleLoader__.load({
 
         function openDiagnostics() {
           ctx.get('pluginNavigation')?.openList();
-          if (ctx.slots.entries('plugins.tab').some(entry => entry.options.id === 'wingmate-preinstalled')) {
-            ctx.slots.entries('main').find(entry => entry.options.key === 'plugins')?.store?.create().actions.setTab('wingmate-preinstalled');
+          const id = 'dsh-wingmate-backends';
+          if (ctx.slots.entries('plugins.item').some(entry => entry.options.id === id)) {
+            ctx.slots.entries('main').find(entry => entry.options.key === 'plugins')?.store?.create().actions.setView({ kind: 'item', id });
           }
         }
 
@@ -127,13 +129,15 @@ window.__ModuleLoader__.load({
           const error = useSyncExternalStore(subscribeToAgentError, () => window.__WINGMATE_AGENT_ERROR__ ?? '');
           const missing = rows?.find(row => !row.adapterAvailable);
           const current = agents.find(agent => agent.id === backend) ?? { id: '', label: 'DSH' };
+          const external = current.id !== '';
+          const currentLabel = external ? `${current.label}（外部后端）` : current.label;
           useEffect(() => subscribeToAgentError(() => { void diagnostics.request(); }), []);
           const items: MenuEntry[] = [{ id: '', label: 'DSH' }];
           for (const agent of agents) {
             const disabled = rows?.some(row => row.id === agent.id && !row.adapterAvailable);
             items.push({ id: agent.id, label: disabled ? `${agent.label}（适配器不可用）` : agent.label, disabled });
           }
-          if (missing || error) items.push({ type: 'separator', id: '$separator' }, { id: '$diagnostics', label: '打开 Wingmate 预装' });
+          if (missing || error) items.push({ type: 'separator', id: '$separator' }, { id: '$diagnostics', label: '查看 Wingmate 执行后端' });
 
           return <div style={{ maxWidth: 220 }}>
             <Menu open={open} autoFocus portal side={wide ? 'top' : 'right'} selectedId={current.id} items={items}
@@ -148,8 +152,9 @@ window.__ModuleLoader__.load({
                 url.hash = '';
                 location.assign(url);
               }}
-              anchor={<Button size="sm" variant="ghost" aria-label="执行后端" aria-description={`当前：${current.label}`}
-                aria-haspopup="menu" aria-expanded={open} title={`执行后端 · ${current.label}`}
+              anchor={<Button size="sm" variant={external ? 'outline' : 'ghost'} aria-label="执行后端" aria-description={`当前：${currentLabel}`}
+                aria-haspopup="menu" aria-expanded={open} title={`执行后端 · ${currentLabel}`}
+                style={external && !wide ? { color: 'var(--dsw-alias-state-business-primary)' } : undefined}
                 onClick={() => setOpen(!open)} onKeyDown={event => {
                   if (!open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
                     event.preventDefault();
@@ -157,7 +162,8 @@ window.__ModuleLoader__.load({
                   }
                 }}>
                 {wide ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  {current.label}<IconChevronDownOutlineRegular size={12} aria-hidden="true" />
+                  {current.label}{external && <Tag tone="info">外部后端</Tag>}
+                  <IconChevronDownOutlineRegular size={12} aria-hidden="true" />
                 </span>
                   : <IconCodeOutlineRegular size={16} aria-hidden="true" />}
               </Button>} />

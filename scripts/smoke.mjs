@@ -169,8 +169,9 @@ try {
   assert.equal(client.status, 200);
   const webClient = await client.text();
   assert.match(webClient, /wingmate-backend/);
-  assert.match(webClient, /wingmate-preinstalled/);
-  checks.push('释放的 DSH Web 完成认证并提供后台服务设置和预装插件标签页');
+  assert.match(webClient, /plugins\.item/);
+  for (const id of ['dsh-wingmate-web', 'dsh-wingmate-file-viewer', 'dsh-wingmate-backends']) assert.ok(webClient.includes(id));
+  checks.push('释放的 DSH Web 完成认证并提供后台服务设置和内置插件卡片');
   const backends = JSON.parse(boot[1]).entries.find(row => row.id === 'dsh-wingmate-backends');
   assert.ok(backends, '释放的运行包未加载执行后端插件');
   const backendClient = await fetch(new URL(backends.url, a.url), { headers: { Cookie: cookie } });

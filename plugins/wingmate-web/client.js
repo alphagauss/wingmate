@@ -1,4 +1,4 @@
-import { createPreinstalledTab } from './preinstalled.tsx';
+import { registerPreinstalledItems } from './preinstalled.tsx';
 
 // DSH loads browser plugins as lazy factories and supplies the shared React runtime.
 window.__ModuleLoader__.load({
@@ -7,8 +7,7 @@ window.__ModuleLoader__.load({
     const react = require('react');
     const { createElement: h, useEffect, useLayoutEffect, useState, useSyncExternalStore } = react;
     const {
-      Button, IconChevronLeftOutlineMedium, IconChevronRightOutlineRegular,
-      IconCopyOutlineRegular, IconFolderOpenOutlineRegular, Modal, Switch, Tag,
+      Button, IconCopyOutlineRegular, IconFolderOpenOutlineRegular, Modal, Switch, Tag,
     } = require('@deepseek-ai/dsh-client-ui-primitives');
     const bridgeEvent = 'wingmate:backend-bridge';
     const getBridge = () => window.__WINGMATE_BACKEND__;
@@ -200,13 +199,8 @@ window.__ModuleLoader__.load({
       inject: ['slots'],
       apply(ctx) {
         const desktop = typeof window.__TAURI_INTERNALS__?.invoke === 'function';
-        ctx.inject(['remote', 'remote.pluginInventory'], tabContext => {
-          tabContext.slots.inject('plugins.tab', () => tabContext.slots.register({
-            name: 'plugins.tab', id: 'wingmate-preinstalled', label: 'Wingmate 预装',
-            children: { 'wingmate.preinstalled.backends': { kind: 'single', scope: 'root' } },
-          }, createPreinstalledTab(tabContext, react, {
-            Button, Tag, IconChevronLeftOutlineMedium, IconChevronRightOutlineRegular,
-          }, desktop)));
+        ctx.inject(['remote', 'remote.pluginInventory'], itemContext => {
+          registerPreinstalledItems(itemContext, react, { Button, Tag }, desktop);
         });
         if (!desktop) return;
         window.__WINGMATE_TITLEBAR__?.prepare();
