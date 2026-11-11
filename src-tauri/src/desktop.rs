@@ -1,5 +1,6 @@
 //! 桌面窗口、首页与连接观察；经发行入口连接独立管理服务。
 mod bridge;
+mod connection_panel;
 mod popup;
 mod remote;
 mod startup_page;
@@ -49,8 +50,7 @@ struct ConnectionState {
     authorized_origins: HashSet<String>,
     titlebar_theme: titlebar::Theme,
     titlebar: titlebar::Frame,
-    connections_open: bool,
-    remote_view: Option<tauri::Webview>,
+    remote: Option<remote::Workbench>,
 }
 
 impl ConnectionState {
@@ -65,7 +65,7 @@ impl ConnectionState {
     }
 
     fn observation_revision(&self) -> Option<u64> {
-        (!self.busy && !self.connections_open).then_some(self.revision)
+        (!self.busy && self.remote.is_none()).then_some(self.revision)
     }
 
     fn defer_exit(&mut self) -> bool {
@@ -385,9 +385,10 @@ pub fn run(home: PathBuf) -> Result<()> {
             bridge::login_startup,
             bridge::dsh_command,
             titlebar::window_chrome,
-            remote::open_connections,
+            connection_panel::open_connections,
+            connection_panel::resize_connections,
+            connection_panel::close_connections,
             remote::connect_remote,
-            remote::show_remote,
             remote::return_local,
             remote::local_share
         ])
@@ -427,6 +428,9 @@ pub fn run(home: PathBuf) -> Result<()> {
                         if let Some(source) = source {
                             titlebar::expose(&window, &source, theme, navigation);
                         }
+                        if event.event() == PageLoadEvent::Finished {
+                            remote::render_header(window.app_handle());
+                        }
                     })
                     .title(title)
                     .decorations(!cfg!(windows))
@@ -446,20 +450,27 @@ pub fn run(home: PathBuf) -> Result<()> {
             titlebar::observe(&window);
             let handle = app.handle().clone();
             let popup_app = handle.clone();
-            window.on_window_event(move |event| {
-                if matches!(event, tauri::WindowEvent::Destroyed) {
+            window.on_window_event(move |event| match event {
+                tauri::WindowEvent::Destroyed => {
                     popup::close_all(&popup_app);
+                    connection_panel::dismiss(&popup_app);
                 }
-                if matches!(
-                    event,
-                    tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. }
-                ) {
+                tauri::WindowEvent::Moved(_) => connection_panel::dismiss(&popup_app),
+                tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                    connection_panel::dismiss(&popup_app);
                     let desktop = popup_app.state::<Arc<Desktop>>();
-                    let view = desktop.connection.lock().unwrap().remote_view.clone();
+                    let view = desktop
+                        .connection
+                        .lock()
+                        .unwrap()
+                        .remote
+                        .as_ref()
+                        .map(|remote| remote.view.clone());
                     if let Some(view) = view {
                         let _ = remote::fit(&view.window(), &view);
                     }
                 }
+                _ => {}
             });
             desktop.submit(handle.clone(), Operation::Start);
             std::thread::spawn(move || loop {

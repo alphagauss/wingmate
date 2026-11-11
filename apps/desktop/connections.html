@@ -2,57 +2,127 @@
 <html lang="zh-CN">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Wingmate 连接</title>
+<title>远程连接</title>
 <style>
-  :root { color-scheme: light dark; font: 14px system-ui, sans-serif; }
+  :root { color-scheme: light dark; font: 13px/1.5 system-ui, sans-serif; }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+  * { box-sizing: border-box; }
   [hidden] { display: none !important; }
-  body { margin: 0; color: CanvasText; background: Canvas; }
-  header {
-    box-sizing: border-box; height: 40px; display: flex; align-items: center;
-    gap: 12px; padding: 0 12px; position: relative; z-index: 1200; pointer-events: none;
+  body {
+    --surface: light-dark(#fff, #292a2d);
+    --ink: light-dark(#0f1115, #f1f1f1);
+    --muted: light-dark(#61666b, #adadb2);
+    --line: light-dark(#0000001a, #ffffff24);
+    --hover: light-dark(#2631480f, #ffffff12);
+    --press: light-dark(#2631481a, #ffffff20);
+    --accent: light-dark(#4176e6, #90acff);
+    --selected: light-dark(#edf2ff, #343b59);
+    --primary: light-dark(#0f1115, #f1f1f1);
+    --primary-hover: light-dark(#43454a, #d8d8db);
+    --error: light-dark(#b42318, #ffa39e);
+    margin: 0; color: var(--ink); background: var(--surface);
   }
-  header button { pointer-events: auto; }
-  header[data-windows] { padding-right: 148px; }
-  #current { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #toggle { margin-left: auto; }
-  main { width: min(32rem, calc(100% - 2rem)); margin: 40px auto; }
-  label, #hosts { display: block; margin-bottom: 8px; }
-  form { display: flex; gap: 8px; }
-  input { flex: 1; min-width: 0; }
-  button, input, select { font: inherit; padding: 6px 10px; border-radius: 6px; }
-  button { cursor: pointer; }
-  #message { min-height: 1.5em; }
-  #share-link { width: 100%; box-sizing: border-box; }
-  #share-code { display: block; margin: 12px 0; max-width: 100%; }
+  main { padding: 14px; overflow: auto; }
+  header, .row { display: flex; align-items: center; gap: 8px; }
+  header { justify-content: space-between; margin-bottom: 8px; }
+  h1, p { margin: 0; }
+  h1 { font-size: 14px; font-weight: 600; }
+  button, input { font: inherit; color: inherit; }
+  button {
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+    min-height: 30px; border: 0; border-radius: 8px; padding: 0 10px;
+    background: var(--hover); cursor: pointer;
+  }
+  button:hover { background: var(--press); }
+  button:active { background: color-mix(in srgb, var(--press) 80%, var(--ink)); }
+  button:disabled { opacity: .6; cursor: default; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  #close { width: 26px; min-height: 26px; padding: 0; background: transparent; color: var(--muted); }
+  #close:hover { background: var(--hover); }
+  [role="tablist"] { display: flex; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  [role="tab"] { background: transparent; color: var(--muted); }
+  [role="tab"]:hover { background: var(--hover); }
+  [role="tab"][aria-selected="true"] { background: var(--selected); color: var(--accent); font-weight: 600; }
+  [role="tabpanel"] { padding-top: 12px; }
+  label { display: block; margin: 0 0 5px; font-weight: 500; }
+  input {
+    width: 100%; min-width: 0; min-height: 30px; border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 8px; background: var(--surface);
+  }
+  .primary { background: var(--primary); color: var(--surface); }
+  .primary:hover { background: var(--primary-hover); }
+  .primary:active { background: color-mix(in srgb, var(--primary-hover) 85%, var(--surface)); }
+  .muted { color: var(--muted); font-size: 12px; }
+  #saved, #share-result, #message, .settings-hint { margin-top: 10px; }
+  #current { margin-bottom: 9px; }
+  #message { color: var(--error); overflow-wrap: anywhere; }
+  #message:empty { display: none; }
+  #host-picker { width: 100%; justify-content: space-between; gap: 8px; }
+  #host-picker > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #host-picker[aria-expanded="true"] svg { transform: rotate(180deg); }
+  #host-options {
+    display: grid; gap: 2px; max-height: 156px; overflow: auto;
+    margin-top: 4px; padding: 4px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--surface);
+  }
+  #host-options button { justify-content: space-between; gap: 8px; min-width: 0; background: transparent; text-align: start; overflow-wrap: anywhere; }
+  #host-options button:hover, #host-options button:focus-visible { background: var(--hover); }
+  #host-options button:focus-visible { outline-offset: -2px; }
+  #host-options button[aria-selected="true"]::after { content: '✓'; color: var(--accent); }
+  #share-code {
+    display: block; width: 144px; height: 144px; padding: 8px; margin: 0 auto 8px;
+    border-radius: 6px; border: 1px solid var(--line); background: white;
+  }
 </style>
-<header>
-  <span id="current" role="status">本机</span>
-  <button type="button" id="toggle" hidden>连接</button>
-  <button type="button" id="share">分享本机</button>
-  <button type="button" id="local">返回本机</button>
-</header>
-<main>
-  <h1>连接 Wingmate 主机</h1>
-  <label for="hosts" id="saved-label" hidden>已连接过的主机</label>
-  <select id="hosts" aria-labelledby="saved-label" hidden></select>
-  <label for="link">分享链接</label>
-  <form>
-    <input id="link" type="url" required autocomplete="off" placeholder="http://192.168.1.10:12345/">
-    <button type="submit">连接</button>
-  </form>
-  <p id="message" role="status"></p>
-  <section id="sharing" hidden>
-    <h2>局域网分享</h2>
-    <p id="share-status" role="status"></p>
-    <button type="button" id="share-enable" hidden>开启分享</button>
-    <button type="button" id="share-pair" hidden>生成配对链接</button>
-    <div id="share-result" hidden>
-      <img id="share-code" width="192" height="192" alt="局域网配对二维码">
-      <label for="share-link">配对链接，有效期 5 分钟</label>
-      <input id="share-link" type="text" readonly>
-      <button type="button" id="share-copy">复制链接</button>
+<main aria-labelledby="heading">
+  <header>
+    <h1 id="heading">远程连接</h1>
+    <button id="close" type="button" aria-label="关闭" title="关闭">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m4 4 8 8m0-8-8 8"/></svg>
+    </button>
+  </header>
+  <div role="tablist" aria-label="远程连接">
+    <button id="connect-tab" type="button" role="tab" aria-selected="true" aria-controls="connect">连接主机</button>
+    <button id="share-tab" type="button" role="tab" aria-selected="false" aria-controls="share" tabindex="-1">分享本机</button>
+  </div>
+  <section id="connect" role="tabpanel" aria-labelledby="connect-tab">
+    <p id="current" class="muted" hidden></p>
+    <form>
+      <label for="link">分享链接</label>
+      <div class="row">
+        <input id="link" type="url" required autocomplete="off" placeholder="http://192.168.1.10:12345/">
+        <button class="primary" type="submit">连接</button>
+      </div>
+    </form>
+    <div id="saved" hidden>
+      <label id="saved-label" for="host-picker">最近连接</label>
+      <button id="host-picker" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="host-options" aria-labelledby="saved-label host-value">
+        <span id="host-value">选择主机</span>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+      </button>
+      <div id="host-options" role="listbox" aria-labelledby="saved-label" hidden>
+        <button type="button" role="option" aria-selected="false" tabindex="-1" data-address="" hidden>取消选择</button>
+      </div>
     </div>
   </section>
+  <section id="share" role="tabpanel" aria-labelledby="share-tab" hidden>
+    <div class="row">
+      <p id="share-status" class="muted" role="status"></p>
+      <button id="share-enable" class="primary" type="button" hidden>开启分享</button>
+      <button id="share-pair" class="primary" type="button" hidden>生成配对链接</button>
+    </div>
+    <div id="share-result" hidden>
+      <img id="share-code" width="144" height="144" alt="局域网配对二维码">
+      <label for="share-link">配对链接 <span class="muted">· 5 分钟内有效</span></label>
+      <div class="row">
+        <input id="share-link" type="text" readonly>
+        <button id="share-copy" type="button">复制</button>
+      </div>
+    </div>
+    <p class="settings-hint muted">分享地址和已配对设备可在「Wingmate 后台服务」插件卡片中管理。</p>
+  </section>
+  <p id="message" role="alert"></p>
 </main>
 <script type="module" src="./connections.js"></script>
 </html>

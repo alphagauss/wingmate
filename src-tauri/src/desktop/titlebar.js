@@ -1,4 +1,4 @@
-([address, instance, theme, dev, navigation, connectionPanel]) => {
+([address, instance, theme, dev, navigation]) => {
   const home = instance === null;
   if (window !== window.top || (home ? location.href : location.origin) !== address
     || window.__WINGMATE_TITLEBAR__) return;
@@ -28,7 +28,7 @@
       :host([data-home-theme="dark"]) { --caption-fill: #1b1b1c; color: #f9fafb; }
       .drag {
         position: absolute;
-        inset: 0 204px 0 0;
+        inset: 0 182px 0 0;
         pointer-events: auto;
         app-region: drag;
       }
@@ -62,12 +62,22 @@
           var(--ds-ease-in-out, cubic-bezier(.4, 0, .2, 1));
       }
       button svg { pointer-events: none; }
-      .connections { width: 66px; font: 12px system-ui, sans-serif; }
       button:hover { background: color-mix(in srgb, currentColor 13%, transparent); }
       button:active { background: color-mix(in srgb, currentColor 26%, transparent); }
       button:focus-visible { outline: 2px solid currentColor; outline-offset: -3px; }
       button[data-action="close"]:hover { background: #e81123; color: white; }
       button[data-action="close"]:active { background: #e8112398; color: white; }
+      .connections {
+        width: 28px; height: 28px; align-self: center; margin: 0 8px;
+        border-radius: var(--dsw-radius-sm, 8px); cursor: pointer;
+        color: var(--dsw-alias-label-secondary, inherit);
+      }
+      .connections:hover { background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 8%, transparent)); }
+      .connections:active { background: var(--dsw-alias-interactive-bg-active, color-mix(in srgb, currentColor 14%, transparent)); }
+      .connections:focus-visible {
+        outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, currentColor));
+        outline-offset: -2px;
+      }
       @media (prefers-color-scheme: dark) {
         :host([data-home-theme="system"]) { --caption-fill: #1b1b1c; color: #f9fafb; }
       }
@@ -98,15 +108,14 @@
     </div>`;
   const buttons = [...shadow.querySelectorAll('button')];
   const maximizeIcon = buttons[1].querySelector('path');
-  if (!connectionPanel) {
-    const connection = document.createElement('button');
-    connection.type = 'button';
-    connection.className = 'connections';
-    connection.textContent = '连接';
-    connection.title = '连接其他 Wingmate 主机';
-    connection.addEventListener('click', () => window.__TAURI_INTERNALS__.invoke('open_connections').catch(report));
-    shadow.querySelector('.buttons').prepend(connection);
-  }
+  const connection = document.createElement('button');
+  connection.type = 'button';
+  connection.className = 'connections';
+  connection.setAttribute('aria-haspopup', 'dialog');
+  connection.ariaLabel = connection.title = '远程连接';
+  connection.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="13" rx="2"/><path d="M12 17.5v3m-4 0h8"/></svg>`;
+  connection.addEventListener('click', () => window.__TAURI_INTERNALS__.invoke('open_connections').catch(report));
+  shadow.querySelector('.buttons').prepend(connection);
   const status = shadow.querySelector('.status');
   let maximized = false;
 

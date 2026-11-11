@@ -18,7 +18,11 @@
       "capabilities": [{
         "identifier": "wingmate-home",
         "webviews": ["main", "temporary-*"],
-        "permissions": ["allow-home-backend", "allow-window-chrome", "allow-open-connections", "allow-remote-workbench", "allow-local-share"]
+        "permissions": ["allow-home-backend", "allow-window-chrome", "allow-open-connections", "allow-local-share"]
+      }, {
+        "identifier": "wingmate-connections",
+        "webviews": ["wingmate-connections-*"],
+        "permissions": ["allow-remote-workbench", "allow-local-share"]
       }]
     }
   },

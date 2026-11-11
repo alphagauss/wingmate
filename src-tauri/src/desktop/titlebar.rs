@@ -1,4 +1,4 @@
-use super::{bridge, Desktop, StartupPage};
+use super::{bridge, connection_panel, Desktop, StartupPage};
 use std::{cell::Cell, sync::Arc, time::Duration};
 use tauri::{Manager, Url, Webview, WebviewWindow, Window, WindowEvent};
 use wingmate_launcher::service::Snapshot;
@@ -11,7 +11,7 @@ pub(super) struct Source {
 
 impl Source {
     fn new(url: &Url, page: &StartupPage, workspace: Option<&Snapshot>) -> Option<Self> {
-        if page.is_home(url) || page.connections() == *url {
+        if page.is_home(url) {
             return Some(Self {
                 address: url.as_str().to_owned(),
                 instance: None,
@@ -40,8 +40,7 @@ pub(super) fn expose(window: &WebviewWindow, source: &Source, theme: Theme, navi
         source.instance,
         theme,
         wingmate_launcher::IS_DEV,
-        navigation,
-        source.address.ends_with("/connections.html")
+        navigation
     ]);
     let script = include_str!("titlebar.js");
     let _ = window.eval(&format!("({script})({args})"));
@@ -226,6 +225,7 @@ pub(super) fn window_chrome(
                 return Err("仅工作台可以同步主题".into());
             }
             desktop.connection.lock().unwrap().titlebar_theme = theme;
+            connection_panel::sync_theme(webview.app_handle(), theme);
             return Ok(false);
         }
         Action::Minimize => window.minimize(),

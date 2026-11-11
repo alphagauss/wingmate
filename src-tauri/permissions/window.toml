@@ -5,13 +5,13 @@ commands.allow = ["window_chrome"]
 
 [[permission]]
 identifier = "allow-open-connections"
-description = "Allows the home page or verified local workbench to open the local connection panel."
-commands.allow = ["open_connections"]
+description = "Allows the home page or verified local workbench to open the connection popover and return from a remote workbench."
+commands.allow = ["open_connections", "return_local"]
 
 [[permission]]
 identifier = "allow-remote-workbench"
-description = "Allows the local connection panel to switch its remote workbench."
-commands.allow = ["connect_remote", "show_remote", "return_local"]
+description = "Allows the connection popover to connect to a remote workbench and manage its own window."
+commands.allow = ["connect_remote", "resize_connections", "close_connections"]
 
 [[permission]]
 identifier = "allow-local-share"
