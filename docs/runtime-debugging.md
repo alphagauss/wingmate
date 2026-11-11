@@ -12,7 +12,7 @@
 
 ## 本地开发与构建
 
-本地开发调试默认在当前工作副本根目录使用 dev 模式，复用已有的编译产物和运行时安装树。开发后台、DSH 数据和 WebView 资料都在 `work/dev` 下，与发行版隔离，开发后台和发行后台可以同时运行。可按任务需要修改或清理开发数据，清理前先退出正在使用这些数据的开发进程。目录规则见[服务模块](../crates/wingmate-service/README.md#数据与管理边界)。
+日常开发和运行验证从当前工作副本根目录运行 `pnpm dev`。它自动准备开发运行时，复用 `target/debug` 的构建产物和 `work/dev` 的运行时安装树。首次启动或组件变更时会准备相应内容，无需手动复制发行 EXE 或为每次测试另建运行时。开发后台、DSH 数据和 WebView 资料都在 `work/dev` 下，与发行版隔离。目录规则见[服务模块](../crates/wingmate-service/README.md#数据与管理边界)。
 
 确需编译时，dev 构建使用 `target/debug`，发行构建使用 `target/release`。沿用 Cargo 的默认目录和增量缓存，避免通过 `CARGO_TARGET_DIR` 或 `--target-dir` 新建目录，引发全量编译并增加耗时和磁盘占用。
 
@@ -79,8 +79,10 @@ socket.addEventListener('message', ({ data }) => {
 
 后台问题先运行同一构建产物的 `status` 和 `service-status`，区分业务停止与管理服务退出。开发版日志在 `work/dev/wingmate/service.log`，发行版在当前管理目录的 `service.log`。启动或停止异常时，把日志与 CLI 返回的阶段、实例标识及 Node PID 对照。桌面宿主的启动错误看启动终端，前端异常看 CDP Console。分享日志、请求或目标列表前移除凭据和完整登录链接。
 
-发行版特有问题使用 `pnpm build` 的产物复验。先用 `pnpm test:smoke` 检查复制出来的 EXE、后台生命周期和 DSH Web 认证。需要看真实发行窗口时，另行复制 EXE，在启动它的终端把 `WINGMATE_HOME`、`DSH_HOME`、`DSH_AGENTS_HOME` 和 `WEBVIEW2_USER_DATA_FOLDER` 分别指向本次测试的独立绝对路径，并设置空闲的 CDP 端口。对只在发行版出现的白屏，在 CDP 中记录首条异常堆栈和失败的资源请求。
+符合[发行版验证条件](../scripts/README.md#验证边界)时，使用 `pnpm build` 的产物复验。先用 `pnpm test:smoke` 检查复制出来的 EXE、后台生命周期和 DSH Web 认证。需要检查真实发行窗口时，在 `work/tests` 下创建本次专用目录，把复制出的 EXE、调试脚本、浏览器资料和 `WINGMATE_HOME`、`DSH_HOME`、`DSH_AGENTS_HOME`、`WEBVIEW2_USER_DATA_FOLDER` 对应的绝对路径都放在该目录内。设置空闲的 CDP 端口。对只在发行版出现的白屏，在 CDP 中记录首条异常堆栈和失败的资源请求。
 
 ## 收尾
 
-关闭本次测试窗口和 CDP 客户端，结束本次启动命令，并确认调试端口已释放。开发后台停机见[本地开发与构建](#本地开发与构建)。发行测试结束后，在保持隔离环境变量的终端对复制出来的 EXE 执行 `stop`。停止后用同一个 EXE 确认 `status` 为 `stopped`，再执行 `service-stop` 并确认 `service-status` 为 `stopped`。
+关闭本次测试窗口、浏览器和 CDP 客户端，结束本次启动命令，并确认调试端口已释放。开发后台停机见[本地开发与构建](#本地开发与构建)。发行测试结束后，在保持隔离环境变量的终端对复制出来的 EXE 执行 `stop`。用同一个 EXE 确认 `status` 为 `stopped`，再执行 `service-stop` 并确认 `service-status` 为 `stopped`。
+
+记录需要保留的验证结论后，确认测试专用目录的实际路径和归属，再删除整个目录，包括 EXE 副本、释放的运行时、测试数据、浏览器资料、日志和临时脚本。失败现场可以保留到排查结束，随后同样清理。`work/dev`、`target`、构建缓存和日常用户数据属于可复用或用户目录，按各自规则维护。

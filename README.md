@@ -35,22 +35,19 @@ Word、PowerPoint 及部分扩展格式使用随包提供的 [File Viewer 侧栏
 ```powershell
 pnpm install --frozen-lockfile
 pnpm dev
-pnpm build
-# 无 GUI 服务端发行，不构建桌面
-pnpm build --headless
+pnpm test
 ```
 
-开发模式、构建目录和停机步骤见[本地开发与构建](docs/runtime-debugging.md#本地开发与构建)。依赖复用与自动清理见[运行时维护指南](docs/runtime-maintenance.md#打包范围与所有权)。
+日常开发和运行验证用 `pnpm dev`，由它准备并复用开发运行时。开发目录和停机步骤见[本地开发与构建](docs/runtime-debugging.md#本地开发与构建)。
 
-验证入口：
+遇到明确的发行版问题或需要验收发行产物时，使用以下命令。无 GUI 发行使用 `pnpm build --headless`。
 
 ```powershell
-pnpm test
 pnpm build
 pnpm test:smoke
 ```
 
-命令定义以 [package.json](package.json) 为准；选择验证范围和解释结果时阅读 [验证约定](scripts/README.md)。
+验证范围见[验证约定](scripts/README.md)。测试专用目录按[收尾步骤](docs/runtime-debugging.md#收尾)清理。
 
 ## 文档与模块
 
