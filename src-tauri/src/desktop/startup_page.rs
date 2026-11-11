@@ -1,7 +1,7 @@
 use super::desktop_window;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Url, WebviewWindow};
-use wingmate_service::service::{Snapshot, StartupStage};
+use wingmate_launcher::service::{Snapshot, StartupStage};
 
 #[derive(Clone, PartialEq, Eq, serde::Serialize)]
 pub(super) struct CardStatus {

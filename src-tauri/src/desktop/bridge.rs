@@ -1,7 +1,8 @@
-use super::{dsh_command as cli, login_startup as startup, Desktop};
+use super::Desktop;
 use std::sync::Arc;
 use tauri::{ipc::CapabilityBuilder, AppHandle, Manager, Url, WebviewWindow};
-use wingmate_service::service::Snapshot;
+use wingmate_launcher::integration::{dsh_command as cli, login_startup as startup};
+use wingmate_launcher::service::Snapshot;
 
 #[tauri::command]
 pub(super) fn open_dsh_home(

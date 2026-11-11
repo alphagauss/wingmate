@@ -1,4 +1,4 @@
-// 将准备好的 DSH 运行包内嵌到服务库，最终由唯一桌面可执行文件携带。
+// 将并列的服务、桌面和运行组件内嵌到无 GUI 的发行入口。
 use sha2::{Digest, Sha256};
 use std::{env, fmt::Write, fs, io::BufReader, path::PathBuf};
 
@@ -14,13 +14,54 @@ fn main() {
         .expect("runtime/package.json 必须声明固定 DSH 版本");
     println!("cargo:rustc-env=WINGMATE_RUNTIME_ID=dsh-{version}");
     let bundled = env::var_os("CARGO_FEATURE_BUNDLED_RUNTIME").is_some();
-    let directory = if bundled {
+    let release = bundled || env::var_os("CARGO_FEATURE_RELEASE_CLIENT").is_some();
+    let directory = if release {
         checkout.join("work/build/runtime")
     } else {
         let dev = checkout.join("work/dev");
         println!("cargo:rustc-env=WINGMATE_DEV_ROOT={}", dev.display());
         dev.join("components")
     };
+    let bin_directory = directory.parent().unwrap().join("bin");
+    let mut binaries = format!(
+        "const BINARY_DIRECTORY: &str = {:?};\n",
+        bin_directory.to_str().unwrap()
+    );
+    for (name, constant) in [
+        ("wingmate-service", "SERVICE_BYTES"),
+        ("wingmate-desktop", "DESKTOP_BYTES"),
+    ] {
+        let binary = bin_directory.join(format!(
+            "{name}{}",
+            if env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows" {
+                ".exe"
+            } else {
+                ""
+            }
+        ));
+        println!("cargo:rerun-if-changed={}", binary.display());
+        let enabled = name == "wingmate-service" || env::var_os("CARGO_FEATURE_DESKTOP").is_some();
+        if bundled && enabled {
+            assert!(
+                binary.is_file(),
+                "缺少 {}，请先准备发行组件",
+                binary.display()
+            );
+            writeln!(
+                binaries,
+                "const {constant}: &[u8] = include_bytes!({:?});",
+                binary.to_str().unwrap()
+            )
+            .unwrap();
+        } else {
+            writeln!(binaries, "const {constant}: &[u8] = &[];").unwrap();
+        }
+    }
+    fs::write(
+        PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("binaries.rs"),
+        binaries,
+    )
+    .unwrap();
     let manifest = directory.join("manifest.json");
     println!("cargo:rerun-if-changed={}", manifest.display());
     let generated = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("components.rs");
@@ -43,7 +84,7 @@ fn main() {
                 .unwrap();
                 return;
             }
-            if bundled {
+            if release {
                 let node_arch = data["node_arch"].as_str().expect("运行包未声明 Node 架构");
                 println!("cargo:rustc-env=WINGMATE_NODE_ARCH={node_arch}");
             }

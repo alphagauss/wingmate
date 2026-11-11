@@ -1,7 +1,5 @@
-//! 桌面窗口、首页与连接观察；服务生命周期由独立 wingmate-service 库负责。
+//! 桌面窗口、首页与连接观察；经发行入口连接独立管理服务。
 mod bridge;
-mod dsh_command;
-mod login_startup;
 mod popup;
 mod startup_page;
 mod titlebar;
@@ -19,7 +17,7 @@ use std::{
 use tauri::{
     webview::PageLoadEvent, AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
-use wingmate_service::{
+use wingmate_launcher::{
     service::{self, Snapshot, StartupStage},
     RUNTIME_REVISION,
 };
@@ -360,7 +358,7 @@ pub fn run(home: PathBuf) -> Result<()> {
     } else {
         format!("temporary-{}", std::process::id())
     };
-    let title = if wingmate_service::IS_DEV {
+    let title = if wingmate_launcher::IS_DEV {
         "Wingmate · 开发版"
     } else {
         "Wingmate"
@@ -426,7 +424,7 @@ pub fn run(home: PathBuf) -> Result<()> {
                     .decorations(!cfg!(windows))
                     .visible(false)
                     .inner_size(size.width, size.height);
-            let window = if wingmate_service::IS_DEV {
+            let window = if wingmate_launcher::IS_DEV {
                 window.data_directory(desktop.home.join("webview"))
             } else {
                 window

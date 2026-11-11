@@ -146,7 +146,7 @@ fn configure_in(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::desktop::dsh_command::{launcher, wingmate_launcher};
+    use crate::integration::dsh_command::{launcher, wingmate_launcher};
     use std::fs;
 
     #[test]
@@ -237,7 +237,7 @@ mod tests {
                 String::from_utf8_lossy(&output.stderr)
             );
             assert!(String::from_utf8_lossy(&output.stdout)
-                .contains("desktop::dsh_command::windows::tests::registration_round_trip"));
+                .contains("integration::dsh_command::windows::tests::registration_round_trip"));
 
             let (status, changed) = configure(Some(false))?;
             assert!(!status.enabled && changed);

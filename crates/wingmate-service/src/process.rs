@@ -52,14 +52,18 @@ pub fn occupied(home: &Path) -> Result<bool> {
     Ok(try_acquire(home)?.is_none())
 }
 
-pub fn start(home: &Path, runtime: &Path, lock: File) -> Result<(Child, tempfile::NamedTempFile)> {
+pub fn start(
+    home: &Path,
+    runtime: &crate::runtime::Runtime,
+    lock: File,
+) -> Result<(Child, tempfile::NamedTempFile)> {
     // 控制入口随 EXE 更新，与已经释放的运行包独立。
     let mut control = tempfile::Builder::new().suffix(".mjs").tempfile_in(home)?;
     control.write_all(include_bytes!("../../../runtime/control.mjs"))?;
     let control_url = reqwest::Url::from_file_path(control.path())
         .map_err(|_| anyhow::anyhow!("无法转换控制模块路径"))?;
     let log = File::create(home.join("service.log"))?;
-    let mut command = Command::new(crate::runtime::node()?);
+    let mut command = Command::new(&runtime.node);
     crate::runtime::quiet(&mut command);
     #[cfg(unix)]
     {
@@ -78,26 +82,25 @@ pub fn start(home: &Path, runtime: &Path, lock: File) -> Result<(Child, tempfile
     command
         .arg("--import")
         .arg(control_url.as_str())
-        .arg(runtime.join(crate::runtime::DSH_ENTRY))
+        .arg(runtime.directory.join(crate::runtime::DSH_ENTRY))
         .args(["web", "--patch"])
-        .arg(runtime.join(crate::runtime::WEB_PATCH))
+        .arg(runtime.directory.join(crate::runtime::WEB_PATCH))
         .args(["--host", "127.0.0.1", "--port", "0", "--no-open"])
         .env("WINGMATE_HOME", home)
-        .env("WINGMATE_RUNTIME_ID", crate::runtime::ID)
-        .env(
-            "WINGMATE_RUNTIME_REVISION",
-            crate::runtime::REVISION.unwrap_or_default(),
-        )
+        .env("WINGMATE_RUNTIME_ID", &runtime.id)
+        .env("WINGMATE_RUNTIME_REVISION", &runtime.revision)
         .env_remove("NODE_OPTIONS")
         .stdin(Stdio::piped())
         .stdout(Stdio::from(log.try_clone()?))
         .stderr(Stdio::from(log));
-    #[cfg(not(feature = "bundled-runtime"))]
-    command
-        .env("DSH_HOME", crate::runtime::dev_root().join("dsh"))
-        .env("DSH_AGENTS_HOME", crate::runtime::dev_root().join("agents"));
+    if let Some(path) = &runtime.dsh_home {
+        command.env("DSH_HOME", path);
+    }
+    if let Some(path) = &runtime.agents_home {
+        command.env("DSH_AGENTS_HOME", path);
+    }
     #[cfg(windows)]
-    prevent_standard_pipe_inheritance()?;
+    crate::runtime::isolate_standard_pipes()?;
     let mut child = command.spawn().context("无法启动 DSH")?;
     let handoff = (|| -> Result<()> {
         #[cfg(windows)]
@@ -113,28 +116,6 @@ pub fn start(home: &Path, runtime: &Path, lock: File) -> Result<(Child, tempfile
     }
     drop(lock);
     Ok((child, control))
-}
-
-#[cfg(windows)]
-fn prevent_standard_pipe_inheritance() -> Result<()> {
-    use windows_sys::Win32::{
-        Foundation::{SetHandleInformation, HANDLE_FLAG_INHERIT},
-        Storage::FileSystem::{GetFileType, FILE_TYPE_PIPE},
-        System::Console::{GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
-    };
-
-    // Windows 创建进程时也会继承调用方已有的可继承管道句柄，导致 CLI 输出一直无法结束。
-    for stream in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
-        unsafe {
-            let handle = GetStdHandle(stream);
-            if GetFileType(handle) == FILE_TYPE_PIPE
-                && SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) == 0
-            {
-                return Err(std::io::Error::last_os_error()).context("无法隔离启动器的标准管道");
-            }
-        }
-    }
-    Ok(())
 }
 
 #[cfg(windows)]
@@ -237,7 +218,18 @@ fs.renameSync(marker + '.tmp', marker);
 "#,
         )?;
         let lock = try_acquire(home.path())?.context("无法取得测试运行锁")?;
-        let (mut node, _control) = start(home.path(), home.path(), lock)?;
+        let (mut node, _control) = start(
+            home.path(),
+            &crate::runtime::Runtime {
+                id: "dsh-test".into(),
+                revision: "test".into(),
+                directory: home.path().into(),
+                node: "node".into(),
+                dsh_home: None,
+                agents_home: None,
+            },
+            lock,
+        )?;
         let result = (|| -> Result<()> {
             let marker = home.path().join("child.pid");
             let deadline = Instant::now() + Duration::from_secs(10);

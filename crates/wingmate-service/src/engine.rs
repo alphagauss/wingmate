@@ -1,4 +1,4 @@
-//! 桌面与 CLI 共用的后台客户端。操作锁串行化启停，Node 持有独立运行锁。
+//! 管理已安装的业务运行时；操作锁与发行引导共用，Node 持有业务运行锁。
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
@@ -43,7 +43,7 @@ pub struct Snapshot {
     pub error: Option<String>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub enum StartupStage {
     Checking,
     Connecting,
@@ -75,10 +75,6 @@ fn endpoint(home: &Path) -> Result<Endpoint> {
             && !endpoint.token.is_empty()
             && !endpoint.instance.is_empty(),
         "后台发现文件无效或协议不匹配"
-    );
-    anyhow::ensure!(
-        endpoint.runtime == crate::runtime::ID,
-        "后台正在使用不同的 DSH 版本，请先用原版本停止后台，再启动新版"
     );
     Ok(endpoint)
 }
@@ -135,12 +131,6 @@ pub fn status(home: &Path) -> Result<Option<Snapshot>> {
     result.map(Some)
 }
 
-/// Find the installed CLI that belongs to a verified backend, including an
-/// older runtime that the desktop may still be connected to.
-pub fn dsh_entry(home: &Path, state: &Snapshot) -> Result<std::path::PathBuf> {
-    crate::runtime::installed_dsh_entry(home, state.runtime_revision.as_deref())
-}
-
 fn wait_ready(home: &Path, mut child: Option<&mut Child>) -> Result<Snapshot> {
     let deadline = Instant::now() + Duration::from_secs(150);
     loop {
@@ -181,13 +171,19 @@ fn start_or_connect_locked(home: &Path, report: impl Fn(StartupStage)) -> Result
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
         _ => {}
     }
-    let runtime = crate::runtime::prepare(home, || report(StartupStage::Extracting))?;
+    let runtime = crate::runtime::Runtime::load(home)?;
+    runtime.validate(home)?;
     report(StartupStage::Starting);
     let (mut child, _control) = crate::process::start(home, &runtime, lock)?;
     let result = wait_ready(home, Some(&mut child));
     if result.is_err() {
         let _ = child.kill();
         let _ = child.wait();
+    } else {
+        // 常驻宿主必须回收已退出的子进程，不能沿用短命启动器的隐式回收。
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
     }
     result
 }
@@ -199,7 +195,6 @@ fn start_locked(
 ) -> Result<Snapshot> {
     let state = start_or_connect_locked(home, report)?;
     ready(&state);
-    crate::runtime::cleanup_after_ready(home, &state);
     Ok(state)
 }
 
@@ -297,7 +292,7 @@ mod tests {
         let home = tempfile::tempdir()?;
         let _owner = crate::process::try_acquire(home.path())?.unwrap();
         let current = serde_json::json!({
-            "product": PRODUCT, "protocol": PROTOCOL, "runtime": crate::runtime::ID,
+            "product": PRODUCT, "protocol": PROTOCOL, "runtime": "dsh-test",
             "instance": "new", "pid": 1, "port": 1, "token": "test",
         });
         fs::write(home.path().join("endpoint.json"), current.to_string())?;

@@ -3,28 +3,28 @@ mod unix;
 #[cfg(windows)]
 mod windows;
 
+use crate::service::{self, Snapshot};
 use anyhow::{Context, Result};
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
 };
-use wingmate_service::service::{self, Snapshot};
 
-pub(super) const SUPPORTED: bool =
-    cfg!(any(windows, target_os = "linux", target_os = "macos")) && !wingmate_service::IS_DEV;
+pub const SUPPORTED: bool =
+    cfg!(any(windows, target_os = "linux", target_os = "macos")) && !crate::IS_DEV;
 const OWNER: &str = "// Wingmate dsh command\n";
 const LAUNCHER: &str = include_str!("dsh_command/launch.cjs");
 const WINGMATE_OWNER: &str = "// Wingmate desktop command\n";
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct Status {
+pub struct Status {
     enabled: bool,
     needs_update: bool,
 }
 
-pub(super) fn configure(home: &Path, state: Snapshot, enabled: Option<bool>) -> Result<Status> {
+pub fn configure(home: &Path, state: Snapshot, enabled: Option<bool>) -> Result<Status> {
     anyhow::ensure!(SUPPORTED, "终端命令注册仅适用于支持此功能的发行版");
     let _operation = (enabled == Some(true))
         .then(|| service::operation_lock(home))
@@ -44,7 +44,7 @@ pub(super) fn configure(home: &Path, state: Snapshot, enabled: Option<bool>) -> 
             .context("后台未提供 Agent 数据目录，请用当前版本重启后台后再注册")?;
         launcher(&entry, &dsh_home, &agents_home)
     };
-    let wingmate = wingmate_launcher(&std::env::current_exe()?, home)?;
+    let wingmate = wingmate_launcher(&super::executable()?, home)?;
     #[cfg(windows)]
     return windows::configure(enabled, launcher, &wingmate);
     #[cfg(any(target_os = "linux", target_os = "macos"))]

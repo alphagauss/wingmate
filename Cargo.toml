@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/wingmate-service", "src-tauri"]
+members = ["crates/wingmate-service", "crates/wingmate-launcher", "src-tauri"]
 default-members = ["src-tauri"]
 resolver = "2"
 

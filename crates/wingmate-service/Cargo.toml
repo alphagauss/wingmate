@@ -3,25 +3,16 @@ name = "wingmate-service"
 version.workspace = true
 edition.workspace = true
 
-[features]
-default = ["bundled-runtime"]
-bundled-runtime = ["dep:dirs"]
-
-[build-dependencies]
-serde_json = "1"
-sha2 = "0.10"
-
 [dependencies]
 anyhow = "1"
-dirs = { version = "6", optional = true }
 fs2 = "0.4"
-zstd = { version = "0.13", default-features = false }
-tar = "0.4"
 tempfile = "3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }
 sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+tiny_http = "0.12"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }

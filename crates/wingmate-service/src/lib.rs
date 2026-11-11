@@ -1,10 +1,5 @@
-//! DSH 后台管理库；不依赖 Tauri，桌面和 CLI 共用同一套生命周期实现。
-#[cfg(not(feature = "bundled-runtime"))]
-pub mod development;
+//! 已安装业务运行时的管理与本机管理协议；不携带或释放发行资源。
+pub mod engine;
+pub mod host;
 mod process;
-mod runtime;
-pub mod service;
-
-pub use runtime::{directory, REVISION as RUNTIME_REVISION};
-
-pub const IS_DEV: bool = !cfg!(feature = "bundled-runtime");
+pub mod runtime;

@@ -1,7 +1,7 @@
 use super::{bridge, desktop_window, Desktop, StartupPage};
 use std::{cell::Cell, sync::Arc, time::Duration};
 use tauri::{Manager, Url, WebviewWindow, WindowEvent};
-use wingmate_service::service::Snapshot;
+use wingmate_launcher::service::Snapshot;
 
 #[derive(Clone)]
 pub(super) struct Source {
@@ -39,7 +39,7 @@ pub(super) fn expose(window: &WebviewWindow, source: &Source, theme: Theme, navi
         source.address,
         source.instance,
         theme,
-        wingmate_service::IS_DEV,
+        wingmate_launcher::IS_DEV,
         navigation
     ]);
     let script = include_str!("titlebar.js");

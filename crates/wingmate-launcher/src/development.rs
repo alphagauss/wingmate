@@ -45,5 +45,42 @@ pub fn prepare(dev: bool) -> Result<()> {
     // Child::wait would close stdin itself unless we take ownership here.
     let _lifeline = child.stdin.take();
     ensure!(child.wait()?.success(), "运行包准备失败");
+    let mut command = Command::new("cargo");
+    command.args(["build", "-p", "wingmate-service"]);
+    if !dev {
+        command.arg("--release");
+    }
+    let status = command.current_dir(root).status()?;
+    ensure!(status.success(), "管理服务构建失败");
+    let directory = root.join(if dev {
+        "work/dev/bin"
+    } else {
+        "work/build/bin"
+    });
+    fs::create_dir_all(&directory)?;
+    let name = format!("wingmate-service{}", std::env::consts::EXE_SUFFIX);
+    fs::copy(
+        root.join(if dev {
+            "target/debug"
+        } else {
+            "target/release"
+        })
+        .join(&name),
+        directory.join(name),
+    )?;
+    if dev {
+        let status = Command::new("cargo")
+            .args([
+                "build",
+                "-p",
+                "wingmate-launcher",
+                "--no-default-features",
+                "--bin",
+                "wingmate",
+            ])
+            .current_dir(root)
+            .status()?;
+        ensure!(status.success(), "开发引导入口构建失败");
+    }
     Ok(())
 }

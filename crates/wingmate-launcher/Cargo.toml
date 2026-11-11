@@ -1,0 +1,37 @@
+[package]
+name = "wingmate-launcher"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = ["bundled-runtime", "desktop"]
+desktop = []
+bundled-runtime = []
+release-client = []
+
+[build-dependencies]
+serde_json = "1"
+sha2 = "0.10"
+
+[dependencies]
+anyhow = "1"
+dirs = "6"
+fs2 = "0.4"
+zstd = { version = "0.13", default-features = false }
+tar = "0.4"
+tempfile = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wingmate-service = { path = "../wingmate-service" }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }
+sha2 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+plist = "1"

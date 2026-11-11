@@ -1,5 +1,5 @@
 [package]
-name = "wingmate"
+name = "wingmate-desktop"
 version.workspace = true
 edition.workspace = true
 
@@ -9,7 +9,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 anyhow = "1"
-wingmate-service = { path = "../crates/wingmate-service", default-features = false }
+wingmate-launcher = { path = "../crates/wingmate-launcher", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 fs2 = "0.4"
@@ -20,18 +20,11 @@ tokio = { version = "1", features = ["sync", "time"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
 
-[target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
-dirs = "6"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-plist = "1"
-
 [target.'cfg(all(not(windows), not(target_os = "linux")))'.dependencies]
 rfd = { version = "0.17", default-features = false, features = ["gtk3"] }
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
-winreg = "0.56"
 windows-sys = { version = "0.61", features = [
     "Win32_Graphics_Gdi",
     "Win32_System_Console",
@@ -40,6 +33,6 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [features]
-# Tauri dev 移除 custom-protocol，直接用 Cargo 构建时仍默认携带运行包。
+# Tauri dev 移除 custom-protocol；发行桌面只读取运行清单，不内嵌资源。
 default = ["custom-protocol"]
-custom-protocol = ["tauri/custom-protocol", "wingmate-service/bundled-runtime"]
+custom-protocol = ["tauri/custom-protocol", "wingmate-launcher/release-client"]
