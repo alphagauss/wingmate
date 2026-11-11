@@ -22,7 +22,11 @@ fn main() {
         println!("cargo:rustc-env=WINGMATE_DEV_ROOT={}", dev.display());
         dev.join("components")
     };
-    let bin_directory = directory.parent().unwrap().join("bin");
+    let bin_directory = checkout.join(if release {
+        "target/release"
+    } else {
+        "target/debug"
+    });
     let mut binaries = format!(
         "const BINARY_DIRECTORY: &str = {:?};\n",
         bin_directory.to_str().unwrap()

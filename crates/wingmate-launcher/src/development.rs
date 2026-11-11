@@ -52,22 +52,6 @@ pub fn prepare(dev: bool) -> Result<()> {
     }
     let status = command.current_dir(root).status()?;
     ensure!(status.success(), "管理服务构建失败");
-    let directory = root.join(if dev {
-        "work/dev/bin"
-    } else {
-        "work/build/bin"
-    });
-    fs::create_dir_all(&directory)?;
-    let name = format!("wingmate-service{}", std::env::consts::EXE_SUFFIX);
-    fs::copy(
-        root.join(if dev {
-            "target/debug"
-        } else {
-            "target/release"
-        })
-        .join(&name),
-        directory.join(name),
-    )?;
     if dev {
         let status = Command::new("cargo")
             .args([
