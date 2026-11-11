@@ -67,6 +67,10 @@ const server = createServer(async (request, response) => {
     response.writeHead(401).end();
     return;
   }
+  if (request.url === '/file?download') {
+    response.writeHead(302, { location: '?version=1' }).end();
+    return;
+  }
   response.setHeader('set-cookie', 'dsh_test=hidden; Path=/');
   response.setHeader('content-type', 'application/octet-stream');
   for await (const chunk of request) response.write(chunk);
@@ -206,6 +210,12 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
     assert_eq!(upload.status(), 200);
     assert!(!upload.headers().contains_key("set-cookie"));
     assert_eq!(upload.bytes()?.as_ref(), &[0, 1, 255, b'D', b'S', b'H']);
+    let redirect = client
+        .get(url("/file?download"))
+        .header("Cookie", cookie)
+        .send()?;
+    assert_eq!(redirect.status(), 302);
+    assert_eq!(redirect.headers()["location"], "/file?version=1");
     assert_eq!(
         client
             .get(url("/"))

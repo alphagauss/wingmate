@@ -14,6 +14,8 @@ Word、PowerPoint 及部分扩展格式使用随包提供的 [File Viewer 侧栏
 
 成品可单独复制运行，Windows 为 `target/release/wingmate.exe`，macOS 和 Linux 为 `target/release/wingmate`。打开桌面，在左下角账号菜单进入「设置 → 后台服务」，可查看、停止或重启后台，也可为当前用户启用 `wingmate` 和 `dsh` 终端命令。停止或重启业务会中断运行任务。后台停止后管理服务继续存在，可在 Wingmate 首页或 CLI 再次启动。`service-stop` 仅在业务已停止后退出管理服务，`service-restart` 显式切换管理服务组件。
 
+在 Windows 标题栏点「连接」可粘贴另一台主机的链接，或分享本机的局域网配对链接和二维码。详细设置位于「插件 → 内置插件配置 → Wingmate 后台服务」。见[桌面连接面板](apps/desktop/README.md)和[局域网分享](crates/wingmate-service/README.md#局域网分享)。
+
 在终端运行 `wingmate --help` 或 `wingmate -h` 可查看后台管理命令。可执行文件尚未加入 PATH 时，用完整或相对路径调用，例如：
 
 ```sh

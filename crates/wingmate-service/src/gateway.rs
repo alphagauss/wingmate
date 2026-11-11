@@ -62,7 +62,14 @@ struct Session {
 }
 
 impl Session {
+    fn active(&self) -> bool {
+        self.device.expires_at > now() && !self.revoked.is_cancelled()
+    }
+
     async fn ended(&self) {
+        if !self.active() {
+            return;
+        }
         tokio::select! {
             _ = self.revoked.cancelled() => {},
             _ = tokio::time::sleep(Duration::from_secs(self.device.expires_at.saturating_sub(now()))) => {},
@@ -396,7 +403,7 @@ impl Gateway {
                     .get(&digest(&token.to_string()))
                     .cloned()
             })
-            .filter(|session| session.device.expires_at > now() && !session.revoked.is_cancelled());
+            .filter(Session::active);
         let Some(session) = session else {
             return response(StatusCode::UNAUTHORIZED, "请从主机获取新的配对链接");
         };
@@ -470,9 +477,7 @@ impl Gateway {
         let closed = self.closed.clone();
         let result = tokio::task::spawn_blocking(move || -> Result<host::Status> {
             anyhow::ensure!(
-                !closed.is_cancelled()
-                    && !session.revoked.is_cancelled()
-                    && session.device.expires_at > now(),
+                !closed.is_cancelled() && session.active(),
                 "连接已撤销或过期"
             );
             host::call(

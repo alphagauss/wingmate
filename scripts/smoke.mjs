@@ -1,9 +1,11 @@
 // 在隔离数据目录中验证真实单文件运行、并发发现、身份拒绝、停止和重启。
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, readFile, readdir, writeFile, access, rm } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -24,15 +26,14 @@ const upgradedExecutable = join(work, 'wingmate-upgraded.exe');
 const env = { ...process.env, WINGMATE_HOME: join(work, 'wingmate'), DSH_HOME: join(work, 'dsh'), DSH_AGENTS_HOME: join(work, 'agents') };
 for (const key of Object.keys(env)) if (/API_KEY|ACCESS_TOKEN|AUTH_TOKEN/.test(key)) delete env[key];
 const endpointFile = join(env.WINGMATE_HOME, 'endpoint.json');
-const hostFile = join(env.WINGMATE_HOME, 'host.json');
 const checks = [];
 let expectedRevision;
 let mayHaveStarted = false;
 let failure, cleanupError;
-function cli(action, success = true) {
+function cli(action, success = true, ...parameters) {
   if (action === 'start' || action === 'restart') mayHaveStarted = true;
   return new Promise((resolve, reject) => {
-    const child = spawn(activeExecutable, [action], { cwd: work, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(activeExecutable, [action, ...parameters], { cwd: work, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '', error = '';
     child.stdout.on('data', chunk => output += chunk);
     child.stderr.on('data', chunk => error += chunk);
@@ -48,16 +49,6 @@ function cli(action, success = true) {
       } catch (error) { reject(error); }
     });
   });
-}
-async function hostRpc(action, expected_instance = null) {
-  const endpoint = JSON.parse(await readFile(hostFile, 'utf8'));
-  const response = await fetch(`http://127.0.0.1:${endpoint.port}/rpc`, {
-    method: 'POST', headers: { Authorization: `Bearer ${endpoint.token}`,
-      'X-Wingmate-Instance': endpoint.instance, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, expected_instance }),
-  });
-  assert.equal(response.status, 200, `管理服务 ${action} 失败: ${await response.clone().text()}`);
-  return response.json();
 }
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 try {
@@ -221,11 +212,81 @@ try {
   assert.equal(alive(restarted.engine_pid), false);
   checks.push('停止等待运行锁释放及 DSH 退出');
   assert.equal((await cli('service-status')).instance, host.instance);
-  const remoteStarted = (await hostRpc('start')).business;
+  assert.equal((await cli('share-status')).address, null);
+  const { address } = await cli('share-enable', true, '127.0.0.1');
+  const gateway = 'http://' + address;
+  assert.equal((await fetch(gateway)).status, 401);
+  const { pairing_url } = await cli('share-pair');
+  const [pair, code] = pairing_url.split('#');
+  const paired = await fetch(pair, { method: 'POST', headers: { Origin: gateway }, body: code });
+  assert.equal(paired.status, 204);
+  const shareCookie = paired.headers.getSetCookie()[0].split(';')[0];
+  assert.equal((await fetch(pair, { method: 'POST', headers: { Origin: gateway }, body: code })).status, 401);
+  const remote = (path, { headers, ...options } = {}) => fetch(new URL(path, gateway), {
+    ...options, headers: { Cookie: shareCookie, ...headers }, signal: AbortSignal.timeout(160_000),
+  });
+  const manage = (action, expected_instance = null) => remote('/_wingmate/manage', {
+    method: 'POST', headers: { Origin: gateway, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, expected_instance }),
+  });
+  const recovery = await remote('/', { headers: { Accept: 'text/html' } });
+  assert.equal(recovery.status, 200);
+  assert.match(await recovery.text(), /_wingmate\/home\.js/);
+  assert.equal((await remote('/_wingmate/home.js')).status, 200);
+  const startResponse = await manage('start');
+  assert.equal(startResponse.status, 200);
+  const remoteStarted = await startResponse.json();
   assert.equal(remoteStarted.phase, 'running');
-  assert.equal(remoteStarted.runtime_revision, a.runtime_revision);
-  await hostRpc('stop', remoteStarted.instance);
-  checks.push('业务停止后管理服务仍存活，无发行入口参与也能再次启动业务');
+  assert.equal((await cli('status')).runtime_revision, a.runtime_revision);
+  assert.equal((await manage('stop', restarted.instance)).status, 409);
+  const sharedPage = await remote('/');
+  assert.equal(sharedPage.status, 200);
+  assert.equal(sharedPage.headers.has('set-cookie'), false);
+  assert.match(await sharedPage.text(), /__DSH_BOOT__/);
+  assert.equal((await remote(plugin.url)).status, 200);
+  assert.equal((await remote(backends.url)).status, 200);
+  assert.equal((await remote(fileViewer.url)).status, 200);
+
+  const method = 'session/create';
+  const created = await remote('/api/' + method, {
+    method: 'POST', headers: { Origin: gateway, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'client-request', rpcId: randomUUID(), method, payload: { args: { request: { cwd: work } } } }),
+  });
+  assert.equal(created.status, 200);
+  const { result: session } = await created.json();
+  assert.equal(session.ok, true, JSON.stringify(session));
+  const bytes = Buffer.from('Wingmate LAN file transfer\n');
+  const uploadQuery = new URLSearchParams({ sessionId: session.value.sessionId, name: 'gateway.txt' });
+  const uploaded = await remote('/api/session/uploadFileBinary?' + uploadQuery, {
+    method: 'POST', headers: { Origin: gateway, 'Content-Type': 'application/octet-stream' }, body: bytes,
+  });
+  assert.equal(uploaded.status, 200);
+  const uploadResult = await uploaded.json();
+  assert.equal(uploadResult.ok, true, JSON.stringify(uploadResult));
+  const sample = join(env.DSH_HOME, 'gateway.txt');
+  await writeFile(sample, bytes);
+  const downloaded = await remote('/api/file?' + new URLSearchParams({ path: sample }));
+  assert.equal(downloaded.status, 200);
+  assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), bytes);
+
+  const WebSocket = createRequire(join(runtimePath, 'node_modules/@deepseek-ai/dsh/package.json'))('ws');
+  const socket = new WebSocket(gateway.replace('http:', 'ws:') + '/api/remote.mux', {
+    headers: { Cookie: shareCookie, Origin: gateway }, handshakeTimeout: 5000,
+  });
+  try {
+    await once(socket, 'open');
+    const { devices: [device] } = await cli('share-status');
+    await Promise.all([
+      once(socket, 'close', { signal: AbortSignal.timeout(8000) }),
+      cli('share-revoke', true, device.id),
+    ]);
+  } finally {
+    socket.terminate();
+  }
+  assert.equal((await manage('stop', remoteStarted.instance)).status, 401);
+  await cli('share-disable');
+  await cli('stop');
+  checks.push('局域网网关复用真实 DSH 工作台、插件、文件传输和长连接，停机后可从原地址启动并撤销设备');
   await cli('service-restart');
   const replacementHost = await cli('service-status');
   assert.notEqual(replacementHost.instance, host.instance);

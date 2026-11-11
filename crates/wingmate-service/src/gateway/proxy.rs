@@ -81,6 +81,7 @@ impl Credentials {
         let port = login.port().context("缺少 DSH 端口")?;
         let authority = format!("127.0.0.1:{port}");
         let upstream_origin = format!("http://{authority}");
+        let request_uri = request.uri().clone();
         let upgrade = request.headers().get(header::UPGRADE);
         let websocket =
             upgrade.is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(b"websocket"));
@@ -122,8 +123,9 @@ impl Credentials {
             headers.insert(header::ORIGIN, upstream_origin.parse()?);
         }
         let mut reply = tokio::select! {
+            biased;
             _ = session.ended() => return Ok(response(StatusCode::UNAUTHORIZED, "连接已撤销或过期")),
-            result = sender.send_request(request) => result?,
+            result = async { sender.send_request(request).await } => result?,
         };
         let upgraded = reply.status() == StatusCode::SWITCHING_PROTOCOLS;
         if upgraded {
@@ -141,9 +143,10 @@ impl Credentials {
                     Ok::<_, hyper::Error>(())
                 };
                 tokio::select! {
-                    _ = tunnel => {},
+                    biased;
                     _ = session.ended() => {},
                     _ = closed.cancelled() => {},
+                    _ = tunnel => {},
                 }
             });
         }
@@ -159,7 +162,8 @@ impl Credentials {
             .get(header::LOCATION)
             .and_then(|value| value.to_str().ok())
         {
-            if let Ok(url) = login.join(location) {
+            let upstream_request = reqwest::Url::parse(&format!("{upstream_origin}{request_uri}"))?;
+            if let Ok(url) = upstream_request.join(location) {
                 if url.origin() == login.origin() {
                     let origin = login.origin().ascii_serialization();
                     let path = url
@@ -177,6 +181,7 @@ impl Credentials {
         let frames =
             futures_util::stream::unfold((body, session), |(mut body, session)| async move {
                 tokio::select! {
+                    biased;
                     _ = session.ended() => None,
                     frame = body.frame() => frame.map(|frame| (frame, (body, session))),
                 }
