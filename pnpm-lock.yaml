@@ -17,6 +17,8 @@ importers:
 
   apps/desktop: {}
 
+  plugins/wingmate-backends: {}
+
   plugins/wingmate-file-viewer:
     devDependencies:
       '@file-viewer/renderer-email':
