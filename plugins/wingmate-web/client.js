@@ -28,20 +28,6 @@ window.__ModuleLoader__.load({
       return () => window.removeEventListener(bridgeEvent, update);
     }
 
-    function WindowTitlebar() {
-      useLayoutEffect(() => {
-        let unmount;
-        const mount = () => { unmount ??= window.__WINGMATE_TITLEBAR__?.mount(); };
-        window.addEventListener('wingmate:titlebar', mount);
-        mount();
-        return () => {
-          window.removeEventListener('wingmate:titlebar', mount);
-          unmount?.();
-        };
-      }, []);
-      return null;
-    }
-
     function SettingRow({ label, children, control, last }) {
       return h('div', { style: { ...rowStyle, borderBottom: last ? undefined : '0.5px solid var(--dsw-alias-border-l2)' } },
         h('div', { style: { display: 'grid', gap: 4, minWidth: 0, flex: 1 } },
@@ -330,10 +316,26 @@ window.__ModuleLoader__.load({
           name: 'settings.section', id: 'wingmate-backend', order: 90, label: '后台服务',
         }, BackendSettings));
         if (desktop) {
-          window.__WINGMATE_TITLEBAR__?.prepare();
-          ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-            name: 'shell.overlay', id: 'wingmate-window-titlebar',
-          }, WindowTitlebar));
+          ctx.effect(() => {
+            let unregister;
+            const registerTitlebar = () => {
+              const titlebar = window.__WINGMATE_TITLEBAR__;
+              if (!titlebar || unregister) return;
+              titlebar.prepare();
+              unregister = ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+                name: 'shell.overlay', id: 'wingmate-window-titlebar',
+              }, function WindowTitlebar() {
+                useLayoutEffect(titlebar.mount, []);
+                return null;
+              }));
+            };
+            window.addEventListener('wingmate:titlebar', registerTitlebar);
+            registerTitlebar();
+            return () => {
+              window.removeEventListener('wingmate:titlebar', registerTitlebar);
+              unregister?.();
+            };
+          }, 'Wingmate window titlebar');
           registerSettings();
         }
         ctx.effect(() => watchGateway(desktop ? undefined : registerSettings), 'Wingmate gateway status');

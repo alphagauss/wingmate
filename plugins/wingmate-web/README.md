@@ -12,7 +12,7 @@ Wingmate 自行维护的 DSH Web 插件。它在官方设置页的 `settings.sec
 
 客户端采用 DSH 的 lazy factory 格式，复用其 React 和控件，不需要额外的运行依赖。DSH 兼容范围以本包的 `engines.dsh` 为准，升级时重点检查客户端清单、设置扩展点、控件和启动补丁。插件属于 Wingmate 源码，复用 DSH 官方扩展点，无上游补丁。
 
-在 Windows Wingmate 工作台中，`shell.overlay` 插槽随工作台布局挂载和卸载[桌面标题栏](../../src-tauri/README.md#windows-标题栏)。
+插件仅在收到 Windows 桌面主 WebView 为本机工作台注入的桥接后，才通过 `shell.overlay` 随工作台布局挂载和卸载[桌面标题栏](../../src-tauri/README.md#windows-标题栏)。
 
 插件随开发安装树和发行归档提供，Wingmate 启动 `web` 时默认通过[运行包启动补丁](../cordis.patch.yml)加载。插件包内的 `cordis.patch.yml` 供 DSH Profile 单独安装此包时使用。用户的 Profile、凭据和会话仍由 DSH 管理。浏览器从网关进入时可管理当前主机的启停，直接打开本机 DSH 的浏览器只提供 DSH 工作台。从启动补丁移除此插件的条目后设置项消失，CLI 和首页恢复能力继续可用。
 
