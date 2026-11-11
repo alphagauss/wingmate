@@ -11,6 +11,9 @@ window.__ModuleLoader__.load({
     } = require('@deepseek-ai/dsh-client-ui-primitives');
     const bridgeEvent = 'wingmate:backend-bridge';
     const getBridge = () => window.__WINGMATE_BACKEND__;
+    let remoteHost = null;
+    const getRemoteHost = () => remoteHost;
+    const recovery = '/_wingmate/recovery';
     const detailStyle = { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, lineHeight: '18px' };
     const alertStyle = { ...detailStyle, color: 'var(--dsw-alias-state-error-primary)' };
     const valueStyle = { display: 'block', ...detailStyle, overflowWrap: 'anywhere' };
@@ -90,8 +93,76 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function ShareSettings() {
+      const bridge = useSyncExternalStore(subscribe, getBridge);
+      const share = bridge?.share;
+      const [status, setStatus] = useState(null);
+      const [address, setAddress] = useState('');
+      const [pending, setPending] = useState(false);
+      const [message, setMessage] = useState('');
+
+      useEffect(() => {
+        if (!share) return;
+        let active = true;
+        share({ action: 'status' }).then(value => {
+          if (!active) return;
+          setStatus(value);
+          setAddress(value.suggested_address ?? '');
+        }).catch(error => { if (active) setMessage(String(error)); });
+        return () => { active = false; };
+      }, [share]);
+
+      if (!share) return null;
+      async function run(command) {
+        setPending(true);
+        setMessage('');
+        try { setStatus(await share(command)); }
+        catch (error) { setMessage(String(error)); }
+        finally { setPending(false); }
+      }
+      async function copy() {
+        try {
+          await navigator.clipboard.writeText(status.pairing_url);
+          setMessage('配对链接已复制');
+        } catch {
+          setMessage('请手动复制配对链接');
+        }
+      }
+
+      return h('section', { 'aria-label': '局域网分享', style: { display: 'grid', gap: 8 } },
+        h('strong', null, '局域网分享'),
+        status?.address ? h('div', { style: actionsStyle },
+          h('code', { style: valueStyle }, 'http://' + status.address),
+          h(Button, { size: 'sm', disabled: pending, onClick: () => run({ action: 'pair' }) }, '生成配对链接'),
+          h(Button, { size: 'sm', disabled: pending, onClick: () => run({ action: 'disable' }) }, '关闭分享'),
+        ) : h('div', { style: actionsStyle },
+          h('input', {
+            'aria-label': '本机 IPv4 地址', placeholder: '本机 IPv4 地址',
+            value: address, onChange: event => setAddress(event.target.value), disabled: pending,
+          }),
+          h(Button, { size: 'sm', disabled: pending || !status, onClick: () => run({ action: 'enable', address: address.trim() || null }) }, '开启分享'),
+        ),
+        status?.pairing_url && h('div', null,
+          h('img', { src: 'data:image/svg+xml,' + encodeURIComponent(status.qr), width: 192, height: 192, alt: '局域网配对二维码' }),
+          h('code', { style: valueStyle }, status.pairing_url),
+          h(Button, { size: 'sm', disabled: pending, onClick: copy }, '复制一次性链接'),
+        ),
+        status?.devices.length > 0 && h('strong', null, '已配对设备'),
+        status?.devices.map(device => h('div', { key: device.id, style: actionsStyle },
+          h('span', { style: detailStyle }, device.id.slice(0, 8) + ' · ' + new Date(device.paired_at * 1000).toLocaleString()),
+          h(Button, { size: 'sm', disabled: pending, onClick: () => run({ action: 'revoke', id: device.id }) }, '撤销'),
+        )),
+        (status || message) && h('div', null,
+          h(Button, { size: 'sm', disabled: pending, onClick: () => run({ action: 'status' }) }, '刷新分享状态'),
+        ),
+        message && h('div', { role: 'status', style: detailStyle }, message),
+      );
+    }
+
     function BackendSettings() {
       const bridge = useSyncExternalStore(subscribe, getBridge);
+      const remote = useSyncExternalStore(subscribe, getRemoteHost);
+      const canManage = Boolean(bridge || remote?.phase === 'running');
       const [action, setAction] = useState(null);
       const [pending, setPending] = useState(false);
       const [error, setError] = useState('');
@@ -120,7 +191,16 @@ window.__ModuleLoader__.load({
         setPending(true);
         setError('');
         try {
-          await bridge.manage(action);
+          if (bridge) {
+            await bridge.manage(action);
+          } else {
+            const response = await fetch('/_wingmate/manage', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action, expected_instance: remote.instance }),
+            });
+            if (!response.ok) throw new Error(await response.text());
+            location.replace(recovery);
+          }
         } catch (failure) {
           setError(String(failure));
           setAction(null);
@@ -131,10 +211,10 @@ window.__ModuleLoader__.load({
       return h('section', { 'aria-label': '后台服务' },
         h(SettingRow, {
           label: '运行状态',
-          control: bridge && h(Tag, { tone: 'success' }, '运行中'),
+          control: canManage && h(Tag, { tone: 'success' }, '运行中'),
         },
           h('div', { role: 'status', style: detailStyle },
-            bridge ? `DSH ${bridge.dshVersion ?? bridge.version}` : '正在连接 Wingmate 桌面…',
+            bridge ? 'DSH ' + (bridge.dshVersion ?? bridge.version) : remote ? '当前远程主机' : '正在连接 Wingmate 桌面…',
           ),
           bridge?.runtimeUpdate && h('div', { role: 'status', style: { ...actionsStyle, ...detailStyle } },
             h(Tag, { tone: 'warning' }, '待切换'),
@@ -169,13 +249,20 @@ window.__ModuleLoader__.load({
             pending,
             updateMessage: '命令注册需要更新。',
           }),
+          bridge.openConnections && h(SettingRow, {
+            label: '连接其他主机',
+            control: h(Button, {
+              size: 'sm', variant: 'outline', disabled: pending,
+              onClick: () => bridge.openConnections().catch(failure => setError(String(failure))),
+            }, '打开连接面板'),
+          }),
         ),
         h(SettingRow, {
           label: '后台管理',
           last: true,
           control: h('div', { style: actionsStyle },
-            h(Button, { size: 'sm', variant: 'ghost', disabled: !bridge || pending, onClick: () => setAction('stop') }, '停止后台'),
-            h(Button, { size: 'sm', variant: 'outline', disabled: !bridge || pending, onClick: () => setAction('restart') }, '重启后台'),
+            h(Button, { size: 'sm', variant: 'ghost', disabled: !canManage || pending, onClick: () => setAction('stop') }, '停止后台'),
+            h(Button, { size: 'sm', variant: 'outline', disabled: !canManage || pending, onClick: () => setAction('restart') }, '重启后台'),
           ),
         },
           h('div', { style: detailStyle }, '关闭窗口后，后台和正在运行的任务会继续。'),
@@ -189,10 +276,47 @@ window.__ModuleLoader__.load({
           closeLabel: '关闭确认',
           footer: h('div', { style: { display: 'flex', gap: 8 } },
             h(Button, { 'data-modal-autofocus': true, disabled: pending, onClick: () => setAction(null) }, '取消'),
-            h(Button, { variant: 'primary', disabled: pending || !bridge, onClick: confirm }, '确认'),
+            h(Button, { variant: 'primary', disabled: pending || !canManage, onClick: confirm }, '确认'),
           ),
         }),
       );
+    }
+
+    function watchGateway(register) {
+      let disposed = false;
+      let timer;
+      let unregister;
+      let runningInstance;
+      async function refresh() {
+        try {
+          if (getBridge()) return;
+          const response = await fetch('/_wingmate/status', { signal: AbortSignal.timeout(5000) });
+          if (disposed || (!remoteHost && [401, 404].includes(response.status))) return;
+          if (response.ok) {
+            if (!response.headers.get('Content-Type')?.startsWith('application/json')) return;
+            const status = await response.json();
+            if (disposed || status.product !== 'wingmate') return;
+            const replaced = status.phase === 'running' && runningInstance && runningInstance !== status.instance;
+            if (status.phase === 'stopped' || replaced) {
+              location.replace(recovery);
+              return;
+            }
+            if (status.phase === 'running') runningInstance = status.instance;
+            if (remoteHost?.phase !== status.phase || remoteHost?.instance !== status.instance) {
+              remoteHost = status;
+              window.dispatchEvent(new Event(bridgeEvent));
+            }
+            if (register && !unregister) unregister = register();
+          }
+        } catch { /* Preserve the workbench during temporary connection loss. */ }
+        if (!disposed) timer = setTimeout(refresh, 2000);
+      }
+      refresh();
+      return () => {
+        disposed = true;
+        clearTimeout(timer);
+        unregister?.();
+      };
     }
 
     return {
@@ -200,16 +324,19 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         const desktop = typeof window.__TAURI_INTERNALS__?.invoke === 'function';
         ctx.inject(['remote', 'remote.pluginInventory'], itemContext => {
-          registerPreinstalledItems(itemContext, react, { Button, Tag }, desktop);
+          registerPreinstalledItems(itemContext, react, { Button, Tag }, desktop, ShareSettings);
         });
-        if (!desktop) return;
-        window.__WINGMATE_TITLEBAR__?.prepare();
-        ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-          name: 'shell.overlay', id: 'wingmate-window-titlebar',
-        }, WindowTitlebar));
-        ctx.slots.inject('settings.section', () => ctx.slots.register({
+        const registerSettings = () => ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section', id: 'wingmate-backend', order: 90, label: '后台服务',
         }, BackendSettings));
+        if (desktop) {
+          window.__WINGMATE_TITLEBAR__?.prepare();
+          ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+            name: 'shell.overlay', id: 'wingmate-window-titlebar',
+          }, WindowTitlebar));
+          registerSettings();
+        }
+        ctx.effect(() => watchGateway(desktop ? undefined : registerSettings), 'Wingmate gateway status');
       },
     };
   },

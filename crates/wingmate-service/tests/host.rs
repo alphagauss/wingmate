@@ -170,7 +170,33 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
             .status(),
         503
     );
-    let business = host::call(&endpoint, "start", None)?.business.unwrap();
+    let manage = |action: &str, instance: Option<&str>| {
+        client
+            .post(url("/_wingmate/manage"))
+            .header("Cookie", cookie)
+            .header("Origin", &origin)
+            .json(&serde_json::json!({ "action": action, "expected_instance": instance }))
+            .send()
+    };
+    let recovery = client
+        .get(url("/"))
+        .header("Cookie", cookie)
+        .header("Accept", "text/html")
+        .send()?;
+    assert_eq!(recovery.status(), 200);
+    assert!(recovery.text()?.contains("/_wingmate/home.js"));
+    assert_eq!(manage("shutdown", None)?.status(), 400);
+    let started = manage("start", None)?;
+    assert_eq!(started.status(), 200);
+    let started: serde_json::Value = started.json()?;
+    assert_eq!(started["phase"], "running");
+    assert_eq!(manage("stop", None)?.status(), 400);
+    assert_eq!(manage("stop", Some("stale"))?.status(), 409);
+    let stopped: serde_json::Value = manage("stop", started["instance"].as_str())?.json()?;
+    assert_eq!(stopped["phase"], "stopped");
+    let restarted: serde_json::Value = manage("start", None)?.json()?;
+    assert_eq!(restarted["phase"], "running");
+    assert_ne!(restarted["instance"], started["instance"]);
     let upload = client
         .post(url("/file"))
         .header("Cookie", cookie)
@@ -211,7 +237,11 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
             .status(),
         401
     );
-    host::call(&endpoint, "stop", Some(&business.instance))?;
+    assert_eq!(
+        manage("stop", restarted["instance"].as_str())?.status(),
+        401
+    );
+    host::call(&endpoint, "stop", restarted["instance"].as_str())?;
     share(Disable)?;
     assert!(share(Status)?.address.is_none());
     Ok(())

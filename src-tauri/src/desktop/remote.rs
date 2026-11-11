@@ -12,6 +12,7 @@ use tauri::{
     Manager, PhysicalPosition, PhysicalSize, Rect, State, Url, Webview, WebviewBuilder, WebviewUrl,
     Window,
 };
+use wingmate_launcher::service::{self, ShareCommand, ShareStatus};
 
 const HEADER_HEIGHT: f64 = 40.;
 
@@ -207,6 +208,52 @@ pub(super) fn return_local(
         .inner()
         .submit(webview.app_handle().clone(), operation);
     Ok(())
+}
+
+#[derive(serde::Serialize)]
+pub(super) struct ShareReply {
+    #[serde(flatten)]
+    status: ShareStatus,
+    qr: Option<String>,
+}
+
+#[tauri::command]
+pub(super) async fn local_share(
+    webview: Webview,
+    desktop: State<'_, Arc<Desktop>>,
+    command: ShareCommand,
+    instance: Option<String>,
+) -> Result<ShareReply, String> {
+    if local_panel(&webview, &desktop).is_err() {
+        let url = webview.url().map_err(|error| error.to_string())?;
+        let current = desktop.connection.lock().unwrap();
+        let state = current.workspace().ok_or("本机后台尚未连接")?;
+        if webview.label() != desktop.window_label
+            || instance.as_deref() != Some(state.instance.as_str())
+            || bridge::origin(state).as_deref() != Some(&url.origin().ascii_serialization())
+        {
+            return Err("此页面不能管理本机分享".into());
+        }
+    }
+    let home = desktop.home.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<ShareReply> {
+        let status = service::share(&home, &command)?;
+        let qr = status
+            .pairing_url
+            .as_ref()
+            .map(|url| -> Result<String> {
+                use qrcode::render::svg;
+                Ok(qrcode::QrCode::new(url.as_bytes())?
+                    .render::<svg::Color>()
+                    .min_dimensions(192, 192)
+                    .build())
+            })
+            .transpose()?;
+        Ok(ShareReply { status, qr })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| format!("{error:#}"))
 }
 
 #[cfg(test)]

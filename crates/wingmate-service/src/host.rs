@@ -159,7 +159,7 @@ pub fn run(home: &Path) -> Result<()> {
     });
     let stopping = Arc::new(AtomicBool::new(false));
     let mutations = Arc::new(Mutex::new(()));
-    let gateway = Arc::new(gateway::Control::new(home.to_owned())?);
+    let gateway = Arc::new(gateway::Control::new(home.to_owned(), endpoint.clone())?);
     let mut workers = Vec::new();
     for _ in 0..4 {
         let (server, endpoint, stopping, mutations, gateway, home) = (

@@ -22,10 +22,13 @@
   button, input, select { font: inherit; padding: 6px 10px; border-radius: 6px; }
   button { cursor: pointer; }
   #message { min-height: 1.5em; }
+  #share-link { width: 100%; box-sizing: border-box; }
+  #share-code { display: block; margin: 12px 0; max-width: 100%; }
 </style>
 <header>
   <span id="current" role="status">本机</span>
   <button type="button" id="toggle" hidden>连接</button>
+  <button type="button" id="share">分享本机</button>
   <button type="button" id="local">返回本机</button>
 </header>
 <main>
@@ -38,6 +41,18 @@
     <button type="submit">连接</button>
   </form>
   <p id="message" role="status"></p>
+  <section id="sharing" hidden>
+    <h2>局域网分享</h2>
+    <p id="share-status" role="status"></p>
+    <button type="button" id="share-enable" hidden>开启分享</button>
+    <button type="button" id="share-pair" hidden>生成配对链接</button>
+    <div id="share-result" hidden>
+      <img id="share-code" width="192" height="192" alt="局域网配对二维码">
+      <label for="share-link">配对链接，有效期 5 分钟</label>
+      <input id="share-link" type="text" readonly>
+      <button type="button" id="share-copy">复制链接</button>
+    </div>
+  </section>
 </main>
 <script type="module" src="./connections.js"></script>
 </html>

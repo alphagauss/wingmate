@@ -14,11 +14,11 @@
   "app": {
     "windows": [],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'",
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:",
       "capabilities": [{
         "identifier": "wingmate-home",
         "webviews": ["main", "temporary-*"],
-        "permissions": ["allow-home-backend", "allow-window-chrome", "allow-open-connections", "allow-remote-workbench"]
+        "permissions": ["allow-home-backend", "allow-window-chrome", "allow-open-connections", "allow-remote-workbench", "allow-local-share"]
       }]
     }
   },

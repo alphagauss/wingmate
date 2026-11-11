@@ -388,7 +388,8 @@ pub fn run(home: PathBuf) -> Result<()> {
             remote::open_connections,
             remote::connect_remote,
             remote::show_remote,
-            remote::return_local
+            remote::return_local,
+            remote::local_share
         ])
         .setup(move |app| {
             let page_load = desktop.clone();

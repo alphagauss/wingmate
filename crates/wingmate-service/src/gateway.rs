@@ -167,6 +167,7 @@ impl Auth {
 
 struct Gateway {
     home: PathBuf,
+    endpoint: Arc<host::Endpoint>,
     address: SocketAddrV4,
     origin: String,
     cookie: String,
@@ -177,6 +178,7 @@ struct Gateway {
 
 pub(super) struct Control {
     home: PathBuf,
+    endpoint: Arc<host::Endpoint>,
     active: Mutex<Option<Arc<Gateway>>>,
     auth: Arc<Mutex<Auth>>,
     runtime: tokio::runtime::Runtime,
@@ -193,13 +195,14 @@ fn suggested_address() -> Option<Ipv4Addr> {
 }
 
 impl Control {
-    pub(super) fn new(home: PathBuf) -> Result<Self> {
+    pub(super) fn new(home: PathBuf, endpoint: Arc<host::Endpoint>) -> Result<Self> {
         let auth = Arc::new(Mutex::new(Auth::load(&home).unwrap_or_else(|error| {
             eprintln!("无法读取分享设备：{error:#}");
             Auth::default()
         })));
         let control = Self {
             home,
+            endpoint,
             active: Mutex::new(None),
             auth,
             runtime: tokio::runtime::Builder::new_multi_thread()
@@ -239,6 +242,7 @@ impl Control {
         let listener = tokio::net::TcpListener::from_std(listener)?;
         let gateway = Arc::new(Gateway {
             home: self.home.clone(),
+            endpoint: self.endpoint.clone(),
             address,
             origin: format!("http://{address}"),
             cookie: format!("wingmate_share_{}", address.port()),
@@ -374,15 +378,7 @@ impl Gateway {
             return self.pair(request).await;
         }
         if request.method() == Method::GET && request.uri().path() == "/_wingmate/identity" {
-            let mut reply = response(
-                StatusCode::OK,
-                r#"{"product":"wingmate","transport":"lan"}"#,
-            );
-            reply.headers_mut().insert(
-                header::CONTENT_TYPE,
-                header::HeaderValue::from_static("application/json"),
-            );
-            return reply;
+            return json(serde_json::json!({"product": "wingmate", "transport": "lan"}));
         }
         let session = headers
             .get_all(header::COOKIE)
@@ -404,19 +400,94 @@ impl Gateway {
         let Some(session) = session else {
             return response(StatusCode::UNAUTHORIZED, "请从主机获取新的配对链接");
         };
-        if request.uri().path().starts_with("/_wingmate/") {
-            return response(StatusCode::NOT_FOUND, "");
+        let path = request.uri().path();
+        if path.starts_with("/_wingmate/") && path != "/_wingmate/status" {
+            return match (request.method(), path) {
+                (&Method::GET, "/_wingmate/recovery") => recovery(),
+                (&Method::GET, "/_wingmate/home.js") => content(
+                    StatusCode::OK,
+                    "text/javascript; charset=utf-8",
+                    Bytes::from_static(include_bytes!("../../../apps/launcher/home.js")),
+                ),
+                (&Method::GET, "/_wingmate/logo.svg") => content(
+                    StatusCode::OK,
+                    "image/svg+xml",
+                    Bytes::from_static(include_bytes!("../../../src-tauri/icons/logo.svg")),
+                ),
+                (&Method::POST, "/_wingmate/manage") => self.manage(request, session).await,
+                _ => response(StatusCode::NOT_FOUND, ""),
+            };
         }
         let home = self.home.clone();
         let snapshot = tokio::task::spawn_blocking(move || engine::status(&home)).await;
-        match snapshot {
-            Ok(Ok(Some(state))) if state.url.is_some() => {
-                self.upstream
-                    .forward(request, state, session, self.closed.clone())
-                    .await
-            }
-            Ok(Ok(_)) => response(StatusCode::SERVICE_UNAVAILABLE, "业务后台未就绪"),
-            _ => response(StatusCode::BAD_GATEWAY, "无法读取业务后台状态"),
+        let Ok(Ok(snapshot)) = snapshot else {
+            return response(StatusCode::BAD_GATEWAY, "无法读取业务后台状态");
+        };
+        if path == "/_wingmate/status" {
+            return if request.method() == Method::GET {
+                business_status(snapshot.as_ref())
+            } else {
+                response(StatusCode::METHOD_NOT_ALLOWED, "")
+            };
+        }
+        if let Some(state) = snapshot.filter(|state| state.url.is_some()) {
+            return self
+                .upstream
+                .forward(request, state, session, self.closed.clone())
+                .await;
+        }
+        if request.method() == Method::GET
+            && headers.get(header::ACCEPT).is_some_and(|value| {
+                value
+                    .to_str()
+                    .is_ok_and(|value| value.contains("text/html"))
+            })
+        {
+            return recovery();
+        }
+        response(StatusCode::SERVICE_UNAVAILABLE, "业务后台未就绪")
+    }
+
+    async fn manage(&self, request: Request<Incoming>, session: Session) -> Response<Body> {
+        if request.headers().get(header::ORIGIN).is_none() {
+            return response(StatusCode::FORBIDDEN, "");
+        }
+        let Some(body) = bounded(request.into_body(), 4096).await else {
+            return response(StatusCode::BAD_REQUEST, "管理请求无效");
+        };
+        let Ok(command) = serde_json::from_slice::<host::Request>(&body) else {
+            return response(StatusCode::BAD_REQUEST, "管理请求无效");
+        };
+        match (
+            command.action.as_str(),
+            command.expected_instance.as_deref(),
+        ) {
+            ("start", None) => {}
+            ("stop" | "restart", Some(instance)) if !instance.is_empty() => {}
+            _ => return response(StatusCode::BAD_REQUEST, "管理操作或实例无效"),
+        }
+        let endpoint = self.endpoint.clone();
+        let closed = self.closed.clone();
+        let result = tokio::task::spawn_blocking(move || -> Result<host::Status> {
+            anyhow::ensure!(
+                !closed.is_cancelled()
+                    && !session.revoked.is_cancelled()
+                    && session.device.expires_at > now(),
+                "连接已撤销或过期"
+            );
+            host::call(
+                &endpoint,
+                &command.action,
+                command.expected_instance.as_deref(),
+            )
+        })
+        .await;
+        match result {
+            Ok(Ok(status)) => business_status(status.business.as_ref()),
+            _ => response(
+                StatusCode::CONFLICT,
+                "后台操作未完成，请确认主机当前状态后重试",
+            ),
         }
     }
 
@@ -427,15 +498,10 @@ impl Gateway {
         if request.method() != Method::POST || request.headers().get(header::ORIGIN).is_none() {
             return response(StatusCode::FORBIDDEN, "");
         }
-        let Ok(Ok(bytes)) = tokio::time::timeout(
-            Duration::from_secs(5),
-            Limited::new(request.into_body(), 36).collect(),
-        )
-        .await
-        else {
+        let Some(bytes) = bounded(request.into_body(), 36).await else {
             return response(StatusCode::BAD_REQUEST, "配对请求无效");
         };
-        let Some(code) = std::str::from_utf8(&bytes.to_bytes())
+        let Some(code) = std::str::from_utf8(&bytes)
             .ok()
             .and_then(|text| Uuid::parse_str(text).ok())
         else {
@@ -471,28 +537,64 @@ impl Gateway {
     }
 }
 
+async fn bounded(body: Incoming, limit: usize) -> Option<Bytes> {
+    tokio::time::timeout(Duration::from_secs(5), Limited::new(body, limit).collect())
+        .await
+        .ok()?
+        .ok()
+        .map(|body| body.to_bytes())
+}
+
+fn business_status(snapshot: Option<&engine::Snapshot>) -> Response<Body> {
+    json(serde_json::json!({
+        "product": "wingmate",
+        "phase": snapshot.map_or("stopped", |state| state.phase.as_str()),
+        "instance": snapshot.map(|state| &state.instance),
+    }))
+}
+
+fn json(value: serde_json::Value) -> Response<Body> {
+    content(
+        StatusCode::OK,
+        "application/json",
+        Bytes::from(value.to_string()),
+    )
+}
+
 fn response(status: StatusCode, text: &'static str) -> Response<Body> {
+    content(
+        status,
+        "text/plain; charset=utf-8",
+        Bytes::from_static(text.as_bytes()),
+    )
+}
+
+fn content(status: StatusCode, media: &'static str, body: Bytes) -> Response<Body> {
     Response::builder()
         .status(status)
-        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(header::CONTENT_TYPE, media)
         .header(header::CACHE_CONTROL, "no-store")
         .header(header::REFERRER_POLICY, "no-referrer")
         .body(
-            Full::new(Bytes::from_static(text.as_bytes()))
+            Full::new(body)
                 .map_err(|never| match never {})
                 .boxed_unsync(),
         )
         .unwrap()
 }
 
+fn recovery() -> Response<Body> {
+    html(include_str!("../../../apps/launcher/index.html"))
+}
+
 fn html(text: &'static str) -> Response<Body> {
-    let mut reply = response(StatusCode::OK, text);
-    reply.headers_mut().insert(
-        header::CONTENT_TYPE,
-        header::HeaderValue::from_static("text/html; charset=utf-8"),
+    let mut reply = content(
+        StatusCode::OK,
+        "text/html; charset=utf-8",
+        Bytes::from_static(text.as_bytes()),
     );
     reply.headers_mut().insert(header::CONTENT_SECURITY_POLICY, header::HeaderValue::from_static(
-        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"));
+        "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"));
     reply
 }
 

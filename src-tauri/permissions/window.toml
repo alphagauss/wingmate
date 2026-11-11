@@ -12,3 +12,8 @@ commands.allow = ["open_connections"]
 identifier = "allow-remote-workbench"
 description = "Allows the local connection panel to switch its remote workbench."
 commands.allow = ["connect_remote", "show_remote", "return_local"]
+
+[[permission]]
+identifier = "allow-local-share"
+description = "Allows the local connection panel or verified local workbench to manage local sharing."
+commands.allow = ["local_share"]

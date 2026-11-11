@@ -1,8 +1,10 @@
 //! 不链接 GUI 的发行、引导和命令入口。
 #![cfg_attr(windows, windows_subsystem = "windows")]
 use anyhow::{bail, Result};
-use wingmate_launcher::{integration, service};
-use wingmate_service::host::{self, ShareCommand};
+use wingmate_launcher::{
+    integration,
+    service::{self, ShareCommand},
+};
 fn main() {
     #[cfg(windows)]
     if std::env::args_os().len() > 1 {
@@ -52,10 +54,9 @@ fn run() -> Result<()> {
         _ => None,
     };
     if let Some(command) = share {
-        let endpoint = host::endpoint(&home)?.ok_or_else(|| anyhow::anyhow!("请先启动管理服务"))?;
         println!(
             "{}",
-            serde_json::to_string_pretty(&host::share(&endpoint, &command)?)?
+            serde_json::to_string_pretty(&service::share(&home, &command)?)?
         );
         return Ok(());
     }

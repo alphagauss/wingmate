@@ -71,7 +71,8 @@ pub(super) fn authorize(app: &AppHandle, origin: &str) -> tauri::Result<()> {
             .permission("allow-manage-backend")
             .permission("allow-backend-settings")
             .permission("allow-window-chrome")
-            .permission("allow-open-connections"),
+            .permission("allow-open-connections")
+            .permission("allow-local-share"),
     )
 }
 
@@ -106,6 +107,8 @@ pub(super) fn expose(window: &WebviewWindow, url: &Url, state: &Snapshot) {
                 loginStartup: canRegisterStartup ? enabled => invoke('login_startup', {{ instance, enabled }}) : undefined,
                 dshCommand: canRegisterDsh ? enabled => invoke('dsh_command', {{ instance, enabled }}) : undefined,
                 copyWebLink: () => navigator.clipboard.writeText(webUrl),
+                share: command => invoke('local_share', {{ command, instance }}),
+                openConnections: () => invoke('open_connections'),
                 manage: action => invoke('manage_backend', {{ action, instance }}),
             }}) }});
             window.dispatchEvent(new Event('wingmate:backend-bridge'));

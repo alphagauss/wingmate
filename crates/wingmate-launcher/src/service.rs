@@ -8,6 +8,7 @@ use std::{
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
+pub use wingmate_service::host::{ShareCommand, ShareStatus};
 use wingmate_service::{engine, host, runtime::Runtime};
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -37,6 +38,11 @@ pub fn status(home: &Path) -> Result<Option<Snapshot>> {
             Ok(None)
         }
     }
+}
+
+pub fn share(home: &Path, command: &ShareCommand) -> Result<ShareStatus> {
+    let endpoint = host::endpoint(home)?.context("请先启动管理服务")?;
+    host::share(&endpoint, command)
 }
 
 pub fn dsh_entry(home: &Path, state: &Snapshot) -> Result<std::path::PathBuf> {
