@@ -260,7 +260,9 @@ mod tests {
             ..Frame::default()
         };
 
-        assert!(frame.bind(&workspace, &StartupPage::new(), None).is_some());
+        assert!(frame
+            .bind(&workspace, &StartupPage::new(None), None)
+            .is_some());
         assert!(frame.allows(&workspace, Some("loaded"), 2));
         assert!(!frame.allows(&workspace, Some("loaded"), 1));
         assert!(!frame.allows(&workspace, Some("other"), 2));

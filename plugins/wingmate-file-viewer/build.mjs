@@ -6,14 +6,16 @@ import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 
 const root = fileURLToPath(new URL('./', import.meta.url));
+const clientOnly = process.argv.includes('--client-only');
 await build({ configFile: false, root, logLevel: 'warn', build: {
-  outDir: 'dist', emptyOutDir: true, minify: false,
+  outDir: 'dist', emptyOutDir: !clientOnly, minify: false,
   lib: { entry: join(root, 'src/client.js'), formats: ['cjs'], fileName: () => 'client.js' },
   rollupOptions: { output: {
     banner: 'window.__ModuleLoader__.load({ id: "dsh-wingmate-file-viewer", factory(require) { const exports = {};',
     footer: 'return exports; } });',
   } },
 } });
+if (clientOnly) process.exit(0);
 const packages = new Set();
 await build({ configFile: false, root, base: './', logLevel: 'warn', plugins: [{
   name: 'bundled-license-notices',

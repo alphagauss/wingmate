@@ -4,10 +4,7 @@
   "version": "0.1.0",
   "identifier": "dev.wingmate.desktop",
   "build": {
-    "beforeDevCommand": {
-      "script": "pnpm runtime:dev && pnpm build:frontend",
-      "wait": true
-    },
+    "beforeDevCommand": "pnpm --filter @wingmate/desktop dev",
     "beforeBuildCommand": "pnpm runtime:prepare && pnpm build:frontend",
     "frontendDist": "../apps/desktop/dist"
   },

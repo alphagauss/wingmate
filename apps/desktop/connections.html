@@ -37,7 +37,7 @@
   button:hover { background: var(--press); }
   button:active { background: color-mix(in srgb, var(--press) 80%, var(--ink)); }
   button:disabled { opacity: .6; cursor: default; }
-  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   #close { width: 26px; min-height: 26px; padding: 0; background: transparent; color: var(--muted); }
   #close:hover { background: var(--hover); }
   [role="tablist"] { display: flex; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
@@ -54,6 +54,14 @@
   .primary:hover { background: var(--primary-hover); }
   .primary:active { background: color-mix(in srgb, var(--primary-hover) 85%, var(--surface)); }
   .muted { color: var(--muted); font-size: 12px; }
+  .share-row { display: grid; grid-template-columns: minmax(0, 139px) minmax(0, 1fr); justify-items: start; min-height: 28px; }
+  .share-row + .share-row { margin-top: 8px; }
+  .share-row p { overflow-wrap: anywhere; }
+  .share-action {
+    width: 128px; min-height: 27px; padding: 0 8px; border-radius: 6px;
+    font-size: 12px; font-weight: 500; white-space: nowrap;
+  }
+  #local-pair[aria-disabled="true"] { color: var(--accent); background: var(--selected); cursor: default; }
   #saved, #share-result, #message, .settings-hint { margin-top: 10px; }
   #current { margin-bottom: 9px; }
   #message { color: var(--error); overflow-wrap: anywhere; }
@@ -70,10 +78,52 @@
   #host-options button:hover, #host-options button:focus-visible { background: var(--hover); }
   #host-options button:focus-visible { outline-offset: -2px; }
   #host-options button[aria-selected="true"]::after { content: '✓'; color: var(--accent); }
-  #share-code {
-    display: block; width: 144px; height: 144px; padding: 8px; margin: 0 auto 8px;
-    border-radius: 6px; border: 1px solid var(--line); background: white;
+  .pairing-card {
+    display: grid; grid-template-columns: 124px minmax(0, 1fr); gap: 12px; align-items: start;
+    padding: 10px; border: 1px solid var(--line); border-radius: 10px;
+    background: light-dark(#f8f9fb, #232427);
   }
+  #share-code { display: block; width: 124px; height: 124px; border-radius: 6px; background: white; }
+  .pairing-details { display: grid; gap: 6px; align-self: center; justify-items: start; min-width: 0; }
+  .pairing-heading { font-size: 13px; font-weight: 600; }
+  .pairing-address {
+    min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--muted); font: 11px/1.5 ui-monospace, Consolas, monospace;
+  }
+  #share-address { line-height: 26px; }
+  #share-address-picker { position: relative; min-width: 0; width: 100%; }
+  #share-address-picker summary {
+    display: flex; align-items: center; justify-content: space-between; gap: 4px; min-height: 26px;
+    padding: 0 7px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--surface); cursor: pointer; list-style: none;
+  }
+  #share-address-picker summary::-webkit-details-marker { display: none; }
+  #share-address-picker summary:hover { background: var(--hover); }
+  #share-address-picker[open] summary { background: var(--selected); border-color: transparent; }
+  #share-address-picker svg { flex: none; color: var(--muted); }
+  #share-address-picker[open] svg { transform: rotate(180deg); }
+  #share-address-picker[open] ~ #share-copy, #share-address-picker[open] ~ .muted {
+    opacity: 0; pointer-events: none;
+  }
+  #share-address-options {
+    position: absolute; z-index: 1; inset-inline: 0; top: calc(100% + 4px);
+    display: grid; gap: 1px; max-height: 68px; overflow: auto; overscroll-behavior: contain; scrollbar-width: none;
+    padding: 2px 3px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface);
+    box-shadow: 0 4px 12px light-dark(#0f11151f, #0005);
+  }
+  #share-address-options::-webkit-scrollbar { display: none; }
+  #share-address-options button {
+    justify-content: start; min-height: 20px; min-width: 0; padding: 0 4px;
+    border-radius: 4px; background: transparent;
+  }
+  #share-address-options button:hover { background: var(--hover); }
+  #share-address-options button:focus-visible { outline-offset: -2px; }
+  #share-address-options button[aria-pressed="true"] {
+    color: light-dark(#2856ae, #a9bfff); background: var(--selected); font-weight: 600;
+  }
+  #share-copy { min-height: 26px; width: 76px; padding: 0 6px; border-radius: 6px; font-size: 12px; }
+  #share-copy.copied { color: var(--accent); background: var(--selected); }
+  #share-link { margin: 8px 0 0; white-space: normal; overflow-wrap: anywhere; user-select: text; }
 </style>
 <main aria-labelledby="heading">
   <header>
@@ -107,20 +157,35 @@
     </div>
   </section>
   <section id="share" role="tabpanel" aria-labelledby="share-tab" hidden>
-    <div class="row">
+    <div class="row share-row">
+      <p id="local-web-status" role="status">本机浏览器</p>
+      <button id="local-pair" class="share-action" type="button" aria-live="polite" hidden>复制本机配对链接</button>
+    </div>
+    <div class="row share-row">
       <p id="share-status" class="muted" role="status"></p>
-      <button id="share-enable" class="primary" type="button" hidden>开启分享</button>
-      <button id="share-pair" class="primary" type="button" hidden>生成配对链接</button>
+      <button id="share-enable" class="share-action" type="button" hidden>开启分享</button>
+      <button id="share-pair" class="share-action" type="button" hidden>生成配对码</button>
     </div>
     <div id="share-result" hidden>
-      <img id="share-code" width="144" height="144" alt="局域网配对二维码">
-      <label for="share-link">配对链接 <span class="muted">· 5 分钟内有效</span></label>
-      <div class="row">
-        <input id="share-link" type="text" readonly>
-        <button id="share-copy" type="button">复制</button>
+      <div class="pairing-card">
+        <img id="share-code" width="124" height="124" alt="局域网配对二维码">
+        <div class="pairing-details">
+          <p class="pairing-heading">扫码配对</p>
+          <p id="share-address" class="pairing-address"></p>
+          <details id="share-address-picker" hidden>
+            <summary title="切换配对地址">
+              <span id="share-address-value" class="pairing-address"></span>
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+            </summary>
+            <div id="share-address-options" role="group" aria-label="配对地址"></div>
+          </details>
+          <button id="share-copy" type="button" aria-live="polite">复制链接</button>
+          <p class="muted">5 分钟内可用一次</p>
+        </div>
       </div>
+      <p id="share-link" class="pairing-address" hidden></p>
     </div>
-    <p class="settings-hint muted">分享地址和已配对设备可在「Wingmate 后台服务」插件卡片中管理。</p>
+    <p class="settings-hint muted">在「Wingmate 后台服务」管理分享和设备。</p>
   </section>
   <p id="message" role="alert"></p>
 </main>

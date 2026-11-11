@@ -127,11 +127,11 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
     let endpoint = wait(guard.home.path())?;
     let share = |command| host::share(&endpoint, &command);
     assert!(share(Status)?.address.is_none());
-    let address = share(Enable {
+    let enabled = share(Enable {
         address: Some(Ipv4Addr::LOCALHOST),
-    })?
-    .address
-    .unwrap();
+    })?;
+    let address = enabled.address.unwrap();
+    assert_eq!(enabled.lan_addresses, vec![address]);
     let origin = format!("http://{address}");
     let url = |path: &str| format!("{origin}{path}");
     let client = reqwest::blocking::Client::builder()
@@ -148,7 +148,9 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
             .status(),
         421
     );
-    let link = share(Pair)?.pairing_url.unwrap();
+    let pairing = share(Pair)?;
+    let link = pairing.pairing_url.unwrap();
+    assert_eq!(pairing.pairing_urls, vec![link.clone()]);
     let prefix = url("/?auth=");
     let code = link.strip_prefix(&prefix).context("配对链接格式错误")?;
     let landing = client.get(&link).send()?;
@@ -206,9 +208,13 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
     assert_eq!(manage("stop", Some("stale"))?.status(), 409);
     let stopped: serde_json::Value = manage("stop", started["instance"].as_str())?.json()?;
     assert_eq!(stopped["phase"], "stopped");
-    let restarted: serde_json::Value = manage("start", None)?.json()?;
+    let recovered: serde_json::Value = manage("start", None)?.json()?;
+    assert_eq!(recovered["phase"], "running");
+    assert_ne!(recovered["instance"], started["instance"]);
+    let restarted: serde_json::Value = manage("restart", recovered["instance"].as_str())?.json()?;
     assert_eq!(restarted["phase"], "running");
-    assert_ne!(restarted["instance"], started["instance"]);
+    assert_ne!(restarted["instance"], recovered["instance"]);
+    assert!(restarted["dsh_origin"].is_null());
     let root = client
         .post(url("/"))
         .header("Cookie", cookie)
@@ -268,6 +274,100 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
     host::call(&endpoint, "stop", restarted["instance"].as_str())?;
     share(Disable)?;
     assert!(share(Status)?.address.is_none());
+    Ok(())
+}
+
+#[test]
+fn loopback_web_keeps_its_own_pairing_when_lan_is_disabled() -> Result<()> {
+    use host::ShareCommand::{Disable, Enable, Pair, PairLocal, Status};
+    let home = tempfile::tempdir()?;
+    runtime(home.path())?;
+    let child = spawn(home.path())?;
+    let mut guard = Host { child, home };
+    let endpoint = wait(guard.home.path())?;
+    let share = |command| host::share(&endpoint, &command);
+    let initial = share(Status)?;
+    assert!(initial.address.is_none());
+    let address = initial.local_address.context("缺少本机 Web 入口")?;
+    assert_eq!(*address.ip(), Ipv4Addr::LOCALHOST);
+    let local = format!("http://{address}");
+    let client = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(5))
+        .build()?;
+    let status = |cookie: &str| {
+        client
+            .get(format!("{local}/_wingmate/status"))
+            .header("Cookie", cookie)
+            .send()
+    };
+    assert_eq!(status("")?.status(), 401);
+    let link = share(PairLocal)?.pairing_url.context("缺少本机配对链接")?;
+    let prefix = format!("{local}/?auth=");
+    let code = link.strip_prefix(&prefix).context("本机配对链接格式错误")?;
+    let lan_address = share(Enable {
+        address: Some(Ipv4Addr::LOCALHOST),
+    })?
+    .address
+    .context("缺少局域网入口")?;
+    assert_ne!(address, lan_address);
+    let lan = format!("http://{lan_address}");
+    let lan_link = share(Pair)?.pairing_url.context("缺少局域网配对链接")?;
+    let (_, lan_code) = lan_link
+        .split_once("?auth=")
+        .context("局域网配对链接格式错误")?;
+    let exchange = |origin: &str, code: &str| {
+        client
+            .post(format!("{origin}/?auth"))
+            .header("Origin", origin)
+            .body(code.to_owned())
+            .send()
+    };
+    assert_eq!(exchange(&lan, code)?.status(), 401);
+    assert_eq!(exchange(&local, lan_code)?.status(), 401);
+    let paired = exchange(&local, code)?;
+    assert_eq!(paired.status(), 204);
+    assert_eq!(exchange(&local, code)?.status(), 401);
+    let cookie = paired.headers()["set-cookie"]
+        .to_str()?
+        .split(';')
+        .next()
+        .unwrap();
+    let token = cookie.split_once('=').unwrap().1;
+    assert_eq!(
+        client
+            .get(format!("{lan}/_wingmate/status"))
+            .header(
+                "Cookie",
+                format!("wingmate_share_{}={token}", lan_address.port())
+            )
+            .send()?
+            .status(),
+        401
+    );
+    let disabled = share(Disable)?;
+    assert!(disabled.address.is_none());
+    assert_eq!(disabled.local_address, Some(address));
+    host::call(&endpoint, "start", None)?;
+    let started: serde_json::Value = status(cookie)?.error_for_status()?.json()?;
+    assert_eq!(started["phase"], "running");
+    let dsh = started["dsh_origin"]
+        .as_str()
+        .context("缺少 DSH 本机地址")?;
+    let url = reqwest::Url::parse(dsh)?;
+    assert_eq!(url.host_str(), Some("127.0.0.1"));
+    assert_ne!(url.port(), Some(address.port()));
+    assert!(url.query().is_none());
+    host::call(&endpoint, "stop", started["instance"].as_str())?;
+    host::call(&endpoint, "shutdown", None)?;
+    assert!(guard.child.wait()?.success());
+    guard.child = spawn(guard.home.path())?;
+    let restored = wait(guard.home.path())?;
+    assert_eq!(
+        host::share(&restored, &Status)?.local_address,
+        Some(address)
+    );
+    assert_eq!(status(cookie)?.status(), 200);
     Ok(())
 }
 

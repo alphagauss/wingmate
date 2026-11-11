@@ -192,12 +192,8 @@ window.__ModuleLoader__.load({
                     onClick={() => { void diagnostics.request(agent.id); }}>{checking === agent.id ? '正在检查…' : '检查连接'}</Button>
                 </div>
                 {row?.detail && <div style={diagnosticText}>{row.detail}</div>}
-                {row && !row.adapterAvailable && agent.id === 'codex' && <div style={diagnosticText}>
-                  在 Wingmate 主机上安装并登录 Codex，再运行：
-                  <code style={{ display: 'block', width: 'fit-content', marginTop: 6, padding: '5px 8px',
-                    borderRadius: 'var(--dsw-radius-sm, 8px)', background: 'var(--dsw-alias-interactive-bg-hover)' }}>
-                    npm install -g @agentclientprotocol/codex-acp@2.6.0
-                  </code>
+                {agent.id === 'codex' && <div style={diagnosticText}>
+                  首次使用请在 Wingmate 主机上安装并登录 Codex。
                 </div>}
               </div>;
             })}

@@ -24,6 +24,7 @@ const executable = join(work, process.platform === 'win32' ? 'wingmate.exe' : 'w
 let activeExecutable = executable;
 const upgradedExecutable = join(work, 'wingmate-upgraded.exe');
 const env = { ...process.env, WINGMATE_HOME: join(work, 'wingmate'), DSH_HOME: join(work, 'dsh'), DSH_AGENTS_HOME: join(work, 'agents') };
+delete env.WINGMATE_CODEX_ACP;
 for (const key of Object.keys(env)) if (/API_KEY|ACCESS_TOKEN|AUTH_TOKEN/.test(key)) delete env[key];
 const endpointFile = join(env.WINGMATE_HOME, 'endpoint.json');
 const checks = [];
@@ -176,8 +177,8 @@ try {
   assert.equal(diagnostics.status, 200);
   const codex = (await diagnostics.json()).find(row => row.id === 'codex');
   assert.equal(codex?.connection, 'unchecked');
-  assert.equal(typeof codex.adapterAvailable, 'boolean');
-  checks.push('执行后端插件与页面 transport 随单文件释放，缺少外部 Agent 不阻塞 DSH');
+  assert.equal(codex.adapterAvailable, true);
+  checks.push('执行后端插件、ACP 适配器与页面 transport 随单文件释放，检查状态不启动 Agent');
   const fileViewer = JSON.parse(boot[1]).entries.find(row => row.id === 'dsh-wingmate-file-viewer');
   assert.ok(fileViewer, '释放的运行包未加载文件预览插件');
   const viewerClient = await fetch(new URL(fileViewer.url, a.url), { headers: { Cookie: cookie } });

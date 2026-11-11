@@ -9,7 +9,11 @@
     "./package.json": "./package.json"
   },
   "files": ["host.mjs", "dist", "cordis.patch.yml"],
-  "scripts": { "build": "node build.mjs", "test": "node build.mjs && node --test test.mjs" },
+  "scripts": {
+    "build": "node build.mjs",
+    "build:client": "node build.mjs --client-only",
+    "test": "node build.mjs && node --test test.mjs"
+  },
   "engines": { "dsh": "0.2.2-rc.1" },
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },

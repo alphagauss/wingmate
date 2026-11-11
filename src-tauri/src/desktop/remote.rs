@@ -54,6 +54,7 @@ pub(super) fn fit(window: &Window, view: &Webview) -> tauri::Result<()> {
 pub(super) struct Workbench {
     pub view: Webview,
     pub origin: String,
+    local: bool,
 }
 
 pub(super) fn render_header(app: &tauri::AppHandle) {
@@ -63,7 +64,12 @@ pub(super) fn render_header(app: &tauri::AppHandle) {
         let Some(remote) = current.remote.as_ref() else {
             return;
         };
-        serde_json::json!([remote.origin, current.titlebar_theme, cfg!(windows)])
+        serde_json::json!([
+            remote.origin,
+            current.titlebar_theme,
+            cfg!(windows),
+            remote.local
+        ])
     };
     let Some(main) = app.get_webview(&desktop.window_label) else {
         return;
@@ -107,8 +113,9 @@ pub(super) async fn connect_remote(
         .json()
         .await
         .map_err(|_| "无法识别 Wingmate 主机")?;
-    if identity.product != "wingmate" || identity.transport != "lan" {
-        return Err("此链接未提供 Wingmate 局域网入口".into());
+    let local = url.host_str() == Some("127.0.0.1") && identity.transport == "local";
+    if identity.product != "wingmate" || !(identity.transport == "lan" || local) {
+        return Err("此链接未提供 Wingmate 连接入口".into());
     }
     connection_panel::local_panel(&webview, &desktop)?;
     let origin_guard = url.origin();
@@ -151,6 +158,7 @@ pub(super) async fn connect_remote(
     let previous = current.remote.replace(Workbench {
         view,
         origin: origin.clone(),
+        local,
     });
     drop(current);
     if let Some(previous) = previous {
@@ -184,7 +192,35 @@ pub(super) fn return_local(
 pub(super) struct ShareReply {
     #[serde(flatten)]
     status: ShareStatus,
-    qr: Option<String>,
+    pairings: Vec<SharePairing>,
+}
+
+#[derive(serde::Serialize)]
+struct SharePairing {
+    url: String,
+    qr: String,
+}
+
+fn lan_pairings(status: &ShareStatus) -> Result<Vec<SharePairing>> {
+    use qrcode::render::svg;
+
+    let urls = if status.pairing_urls.is_empty() {
+        status.pairing_url.as_slice()
+    } else {
+        &status.pairing_urls
+    };
+    urls.iter()
+        .map(|url| {
+            let qr = qrcode::QrCode::new(url.as_bytes())?
+                .render::<svg::Color>()
+                .min_dimensions(192, 192)
+                .build();
+            Ok(SharePairing {
+                url: url.clone(),
+                qr,
+            })
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -208,18 +244,12 @@ pub(super) async fn local_share(
     let home = desktop.home.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<ShareReply> {
         let status = service::share(&home, &command)?;
-        let qr = status
-            .pairing_url
-            .as_ref()
-            .map(|url| -> Result<String> {
-                use qrcode::render::svg;
-                Ok(qrcode::QrCode::new(url.as_bytes())?
-                    .render::<svg::Color>()
-                    .min_dimensions(192, 192)
-                    .build())
-            })
-            .transpose()?;
-        Ok(ShareReply { status, qr })
+        let pairings = if matches!(command, ShareCommand::Pair) {
+            lan_pairings(&status)?
+        } else {
+            Vec::new()
+        };
+        Ok(ShareReply { status, pairings })
     })
     .await
     .map_err(|error| error.to_string())?

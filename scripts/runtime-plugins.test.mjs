@@ -62,8 +62,8 @@ test('检查实际归档中的宿主、客户端和每个补丁，源目录不�
   }
 });
 
-test('执行后端归档携带页面 transport 和复用代码的许可证', async () => {
-  const files = ['dist/transport.js', 'dist/LICENSE.acp-sdk', 'LICENSE.remote'];
+test('执行后端归档携带适配器、页面 transport 和许可证', async () => {
+  const files = ['dist/transport.js', 'dist/codex-acp.mjs', 'dist/LICENSE.codex-acp', 'dist/LICENSE.acp-sdk', 'LICENSE.remote'];
   for (const missing of [undefined, ...files]) {
     await using scratch = await mkdtempDisposable(join(tmpdir(), 'wingmate-backends-package-'));
     const archive = await archiveFixture(scratch.path, {

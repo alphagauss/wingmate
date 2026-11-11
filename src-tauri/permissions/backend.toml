@@ -5,7 +5,7 @@ commands.allow = ["home_backend"]
 
 [[permission]]
 identifier = "allow-manage-backend"
-description = "Allows the verified DSH workbench to stop or restart its backend."
+description = "Allows the verified DSH workbench to stop, restart or update its backend."
 commands.allow = ["manage_backend"]
 
 [[permission]]

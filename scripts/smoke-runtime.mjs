@@ -1,5 +1,6 @@
 // 对 EXE 实际释放的依赖做功能验证，避免只验证 Web 页面而漏掉被裁剪的原生组件。
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -7,6 +8,15 @@ import { join, resolve } from 'node:path';
 async function smokeRuntime(runtime, work, env) {
   const require = createRequire(join(runtime, 'package.json'));
   const checks = [];
+  const backend = join(runtime, 'plugins/wingmate-backends');
+  const manifest = JSON.parse(await readFile(join(backend, 'package.json'), 'utf8'));
+  const adapter = spawnSync(process.execPath, [join(backend, 'dist/codex-acp.mjs'), '--version'], {
+    cwd: work, env: { ...env, NODE_PATH: '', NODE_OPTIONS: '', PATH: '' },
+    windowsHide: true, encoding: 'utf8', timeout: 10_000,
+  });
+  assert.equal(adapter.status, 0, adapter.error?.message || adapter.stderr);
+  assert.equal(adapter.stdout.trim(), '@agentclientprotocol/codex-acp ' + manifest.devDependencies['@agentclientprotocol/codex-acp']);
+  checks.push('内置 ACP 适配器可脱离开发依赖和全局安装启动');
   const { z } = require('zod');
   assert.equal(z.object({ value: z.string() }).parse({ value: 'ok' }).value, 'ok');
   await readFile(join(runtime, 'node_modules/zod/index.d.ts'));

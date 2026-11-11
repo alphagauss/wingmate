@@ -12,9 +12,9 @@ Word、PowerPoint 及部分扩展格式使用随包提供的 [File Viewer 侧栏
 
 侧栏底部可在 DSH 和 Codex 间切换工作台，切换后原后端的任务继续运行。打开侧栏「插件 → 内置插件配置」可查看 Wingmate 的三张插件卡片，并在「Wingmate 执行后端」检查 Codex 连接。安装方式和能力范围见[执行后端插件](plugins/wingmate-backends/README.md)。
 
-成品可单独复制运行，Windows 为 `target/release/wingmate.exe`，macOS 和 Linux 为 `target/release/wingmate`。打开桌面，在左下角账号菜单进入「设置 → 后台服务」，可查看、停止或重启后台，也可为当前用户启用 `wingmate` 和 `dsh` 终端命令。停止或重启业务会中断运行任务。后台停止后管理服务继续存在，可在 Wingmate 首页或 CLI 再次启动。`service-stop` 仅在业务已停止后退出管理服务，`service-restart` 显式切换管理服务组件。
+成品可单独复制运行，Windows 为 `target/release/wingmate.exe`，macOS 和 Linux 为 `target/release/wingmate`。打开桌面，在左下角账号菜单进入「设置 → 后台服务」，可查看、停止或重启 DSH，也可为当前用户启用 `wingmate` 和 `dsh` 终端命令。停止或重启 DSH 会中断运行任务。后台停止后管理服务继续存在，可在 Wingmate 首页或 CLI 再次启动。`service-stop` 仅在业务已停止后退出管理服务，`service-restart` 显式切换管理服务组件。
 
-在 Windows 标题栏点「连接」可粘贴另一台主机的链接，或分享本机的局域网配对链接和二维码。详细设置位于「插件 → 内置插件配置 → Wingmate 后台服务」。见[桌面连接面板](apps/desktop/README.md)和[局域网分享](crates/wingmate-service/README.md#局域网分享)。
+在 Windows 标题栏点「连接」可粘贴另一台主机的链接，或复制供本机浏览器使用的配对链接。开启局域网访问后，还可分享局域网配对链接和二维码。详细分享设置位于「插件 → 内置插件配置 → Wingmate 后台服务」。见[桌面连接面板](apps/desktop/README.md)和 [Web 入口](crates/wingmate-service/README.md#web-入口)。
 
 在终端运行 `wingmate --help` 或 `wingmate -h` 可查看后台管理命令。可执行文件尚未加入 PATH 时，用完整或相对路径调用，例如：
 
@@ -28,7 +28,7 @@ Word、PowerPoint 及部分扩展格式使用随包提供的 [File Viewer 侧栏
 
 服务器可执行 `wingmate start` 启动业务，或执行 `wingmate service-start` 准备运行内容并只启动管理服务。`wingmate commands on` 在业务运行时注册当前用户命令，`wingmate commands off` 可在后台停止后撤销注册。
 
-桌面和管理服务都从受管副本运行，外层可执行文件可在没有引导命令执行时替换，已有任务继续。打开新版先连接现有服务和业务；业务运行内容在明确重启业务后切换，管理服务在业务停止后通过 `service-restart` 切换。不提供旧后台协议迁移，请在使用此架构前显式停止旧版后台。数据位置见[服务模块](crates/wingmate-service/README.md)，组件规则见[运行时维护指南](docs/runtime-maintenance.md#释放与复用)。
+桌面和管理服务都从受管副本运行，外层可执行文件可在没有引导命令执行时替换，已有任务继续。打开新版先连接现有服务和业务，选择「重启并更新」或执行 `wingmate restart` 可切换待更新组件。管理服务也可在业务停止后通过 `service-restart` 单独切换。不提供旧后台协议迁移，请在使用此架构前显式停止旧版后台。数据位置见[服务模块](crates/wingmate-service/README.md)，组件规则见[运行时维护指南](docs/runtime-maintenance.md#释放与复用)。
 
 ## 开发入口
 

@@ -24,6 +24,7 @@
   },
   "files": ["dist", "cordis.patch.yml", "LICENSE.remote"],
   "devDependencies": {
+    "@agentclientprotocol/codex-acp": "2.6.0",
     "@agentclientprotocol/sdk": "2.5.0",
     "@types/node": "24.19.2",
     "@types/react": "19.2.18",
@@ -32,6 +33,7 @@
   },
   "scripts": {
     "build": "tsc && node build.mjs",
+    "build:client": "tsc && node build.mjs --client-only",
     "test": "npm run build && node --test test/*.test.mjs"
   }
 }

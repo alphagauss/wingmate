@@ -7,6 +7,12 @@ fn main() -> Result<()> {
     match std::env::args().nth(1).as_deref() {
         Some("prepare-dev") => wingmate_launcher::development::prepare(true),
         Some("prepare-build") => wingmate_launcher::development::prepare(false),
+        Some("rebuild-dev-client") => {
+            let plugin = std::env::args()
+                .nth(2)
+                .ok_or_else(|| anyhow::anyhow!("缺少插件目录名"))?;
+            wingmate_launcher::development::rebuild_client(&plugin)
+        }
         Some("stop-dev") => {
             let home = wingmate_launcher::directory()?;
             wingmate_launcher::service::stop(&home)?;
@@ -14,6 +20,6 @@ fn main() -> Result<()> {
             println!("开发后台已停止");
             Ok(())
         }
-        _ => bail!("使用 prepare-dev、prepare-build 或 stop-dev"),
+        _ => bail!("使用 prepare-dev、prepare-build、rebuild-dev-client 或 stop-dev"),
     }
 }

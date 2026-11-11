@@ -1,4 +1,4 @@
-//! Share the managed DSH Web through a listener owned by the management service.
+//! Serve the managed DSH Web through local and LAN listeners.
 mod proxy;
 
 use crate::{engine, host};
@@ -18,7 +18,7 @@ use std::{
     collections::HashMap,
     convert::Infallible,
     fs,
-    net::{Ipv4Addr, SocketAddrV4, UdpSocket},
+    net::{IpAddr, Ipv4Addr, SocketAddrV4, UdpSocket},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -37,15 +37,29 @@ pub enum Command {
     Enable { address: Option<Ipv4Addr> },
     Disable,
     Pair,
+    PairLocal,
     Revoke { id: Uuid },
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct ShareStatus {
     pub address: Option<SocketAddrV4>,
+    pub local_address: Option<SocketAddrV4>,
     pub suggested_address: Option<Ipv4Addr>,
+    #[serde(default)]
+    pub lan_addresses: Vec<SocketAddrV4>,
     pub pairing_url: Option<String>,
+    #[serde(default)]
+    pub pairing_urls: Vec<String>,
     pub devices: Vec<Device>,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Access {
+    Local,
+    #[default]
+    Lan,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -53,6 +67,8 @@ pub struct Device {
     pub id: Uuid,
     pub paired_at: u64,
     pub expires_at: u64,
+    #[serde(default)]
+    pub access: Access,
 }
 
 #[derive(Clone)]
@@ -98,7 +114,7 @@ fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>> {
 
 #[derive(Default)]
 struct Auth {
-    pairing: Option<(Uuid, Instant)>,
+    pairing: HashMap<Access, (Uuid, Instant)>,
     sessions: HashMap<String, Session>,
 }
 
@@ -142,10 +158,11 @@ impl Auth {
         host::publish(&home.join("share-devices.json"), &devices)
     }
 
-    fn exchange(&mut self, home: &Path, provided: Uuid) -> Result<Option<Uuid>> {
+    fn exchange(&mut self, home: &Path, access: Access, provided: Uuid) -> Result<Option<Uuid>> {
         if !self
             .pairing
-            .is_some_and(|(code, deadline)| code == provided && Instant::now() < deadline)
+            .get(&access)
+            .is_some_and(|&(code, deadline)| code == provided && Instant::now() < deadline)
         {
             return Ok(None);
         }
@@ -156,6 +173,7 @@ impl Auth {
             id: Uuid::new_v4(),
             paired_at,
             expires_at: paired_at + SESSION_AGE,
+            access,
         };
         self.save(home, None, Some((&key, &device)))?;
         self.sessions
@@ -167,7 +185,7 @@ impl Auth {
                 revoked: CancellationToken::new(),
             },
         );
-        self.pairing = None;
+        self.pairing.remove(&access);
         Ok(Some(token))
     }
 }
@@ -176,6 +194,7 @@ struct Gateway {
     home: PathBuf,
     endpoint: Arc<host::Endpoint>,
     address: SocketAddrV4,
+    access: Access,
     origin: String,
     cookie: String,
     auth: Arc<Mutex<Auth>>,
@@ -183,10 +202,24 @@ struct Gateway {
     upstream: proxy::Credentials,
 }
 
+struct LanShare {
+    bind: SocketAddrV4,
+    gateways: Vec<Arc<Gateway>>,
+}
+
+impl LanShare {
+    fn close(self) {
+        for gateway in self.gateways {
+            gateway.closed.cancel();
+        }
+    }
+}
+
 pub(super) struct Control {
     home: PathBuf,
     endpoint: Arc<host::Endpoint>,
-    active: Mutex<Option<Arc<Gateway>>>,
+    lan: Mutex<Option<LanShare>>,
+    local: Option<Arc<Gateway>>,
     auth: Arc<Mutex<Auth>>,
     runtime: tokio::runtime::Runtime,
 }
@@ -196,9 +229,27 @@ fn suggested_address() -> Option<Ipv4Addr> {
     // Ask the OS which interface it would use. UDP connect sends no packets.
     socket.connect("192.0.2.1:9").ok()?;
     match socket.local_addr().ok()?.ip() {
-        std::net::IpAddr::V4(address) if !address.is_loopback() => Some(address),
+        IpAddr::V4(address) if address.is_private() => Some(address),
         _ => None,
     }
+}
+
+fn lan_addresses() -> Vec<Ipv4Addr> {
+    let preferred = suggested_address();
+    let Ok(interfaces) = if_addrs::get_if_addrs() else {
+        return preferred.into_iter().collect();
+    };
+    let mut addresses: Vec<_> = interfaces
+        .into_iter()
+        .filter(|interface| interface.is_oper_up())
+        .filter_map(|interface| match interface.ip() {
+            IpAddr::V4(address) if address.is_private() => Some(address),
+            _ => None,
+        })
+        .collect();
+    addresses.sort_unstable_by_key(|&address| (Some(address) != preferred, address));
+    addresses.dedup();
+    addresses
 }
 
 impl Control {
@@ -207,10 +258,11 @@ impl Control {
             eprintln!("无法读取分享设备：{error:#}");
             Auth::default()
         })));
-        let control = Self {
+        let mut control = Self {
             home,
             endpoint,
-            active: Mutex::new(None),
+            lan: Mutex::new(None),
+            local: None,
             auth,
             runtime: tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
@@ -221,28 +273,101 @@ impl Control {
             if let Some(address) =
                 read::<Option<SocketAddrV4>>(&control.home.join("share-listener.json"))?.flatten()
             {
-                control.enable(&mut control.active.lock().unwrap(), address)?;
+                control.enable(&mut control.lan.lock().unwrap(), address, &lan_addresses())?;
             }
             Ok(())
         };
         if let Err(error) = restore() {
             eprintln!("无法恢复分享入口：{error:#}");
         }
+        match control.start_local() {
+            Ok(gateway) => control.local = Some(gateway),
+            Err(error) => eprintln!("无法启动本机 Web 入口：{error:#}"),
+        }
         Ok(control)
     }
 
-    fn enable(&self, active: &mut Option<Arc<Gateway>>, bind: SocketAddrV4) -> Result<()> {
+    fn start_local(&self) -> Result<Arc<Gateway>> {
+        let path = self.home.join("local-web-port.json");
+        let port = read::<u16>(&path).unwrap_or_else(|error| {
+            eprintln!("无法读取本机 Web 端口：{error:#}");
+            None
+        });
+        let bind = |port| self.bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port), Access::Local);
+        let (gateway, listener) = port
+            .and_then(|port| bind(port).ok())
+            .map_or_else(|| bind(0), Ok)?;
+        if port != Some(gateway.address.port()) {
+            host::publish(&path, &gateway.address.port())?;
+        }
+        self.runtime.spawn(gateway.clone().serve(listener));
+        Ok(gateway)
+    }
+
+    fn enable(
+        &self,
+        active: &mut Option<LanShare>,
+        bind: SocketAddrV4,
+        local_addresses: &[Ipv4Addr],
+    ) -> Result<()> {
         anyhow::ensure!(
-            !bind.ip().is_unspecified() && !bind.ip().is_multicast() && !bind.ip().is_broadcast(),
+            !bind.ip().is_multicast() && !bind.ip().is_broadcast(),
             "请选择一个本机 IPv4 地址"
         );
-        if active.as_ref().is_some_and(|gateway| {
-            bind.ip() == gateway.address.ip()
-                && (bind.port() == 0 || bind.port() == gateway.address.port())
+        // The saved unspecified address records automatic mode. Each listener binds a concrete IP.
+        let addresses = if bind.ip().is_unspecified() {
+            local_addresses
+        } else {
+            std::slice::from_ref(bind.ip())
+        };
+        anyhow::ensure!(!addresses.is_empty(), "未找到可用的局域网 IPv4 地址");
+        if active.as_ref().is_some_and(|share| {
+            bind.ip() == share.bind.ip()
+                && (bind.port() == 0 || bind.port() == share.bind.port())
+                && share
+                    .gateways
+                    .iter()
+                    .map(|gateway| gateway.address.ip())
+                    .eq(addresses)
         }) {
             return Ok(());
         }
-        let listener = std::net::TcpListener::bind(bind).context("无法监听分享地址")?;
+        // Reserve the same port on every selected interface before replacing an active share.
+        let mut port = bind.port();
+        let mut listeners = Vec::new();
+        for &ip in addresses {
+            let (gateway, listener) = self
+                .bind(SocketAddrV4::new(ip, port), Access::Lan)
+                .with_context(|| format!("无法在 {ip} 开启局域网分享"))?;
+            port = gateway.address.port();
+            listeners.push((gateway, listener));
+        }
+        let bind = SocketAddrV4::new(*bind.ip(), port);
+        host::publish(&self.home.join("share-listener.json"), &bind)?;
+        let mut auth = self.auth.lock().unwrap();
+        auth.pairing.remove(&Access::Lan);
+        let share = LanShare {
+            bind,
+            gateways: listeners
+                .iter()
+                .map(|(gateway, _)| gateway.clone())
+                .collect(),
+        };
+        if let Some(old) = active.replace(share) {
+            old.close();
+        }
+        for (gateway, listener) in listeners {
+            self.runtime.spawn(gateway.serve(listener));
+        }
+        Ok(())
+    }
+
+    fn bind(
+        &self,
+        bind: SocketAddrV4,
+        access: Access,
+    ) -> Result<(Arc<Gateway>, tokio::net::TcpListener)> {
+        let listener = std::net::TcpListener::bind(bind).context("无法监听 Web 入口")?;
         listener.set_nonblocking(true)?;
         let address = SocketAddrV4::new(*bind.ip(), listener.local_addr()?.port());
         let _enter = self.runtime.enter();
@@ -251,32 +376,32 @@ impl Control {
             home: self.home.clone(),
             endpoint: self.endpoint.clone(),
             address,
+            access,
             origin: format!("http://{address}"),
             cookie: format!("wingmate_share_{}", address.port()),
             auth: self.auth.clone(),
             closed: CancellationToken::new(),
             upstream: proxy::Credentials::new()?,
         });
-        host::publish(&self.home.join("share-listener.json"), &address)?;
-        let mut auth = self.auth.lock().unwrap();
-        auth.pairing = None;
-        if let Some(old) = active.replace(gateway.clone()) {
-            old.closed.cancel();
-        }
-        self.runtime.spawn(gateway.serve(listener));
-        Ok(())
+        Ok((gateway, listener))
     }
 
     pub(super) fn call(&self, command: Command) -> Result<ShareStatus> {
-        let mut active = self.active.lock().unwrap();
-        let mut pairing_url = None;
+        let local_addresses = lan_addresses();
+        let mut active = self.lan.lock().unwrap();
+        let mut pairing_urls = Vec::new();
         match command {
             Command::Status => {}
             Command::Enable { address } => {
-                let address = address
-                    .or_else(suggested_address)
-                    .context("未找到局域网地址，请指定本机 IPv4 地址")?;
-                self.enable(&mut active, SocketAddrV4::new(address, 0))?;
+                anyhow::ensure!(
+                    address != Some(Ipv4Addr::UNSPECIFIED),
+                    "请选择一个本机 IPv4 地址"
+                );
+                self.enable(
+                    &mut active,
+                    SocketAddrV4::new(address.unwrap_or(Ipv4Addr::UNSPECIFIED), 0),
+                    &local_addresses,
+                )?;
             }
             Command::Disable => {
                 host::publish(
@@ -284,16 +409,28 @@ impl Control {
                     &Option::<SocketAddrV4>::None,
                 )?;
                 let mut auth = self.auth.lock().unwrap();
-                if let Some(gateway) = active.take() {
-                    gateway.closed.cancel();
+                if let Some(share) = active.take() {
+                    share.close();
                 }
-                auth.pairing = None;
+                auth.pairing.remove(&Access::Lan);
             }
-            Command::Pair => {
-                let gateway = active.as_ref().context("请先开启分享")?;
+            Command::Pair | Command::PairLocal => {
+                let gateways = match command {
+                    Command::PairLocal => {
+                        std::slice::from_ref(self.local.as_ref().context("本机 Web 入口不可用")?)
+                    }
+                    _ => active.as_ref().context("请先开启分享")?.gateways.as_slice(),
+                };
                 let code = Uuid::new_v4();
-                self.auth.lock().unwrap().pairing = Some((code, Instant::now() + PAIR_AGE));
-                pairing_url = Some(format!("{}/?auth={code}", gateway.origin));
+                self.auth
+                    .lock()
+                    .unwrap()
+                    .pairing
+                    .insert(gateways[0].access, (code, Instant::now() + PAIR_AGE));
+                pairing_urls = gateways
+                    .iter()
+                    .map(|gateway| format!("{}/?auth={code}", gateway.origin))
+                    .collect();
             }
             Command::Revoke { id } => {
                 let mut auth = self.auth.lock().unwrap();
@@ -317,10 +454,18 @@ impl Control {
             .map(|session| session.device.clone())
             .collect();
         devices.sort_by_key(|device| (device.paired_at, device.id));
+        let lan_addresses: Vec<_> = active
+            .as_ref()
+            .into_iter()
+            .flat_map(|share| share.gateways.iter().map(|gateway| gateway.address))
+            .collect();
         Ok(ShareStatus {
-            address: active.as_ref().map(|gateway| gateway.address),
-            suggested_address: suggested_address(),
-            pairing_url,
+            address: lan_addresses.first().copied(),
+            local_address: self.local.as_ref().map(|gateway| gateway.address),
+            suggested_address: local_addresses.first().copied(),
+            lan_addresses,
+            pairing_url: pairing_urls.first().cloned(),
+            pairing_urls,
             devices,
         })
     }
@@ -392,7 +537,7 @@ impl Gateway {
             }
         }
         if request.method() == Method::GET && path == "/_wingmate/identity" {
-            return json(serde_json::json!({"product": "wingmate", "transport": "lan"}));
+            return json(serde_json::json!({"product": "wingmate", "transport": self.access}));
         }
         let session = headers
             .get_all(header::COOKIE)
@@ -408,6 +553,7 @@ impl Gateway {
                     .unwrap()
                     .sessions
                     .get(&digest(&token.to_string()))
+                    .filter(|session| session.device.access == self.access)
                     .cloned()
             })
             .filter(Session::active);
@@ -438,7 +584,7 @@ impl Gateway {
         };
         if path == "/_wingmate/status" {
             return if request.method() == Method::GET {
-                business_status(snapshot.as_ref())
+                self.business_status(snapshot.as_ref())
             } else {
                 response(StatusCode::METHOD_NOT_ALLOWED, "")
             };
@@ -494,7 +640,7 @@ impl Gateway {
         })
         .await;
         match result {
-            Ok(Ok(status)) => business_status(status.business.as_ref()),
+            Ok(Ok(status)) => self.business_status(status.business.as_ref()),
             _ => response(
                 StatusCode::CONFLICT,
                 "后台操作未完成，请确认主机当前状态后重试",
@@ -520,7 +666,7 @@ impl Gateway {
             if self.closed.is_cancelled() {
                 return response(StatusCode::SERVICE_UNAVAILABLE, "分享入口已关闭");
             }
-            auth.exchange(&self.home, code)
+            auth.exchange(&self.home, self.access, code)
         };
         match token {
             Ok(Some(token)) => {
@@ -543,6 +689,20 @@ impl Gateway {
             }
         }
     }
+
+    fn business_status(&self, snapshot: Option<&engine::Snapshot>) -> Response<Body> {
+        let dsh_origin = snapshot
+            .filter(|_| self.access == Access::Local)
+            .and_then(|state| state.url.as_deref())
+            .and_then(|url| reqwest::Url::parse(url).ok())
+            .map(|url| url.origin().ascii_serialization());
+        json(serde_json::json!({
+            "product": "wingmate",
+            "phase": snapshot.map_or("stopped", |state| state.phase.as_str()),
+            "instance": snapshot.map(|state| &state.instance),
+            "dsh_origin": dsh_origin,
+        }))
+    }
 }
 
 async fn bounded(body: Incoming, limit: usize) -> Option<Bytes> {
@@ -551,14 +711,6 @@ async fn bounded(body: Incoming, limit: usize) -> Option<Bytes> {
         .ok()?
         .ok()
         .map(|body| body.to_bytes())
-}
-
-fn business_status(snapshot: Option<&engine::Snapshot>) -> Response<Body> {
-    json(serde_json::json!({
-        "product": "wingmate",
-        "phase": snapshot.map_or("stopped", |state| state.phase.as_str()),
-        "instance": snapshot.map(|state| &state.instance),
-    }))
 }
 
 fn json(value: serde_json::Value) -> Response<Body> {
@@ -614,11 +766,11 @@ mod tests {
     fn expired_pairing_does_not_create_a_device() -> Result<()> {
         let code = Uuid::new_v4();
         let mut auth = Auth {
-            pairing: Some((code, Instant::now())),
+            pairing: HashMap::from([(Access::Lan, (code, Instant::now()))]),
             ..Auth::default()
         };
         let home = tempfile::tempdir()?;
-        assert!(auth.exchange(home.path(), code)?.is_none());
+        assert!(auth.exchange(home.path(), Access::Lan, code)?.is_none());
         assert!(auth.sessions.is_empty());
         Ok(())
     }

@@ -255,7 +255,8 @@ enum Operation {
     Start,
     Continue(RestartTarget),
     Stop(String),
-    Restart(RestartTarget),
+    RestartDsh(String),
+    Update(RestartTarget),
 }
 
 fn run_operation(
@@ -290,7 +291,11 @@ fn run_operation(
                 report(StartupStage::Stopping);
                 service::stop_instance(home, instance).map(|()| ready(Ok(None)))
             }
-            Operation::Restart(target) => {
+            Operation::RestartDsh(instance) => {
+                report(StartupStage::Stopping);
+                service::restart_instance(home, instance).map(|host| ready(Ok(Some(host))))
+            }
+            Operation::Update(target) => {
                 service::restart_with_progress(home, Some(target), report, |state| {
                     ready(connected(state))
                 })
@@ -341,7 +346,7 @@ fn desktop_window(app: &AppHandle) -> Option<WebviewWindow> {
 
 impl Desktop {
     fn run_operation(&self, app: &tauri::AppHandle, action: Operation) {
-        let continued = matches!(&action, Operation::Continue(_));
+        let continued = matches!(&action, Operation::Continue(_) | Operation::RestartDsh(_));
         let publish = |outcome| {
             let mut current = self.connection.lock().unwrap();
             if !current.exit_pending {
@@ -385,7 +390,7 @@ fn home_backend(
             if action == "continue" {
                 Operation::Continue(target.clone())
             } else {
-                Operation::Restart(target.clone())
+                Operation::Update(target.clone())
             }
         }
         _ => return Err("未知的后台操作".into()),
@@ -404,10 +409,20 @@ fn manage_backend(
     instance: String,
 ) -> Result<(), String> {
     let mut current = desktop.connection.lock().unwrap();
-    current.connected_workspace(&window, &instance)?;
+    let state = current.connected_workspace(&window, &instance)?;
     let operation = match action.as_str() {
         "stop" => Operation::Stop(instance),
-        "restart" => Operation::Restart(current.last.clone().ok_or("后台实例不可用，请重新连接")?),
+        "restart_dsh" => Operation::RestartDsh(instance),
+        // Installed older plugins use "restart" for the launcher operation.
+        "restart" | "update" => {
+            if action == "update"
+                && !current.service_update
+                && state.runtime_revision.as_deref() == RUNTIME_REVISION
+            {
+                return Err("没有待切换的后台组件".into());
+            }
+            Operation::Update(current.last.clone().ok_or("后台实例不可用，请重新连接")?)
+        }
         _ => return Err("未知的后台操作".into()),
     };
     if !current.begin_operation() {
@@ -439,12 +454,19 @@ pub fn run(home: PathBuf) -> Result<()> {
     };
     let mut connection = ConnectionState::default();
     connection.begin_operation();
+    let context = tauri::generate_context!();
+    let dev_url = context
+        .config()
+        .build
+        .dev_url
+        .as_ref()
+        .filter(|_| tauri::is_dev());
     let desktop = Arc::new(Desktop {
         home,
         service_revision,
         window_label,
         title,
-        page: StartupPage::new(),
+        page: StartupPage::new(dev_url),
         connection: Mutex::new(connection),
     });
     let exit_state = desktop.clone();
@@ -469,8 +491,12 @@ pub fn run(home: PathBuf) -> Result<()> {
             let popup_app = app.handle().clone();
             let label = desktop.window_label.as_str();
             let size = window_state::DEFAULT_SIZE;
+            let home_url = serde_json::to_string(desktop.page.url().as_str())?;
             let window =
                 WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
+                    .initialization_script(format!(
+                        "if (window === window.top && location.href === {home_url}) window.__WINGMATE_LOCAL_HOME__ = true;"
+                    ))
                     .on_new_window(move |url, features| popup::open(&popup_app, url, features))
                     .on_page_load(move |window, event| {
                         match event.event() {
@@ -583,7 +609,7 @@ pub fn run(home: PathBuf) -> Result<()> {
             });
             Ok(())
         })
-        .build(tauri::generate_context!())?
+        .build(context)?
         .run(move |_, event| {
             if let tauri::RunEvent::ExitRequested {
                 code: None, api, ..

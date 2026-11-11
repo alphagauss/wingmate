@@ -311,6 +311,10 @@ pub fn stop(home: &Path) -> Result<()> {
 pub fn stop_instance(home: &Path, instance: &str) -> Result<()> {
     stop_request(home, Some(instance))
 }
+pub fn restart_instance(home: &Path, instance: &str) -> Result<HostStatus> {
+    let endpoint = host::endpoint(home)?.context("管理服务未运行，请先恢复连接")?;
+    host::call(&endpoint, "restart", Some(instance))
+}
 fn stop_request(home: &Path, instance: Option<&str>) -> Result<()> {
     match host::endpoint(home)? {
         Some(endpoint) => {

@@ -10,7 +10,7 @@
     "runtime:prepare": "cargo run --quiet -p wingmate-launcher --no-default-features --bin wingmate-runtime -- prepare-build",
     "dev:stop": "cargo run --quiet -p wingmate-launcher --no-default-features --bin wingmate-runtime -- stop-dev",
     "runtime:benchmark": "node scripts/benchmark-runtime.mjs",
-    "dev": "tauri dev",
+    "dev": "pnpm runtime:dev && pnpm build:frontend && tauri dev",
     "build": "node scripts/build.mjs",
     "build:frontend": "pnpm --filter @wingmate/desktop build",
     "test": "node --test scripts/runtime-files.test.mjs scripts/runtime-patches.test.mjs scripts/runtime-plugins.test.mjs scripts/smoke.test.mjs && pnpm --filter dsh-wingmate-web typecheck && pnpm --filter dsh-wingmate-backends test && pnpm --filter dsh-wingmate-file-viewer test && pnpm build:frontend && cargo test --workspace --no-default-features",

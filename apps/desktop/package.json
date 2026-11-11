@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "node build.mjs --watch",
     "build": "node build.mjs"
   }
 }

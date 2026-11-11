@@ -5,9 +5,9 @@ window.__ModuleLoader__.load({
   id: 'dsh-wingmate-web',
   factory(require) {
     const react = require('react');
-    const { createElement: h, useEffect, useLayoutEffect, useState, useSyncExternalStore } = react;
+    const { createElement: h, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } = react;
     const {
-      Button, IconCopyOutlineRegular, IconFolderOpenOutlineRegular, Input, Modal, Switch, Tag,
+      Button, IconCopyOutlineRegular, IconFolderOpenOutlineRegular, Modal, Switch, Tag,
     } = require('@deepseek-ai/dsh-client-ui-primitives');
     const bridgeEvent = 'wingmate:backend-bridge';
     const getBridge = () => window.__WINGMATE_BACKEND__;
@@ -84,41 +84,32 @@ window.__ModuleLoader__.load({
       const bridge = useSyncExternalStore(subscribe, getBridge);
       const share = bridge?.share;
       const [status, setStatus] = useState(null);
-      const [address, setAddress] = useState('');
       const [pending, setPending] = useState(false);
       const [error, setError] = useState('');
-      const [copyStatus, setCopyStatus] = useState('');
 
       useEffect(() => {
         if (!share) return;
         let active = true;
-        share({ action: 'status' }).then(value => {
-          if (!active) return;
-          setStatus(value);
-          setAddress(value.suggested_address ?? '');
-        }).catch(failure => { if (active) setError(String(failure)); });
+        share({ action: 'status' })
+          .then(value => { if (active) setStatus(value); })
+          .catch(failure => { if (active) setError(String(failure)); });
         return () => { active = false; };
       }, [share]);
 
       async function run(command) {
         setPending(true);
         setError('');
-        setCopyStatus('');
-        try { setStatus(await share(command)); }
-        catch (failure) { setError(String(failure)); }
-        finally { setPending(false); }
-      }
-      async function copy() {
         try {
-          await navigator.clipboard.writeText(status.pairing_url);
-          setCopyStatus('已复制');
-        } catch {
-          setCopyStatus('请选中链接并手动复制');
+          setStatus(await share(command));
+        } catch (failure) {
+          setError(String(failure));
+        } finally {
+          setPending(false);
         }
       }
 
       const listening = Boolean(status?.address);
-      const fieldStyle = { width: '100%', minWidth: 0, boxSizing: 'border-box' };
+      const addresses = status?.lan_addresses?.length ? status.lan_addresses : [status?.address];
       return h(react.Fragment, null,
         share && h('section', { 'aria-label': '局域网分享', style: detailSection },
           h('h2', { style: detailHeading }, '局域网分享'),
@@ -126,36 +117,16 @@ window.__ModuleLoader__.load({
             label: '允许局域网访问', compact: true, last: true,
             control: h(Switch, {
               label: '允许局域网访问', checked: listening, disabled: pending || !status,
-              onChange: enabled => run(enabled ? { action: 'enable', address: address.trim() || null } : { action: 'disable' }),
+              onChange: enabled => run(enabled ? { action: 'enable', address: null } : { action: 'disable' }),
             }),
-          }, h('div', { style: detailStyle }, !status && !error ? '正在读取分享状态…' : '允许已配对的设备访问本机工作台。')),
-          h('div', { style: { display: 'grid', gap: 5, width: 'min(100%, 320px)', fontSize: 14 } },
-            listening
-              ? h(react.Fragment, null, h('span', null, '监听地址'), h('code', { style: valueStyle }, 'http://' + status.address))
-              : h(react.Fragment, null,
-                h('label', { htmlFor: 'wingmate-share-address' }, '监听地址'),
-                h(Input, {
-                  id: 'wingmate-share-address', placeholder: '留空自动选择本机 IPv4', style: fieldStyle,
-                  value: address, onChange: event => setAddress(event.target.value), disabled: pending || !status,
-                }),
-              ),
-          ),
-          listening && h(SettingRow, {
-            label: '配对链接', compact: true, last: true,
-            control: h(Button, { size: 'sm', variant: 'outline', disabled: pending, onClick: () => run({ action: 'pair' }) }, '生成配对链接'),
-          }, h('div', { style: detailStyle }, '链接和二维码可供一台设备使用，有效期为 5 分钟。')),
-          status?.pairing_url && h('div', { style: { display: 'grid', gap: 8, width: 'min(100%, 420px)' } },
-            status.qr && h('img', {
-              src: 'data:image/svg+xml,' + encodeURIComponent(status.qr), width: 144, height: 144,
-              alt: '局域网配对二维码', style: { background: 'white', borderRadius: 8 },
-            }),
-            h('div', { style: { ...actionsStyle, flexWrap: 'nowrap' } },
-              h('div', { style: { flex: 1, minWidth: 0, display: 'grid' } }, h(Input, {
-                'aria-label': '配对链接', style: fieldStyle, readOnly: true, value: status.pairing_url,
-              })),
-              h(Button, { size: 'sm', variant: 'outline', icon: h(IconCopyOutlineRegular), disabled: pending, onClick: copy }, '复制'),
+          },
+            !status && !error && h('div', { style: detailStyle }, '正在读取分享状态…'),
+            status && !listening && h('div', { style: detailStyle },
+              '开启后，已配对设备可通过本机的局域网地址连接。',
             ),
-            copyStatus && h('div', { role: 'status', style: detailStyle }, copyStatus),
+            listening && h('div', { style: { ...actionsStyle, ...detailStyle } },
+              '监听地址', addresses.map(address => h('code', { key: address, style: valueStyle }, 'http://' + address)),
+            ),
           ),
           error && h('div', { role: 'alert', style: alertStyle }, error),
         ),
@@ -168,7 +139,9 @@ window.__ModuleLoader__.load({
           status?.devices.map((device, index) => h(SettingRow, {
             key: device.id, label: device.id.slice(0, 8), last: index === status.devices.length - 1,
             control: h(Button, { size: 'sm', variant: 'outline', disabled: pending, onClick: () => run({ action: 'revoke', id: device.id }) }, '撤销'),
-          }, h('div', { style: detailStyle }, new Date(device.paired_at * 1000).toLocaleString()))),
+          }, h('div', { style: detailStyle },
+            `${device.access === 'local' ? '本机' : '局域网'} · ${new Date(device.paired_at * 1000).toLocaleString()}`,
+          ))),
         ),
         openSettings && h('section', { style: detailSection, 'aria-label': '后台服务设置' },
           h('h2', { style: detailHeading }, '后台服务'),
@@ -184,10 +157,31 @@ window.__ModuleLoader__.load({
       const bridge = useSyncExternalStore(subscribe, getBridge);
       const remote = useSyncExternalStore(subscribe, getRemoteHost);
       const canManage = Boolean(bridge || remote?.phase === 'running');
+      const canRestart = canManage && (!bridge || bridge.restartDsh);
       const [action, setAction] = useState(null);
       const [pending, setPending] = useState(false);
       const [error, setError] = useState('');
       const [copyStatus, setCopyStatus] = useState('');
+      const [localAddress, setLocalAddress] = useState(undefined);
+      const connectionText = useRef(null);
+      const dshOrigin = bridge ? window.location.origin : remote?.dsh_origin;
+      const connectionAddress = bridge ? localAddress : remote && window.location.origin;
+      const updating = action?.kind === 'update';
+      const stopping = action?.kind === 'stop';
+      const canConfirm = updating ? bridge?.update : stopping ? canManage : canRestart;
+      const updates = [bridge?.serviceUpdate && 'Wingmate 管理服务', bridge?.runtimeUpdate && 'DSH 运行包']
+        .filter(Boolean).join('和');
+
+      useEffect(() => {
+        if (!bridge) return;
+        let active = true;
+        bridge.share({ action: 'status' })
+          .then(status => {
+            if (active) setLocalAddress(status.local_address ? 'http://' + status.local_address : null);
+          })
+          .catch(() => { if (active) setLocalAddress(null); });
+        return () => { active = false; };
+      }, [bridge]);
 
       async function openDshHome() {
         setError('');
@@ -198,14 +192,32 @@ window.__ModuleLoader__.load({
         }
       }
 
-      async function copyWebLink() {
-        setCopyStatus('');
-        try {
-          await bridge.copyWebLink();
-          setCopyStatus('已复制');
-        } catch {
-          setCopyStatus('复制失败，请重试。');
+      async function copyConnectionAddress() {
+        if (navigator.clipboard) {
+          try {
+            await navigator.clipboard.writeText(connectionAddress);
+            setCopyStatus('已复制');
+            return;
+          } catch { /* Fall back to selecting the address. */ }
         }
+        const selection = window.getSelection();
+        if (!selection || !connectionText.current) return;
+        const range = document.createRange();
+        range.selectNodeContents(connectionText.current);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        try {
+          if (document.execCommand('copy')) {
+            selection.removeAllRanges();
+            setCopyStatus('已复制');
+            return;
+          }
+        } catch { /* Keep the selected address available for manual copying. */ }
+        setCopyStatus('请手动复制已选中的地址');
+      }
+
+      function choose(kind) {
+        setAction({ kind, instance: remote?.instance });
       }
 
       async function confirm() {
@@ -213,11 +225,13 @@ window.__ModuleLoader__.load({
         setError('');
         try {
           if (bridge) {
-            await bridge.manage(action);
+            if (updating) await bridge.update();
+            else if (stopping) await bridge.manage('stop');
+            else await bridge.restartDsh();
           } else {
             const response = await fetch('/_wingmate/manage', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action, expected_instance: remote.instance }),
+              body: JSON.stringify({ action: action.kind, expected_instance: action.instance }),
             });
             if (!response.ok) throw new Error(await response.text());
             location.replace(recovery);
@@ -235,21 +249,29 @@ window.__ModuleLoader__.load({
           control: canManage && h(Tag, { tone: 'success' }, '运行中'),
         },
           h('div', { role: 'status', style: detailStyle },
-            bridge ? 'DSH ' + (bridge.dshVersion ?? bridge.version) : remote ? '当前远程主机' : '正在连接 Wingmate 桌面…',
+            bridge ? 'DSH ' + (bridge.dshVersion ?? bridge.version) : remote?.phase === 'unavailable'
+              ? '连接已失效，请从主机获取新的配对链接。' : remote ? '当前主机' : '正在连接 Wingmate 桌面…',
           ),
-          (bridge?.runtimeUpdate || bridge?.serviceUpdate) && h('div', { role: 'status', style: { ...actionsStyle, ...detailStyle } },
-            h(Tag, { tone: 'warning' }, '待切换'),
-            h('span', null, `${[bridge.serviceUpdate && '管理服务', bridge.runtimeUpdate && 'DSH 运行包'].filter(Boolean).join('和')}将在重启后台后更新。`),
+          updates && h('div', { role: 'status', style: { ...actionsStyle, ...detailStyle } },
+            h(Tag, { tone: 'warning' }, '待更新'),
+            h('span', null, updates),
           ),
         ),
+        dshOrigin && h(SettingRow, { label: 'DSH 本机地址' },
+          h('code', { style: valueStyle }, dshOrigin),
+        ),
+        (bridge || remote) && h(SettingRow, {
+          label: 'Wingmate 连接地址',
+          control: connectionAddress && h(Button, {
+            size: 'sm', variant: 'outline', icon: h(IconCopyOutlineRegular), onClick: copyConnectionAddress,
+          }, '复制地址'),
+        },
+          connectionAddress
+            ? h('code', { ref: connectionText, style: valueStyle }, connectionAddress)
+            : h('div', { style: detailStyle }, localAddress === undefined ? '正在读取本机地址…' : '本机 Web 入口不可用'),
+          copyStatus && h('span', { role: 'status', style: detailStyle }, copyStatus),
+        ),
         bridge && h('div', null,
-          bridge.copyWebLink && h(SettingRow, {
-            label: 'Web 地址',
-            control: h(Button, { size: 'sm', variant: 'outline', icon: h(IconCopyOutlineRegular), disabled: pending, onClick: copyWebLink }, '复制链接'),
-          },
-            h('code', { style: valueStyle }, window.location.origin),
-            copyStatus && h('span', { role: 'status', style: detailStyle }, copyStatus),
-          ),
           bridge.openDshHome && h(SettingRow, {
             label: 'DSH 数据目录',
             control: h(Button, { size: 'sm', variant: 'outline', icon: h(IconFolderOpenOutlineRegular), disabled: pending, onClick: openDshHome }, '打开文件夹'),
@@ -282,8 +304,11 @@ window.__ModuleLoader__.load({
           label: '后台管理',
           last: true,
           control: h('div', { style: actionsStyle },
-            h(Button, { size: 'sm', variant: 'ghost', disabled: !canManage || pending, onClick: () => setAction('stop') }, '停止后台'),
-            h(Button, { size: 'sm', variant: 'outline', disabled: !canManage || pending, onClick: () => setAction('restart') }, '重启后台'),
+            h(Button, { size: 'sm', variant: 'ghost', disabled: !canManage || pending, onClick: () => choose('stop') }, '停止 DSH'),
+            h(Button, { size: 'sm', variant: 'outline', disabled: !canRestart || pending, onClick: () => choose('restart') }, '重启 DSH'),
+            bridge?.update && h(Button, {
+              size: 'sm', variant: 'outline', disabled: pending, onClick: () => choose('update'),
+            }, '重启并更新'),
           ),
         },
           h('div', { style: detailStyle }, '关闭窗口后，后台和正在运行的任务会继续。'),
@@ -292,12 +317,14 @@ window.__ModuleLoader__.load({
         h(Modal, {
           open: action !== null,
           onClose: () => { if (!pending) setAction(null); },
-          title: action === 'stop' ? '停止后台？' : '重启后台？',
-          description: '这会中断正在运行的任务。',
+          title: updating ? '重启并更新？' : stopping ? '停止 DSH？' : '重启 DSH？',
+          description: updating
+            ? `将更新${updates}。这会中断正在运行的任务。${bridge.serviceUpdate ? '已连接的客户端会短暂断开。' : ''}`
+            : '这会中断正在运行的任务。',
           closeLabel: '关闭确认',
           footer: h('div', { style: { display: 'flex', gap: 8 } },
             h(Button, { 'data-modal-autofocus': true, disabled: pending, onClick: () => setAction(null) }, '取消'),
-            h(Button, { variant: 'primary', disabled: pending || !canManage, onClick: confirm }, '确认'),
+            h(Button, { variant: 'primary', disabled: pending || !canConfirm, onClick: confirm }, '确认'),
           ),
         }),
       );
@@ -313,6 +340,10 @@ window.__ModuleLoader__.load({
           if (getBridge()) return;
           const response = await fetch('/_wingmate/status', { signal: AbortSignal.timeout(5000) });
           if (disposed || (!remoteHost && [401, 404].includes(response.status))) return;
+          if (response.status === 401 && remoteHost?.phase !== 'unavailable') {
+            remoteHost = { phase: 'unavailable' };
+            window.dispatchEvent(new Event(bridgeEvent));
+          }
           if (response.ok) {
             if (!response.headers.get('Content-Type')?.startsWith('application/json')) return;
             const status = await response.json();

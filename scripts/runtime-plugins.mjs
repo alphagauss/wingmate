@@ -49,7 +49,7 @@ if (pkg.name === 'dsh-wingmate-file-viewer') {
   }
 }
 if (pkg.name === 'dsh-wingmate-backends') {
-  for (const file of ['dist/transport.js', 'dist/LICENSE.acp-sdk', 'LICENSE.remote']) {
+  for (const file of ['dist/transport.js', 'dist/codex-acp.mjs', 'dist/LICENSE.codex-acp', 'dist/LICENSE.acp-sdk', 'LICENSE.remote']) {
     checkFile(join(root, file));
   }
 }

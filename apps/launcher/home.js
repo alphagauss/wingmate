@@ -10,7 +10,7 @@ const start = document.getElementById('start');
 const update = document.getElementById('update');
 const showRestart = document.getElementById('show-restart');
 const connectLocal = document.getElementById('connect-local');
-const local = location.protocol === 'tauri:' || location.hostname === 'tauri.localhost';
+const local = window.__WINGMATE_LOCAL_HOME__ === true;
 
 function showActionError(error) {
   actionError.textContent = String(error);

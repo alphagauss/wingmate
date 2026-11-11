@@ -86,17 +86,17 @@ pub(super) fn expose(window: &WebviewWindow, url: &Url, state: &Snapshot, servic
         origin,
         state.instance,
         version,
-        state.url,
         state.dsh_home,
         state.runtime_revision.as_deref() != super::RUNTIME_REVISION,
         service_update,
         startup::SUPPORTED,
-        cli::SUPPORTED
+        cli::SUPPORTED,
+        !cfg!(windows),
     ]);
     // Old settings pages only know the version field.
     // Recheck in the document: navigation can change between PageLoad and eval.
     let _ = window.eval(&format!(
-        r#"(([origin, instance, dshVersion, webUrl, dshHome, runtimeUpdate, serviceUpdate, canRegisterStartup, canRegisterDsh]) => {{
+        r#"(([origin, instance, dshVersion, dshHome, runtimeUpdate, serviceUpdate, canRegisterStartup, canRegisterDsh, showConnectionShortcut]) => {{
             if (window !== window.top || location.origin !== origin || window.__WINGMATE_BACKEND__) return;
             const invoke = window.__TAURI_INTERNALS__.invoke;
             Object.defineProperty(window, '__WINGMATE_BACKEND__', {{ value: Object.freeze({{
@@ -108,10 +108,11 @@ pub(super) fn expose(window: &WebviewWindow, url: &Url, state: &Snapshot, servic
                 openDshHome: dshHome ? () => invoke('open_dsh_home', {{ instance }}) : undefined,
                 loginStartup: canRegisterStartup ? enabled => invoke('login_startup', {{ instance, enabled }}) : undefined,
                 dshCommand: canRegisterDsh ? enabled => invoke('dsh_command', {{ instance, enabled }}) : undefined,
-                copyWebLink: () => navigator.clipboard.writeText(webUrl),
                 share: command => invoke('local_share', {{ command, instance }}),
-                openConnections: () => invoke('open_connections'),
+                openConnections: showConnectionShortcut ? () => invoke('open_connections') : undefined,
                 manage: action => invoke('manage_backend', {{ action, instance }}),
+                restartDsh: () => invoke('manage_backend', {{ action: 'restart_dsh', instance }}),
+                update: runtimeUpdate || serviceUpdate ? () => invoke('manage_backend', {{ action: 'update', instance }}) : undefined,
             }}) }});
             window.dispatchEvent(new Event('wingmate:backend-bridge'));
         }})({data})"#

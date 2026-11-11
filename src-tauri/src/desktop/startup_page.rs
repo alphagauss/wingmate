@@ -95,7 +95,7 @@ pub(super) struct StartupPage {
 }
 
 impl StartupPage {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(dev_url: Option<&Url>) -> Self {
         // Tauri's bundled app protocol uses an HTTP origin on WebView2.
         let url = if cfg!(any(windows, target_os = "android")) {
             "http://tauri.localhost/"
@@ -103,7 +103,7 @@ impl StartupPage {
             "tauri://localhost"
         };
         Self {
-            url: url.parse().unwrap(),
+            url: dev_url.cloned().unwrap_or_else(|| url.parse().unwrap()),
             status: Arc::new(Mutex::new(CardStatus::for_stage(StartupStage::Checking))),
         }
     }
@@ -116,6 +116,10 @@ impl StartupPage {
 
     pub(super) fn is_home(&self, url: &Url) -> bool {
         url == &self.url
+    }
+
+    pub(super) fn url(&self) -> &Url {
+        &self.url
     }
 
     pub(super) fn connections(&self) -> Url {
@@ -203,5 +207,23 @@ impl StartupPage {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_pages_use_the_configured_dev_server() {
+        let url = Url::parse("http://127.0.0.1:1431/").unwrap();
+        let page = StartupPage::new(Some(&url));
+        assert!(page.is_home(&url));
+        assert_eq!(
+            page.connections().as_str(),
+            "http://127.0.0.1:1431/connections.html"
+        );
+        assert!(!page.is_home(&page.connections()));
+        assert!(!StartupPage::new(None).is_home(&url));
     }
 }

@@ -14,6 +14,12 @@
 
 日常开发和运行验证从当前工作副本根目录运行 `pnpm dev`。它自动准备开发运行时，复用 `target/debug` 的构建产物和 `work/dev` 的运行时安装树。首次启动或组件变更时会准备相应内容，无需手动复制发行 EXE 或为每次测试另建运行时。开发后台、DSH 数据和 WebView 资料都在 `work/dev` 下，与发行版隔离。目录规则见[服务模块](../crates/wingmate-service/README.md#数据与管理边界)。
 
+桌面首页和连接浮窗使用 Tauri 内置开发服务器。保存对应前端源码会同步到开发资源目录，打开的页面随服务器通知刷新。桌面 Rust 源码由 Tauri 监听并重新编译。
+
+`pnpm dev` 监听 `plugins/` 下各插件的源码，以及 `packages/` 中的共享源码。声明 `dsh.client` 和 `./client` 导出的插件自动参与构建，优先执行 `build:client`，否则使用 `build`。生成目录如 `dist`、`lib` 及依赖、测试目录不参与监听。构建成功且客户端声明兼容时，开发工具发布已安装插件的客户端入口，由 DSH 热重载该插件。
+
+独立的 `wingmate-service`、发行入口、插件宿主与独立资源，以及 `runtime/` 和 `plugins/cordis.patch.yml` 的变更需要重新准备运行时。修改这些内容后重新执行 `pnpm dev`，通过「重启并更新」切换已有后台。共享启动页的桌面版本可直接刷新，网关版本随管理服务更新。
+
 确需编译时，dev 构建使用 `target/debug`，发行构建使用 `target/release`。沿用 Cargo 的默认目录和增量缓存，避免通过 `CARGO_TARGET_DIR` 或 `--target-dir` 新建目录，引发全量编译并增加耗时和磁盘占用。
 
 如果正在运行的应用占用了待更新的构建产物，以开发为优先。确认占用的进程后，可以直接关闭对应应用，再在原目录继续构建。调试需要让新启动参数生效时，也可以直接关闭当前工作副本已有的 dev 窗口。
@@ -26,12 +32,10 @@
 
 ```powershell
 $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9223'
-pnpm.cmd dev --no-dev-server
+pnpm.cmd dev
 ```
 
-`pnpm dev` 已通过 `beforeDevCommand` 准备 DSH 和构建首页。普通 `pnpm dev` 可检查工作台，但回到 `http://tauri.localhost/` 时可能报 `asset not found: index.html`。调试首页、停止后恢复或重试时，使用上面的 `--no-dev-server`，让本地首页资源由 Tauri 提供。
-
-保持启动终端运行，在另一终端的同一工作副本检查后台和目标。主窗口连接后台后会切到 `status` 返回的 DSH Web 来源。检查首页时用 `http://tauri.localhost` 匹配。排除 `about:blank` 等临时授权窗口，导航后按当前来源重新确认目标。
+保持启动终端运行，在另一终端的同一工作副本检查后台和目标。主窗口连接后台后会切到 `status` 返回的 DSH Web 来源。首页和浮窗使用启动日志中的开发服务器地址，默认端口为 `1430`。排除 `about:blank` 等临时授权窗口，导航后按当前来源重新确认目标。
 
 ```powershell
 $state = & .\target\debug\wingmate.exe status | ConvertFrom-Json
@@ -45,8 +49,8 @@ $pages | Select-Object id, @{Name='Origin'; Expression={ ([uri]$_.url).GetLeftPa
 用 CDP 客户端连接所选目标的 `webSocketDebuggerUrl`。以下探针使用项目要求的 Node 内置 WebSocket，可直接检查页面和桥接。检查工作台时将 `$origin` 改为 `$state.url`。
 
 ```powershell
-$origin = 'http://tauri.localhost'
-$target = @($pages | Where-Object { ([uri]$_.url).GetLeftPart('Authority') -eq $origin })
+$origin = 'http://127.0.0.1:1430'
+$target = @($pages | Where-Object { ([uri]$_.url).GetLeftPart('Authority') -eq $origin -and ([uri]$_.url).AbsolutePath -eq '/' })
 if ($target.Count -ne 1) { throw 'Expected one matching page target' }
 @'
 const socket = new WebSocket(process.argv[2]);
