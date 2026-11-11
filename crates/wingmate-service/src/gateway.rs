@@ -373,6 +373,17 @@ impl Gateway {
         if request.uri().path() == "/_wingmate/pair" {
             return self.pair(request).await;
         }
+        if request.method() == Method::GET && request.uri().path() == "/_wingmate/identity" {
+            let mut reply = response(
+                StatusCode::OK,
+                r#"{"product":"wingmate","transport":"lan"}"#,
+            );
+            reply.headers_mut().insert(
+                header::CONTENT_TYPE,
+                header::HeaderValue::from_static("application/json"),
+            );
+            return reply;
+        }
         let session = headers
             .get_all(header::COOKIE)
             .iter()

@@ -70,7 +70,8 @@ pub(super) fn authorize(app: &AppHandle, origin: &str) -> tauri::Result<()> {
             .remote(format!("{origin}/*"))
             .permission("allow-manage-backend")
             .permission("allow-backend-settings")
-            .permission("allow-window-chrome"),
+            .permission("allow-window-chrome")
+            .permission("allow-open-connections"),
     )
 }
 

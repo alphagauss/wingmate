@@ -18,7 +18,7 @@
       "capabilities": [{
         "identifier": "wingmate-home",
         "webviews": ["main", "temporary-*"],
-        "permissions": ["allow-home-backend", "allow-window-chrome"]
+        "permissions": ["allow-home-backend", "allow-window-chrome", "allow-open-connections", "allow-remote-workbench"]
       }]
     }
   },

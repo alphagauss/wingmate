@@ -2,3 +2,13 @@
 identifier = "allow-window-chrome"
 description = "Allows the Wingmate home page or verified DSH workbench to operate its own title bar."
 commands.allow = ["window_chrome"]
+
+[[permission]]
+identifier = "allow-open-connections"
+description = "Allows the home page or verified local workbench to open the local connection panel."
+commands.allow = ["open_connections"]
+
+[[permission]]
+identifier = "allow-remote-workbench"
+description = "Allows the local connection panel to switch its remote workbench."
+commands.allow = ["connect_remote", "show_remote", "return_local"]

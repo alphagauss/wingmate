@@ -1,6 +1,7 @@
 //! 桌面窗口、首页与连接观察；经发行入口连接独立管理服务。
 mod bridge;
 mod popup;
+mod remote;
 mod startup_page;
 mod titlebar;
 mod window_state;
@@ -48,6 +49,8 @@ struct ConnectionState {
     authorized_origins: HashSet<String>,
     titlebar_theme: titlebar::Theme,
     titlebar: titlebar::Frame,
+    connections_open: bool,
+    remote_view: Option<tauri::Webview>,
 }
 
 impl ConnectionState {
@@ -62,7 +65,7 @@ impl ConnectionState {
     }
 
     fn observation_revision(&self) -> Option<u64> {
-        (!self.busy).then_some(self.revision)
+        (!self.busy && !self.connections_open).then_some(self.revision)
     }
 
     fn defer_exit(&mut self) -> bool {
@@ -381,7 +384,11 @@ pub fn run(home: PathBuf) -> Result<()> {
             bridge::open_dsh_home,
             bridge::login_startup,
             bridge::dsh_command,
-            titlebar::window_chrome
+            titlebar::window_chrome,
+            remote::open_connections,
+            remote::connect_remote,
+            remote::show_remote,
+            remote::return_local
         ])
         .setup(move |app| {
             let page_load = desktop.clone();
@@ -434,7 +441,7 @@ pub fn run(home: PathBuf) -> Result<()> {
             if !cfg!(windows) {
                 window.show()?;
             }
-            titlebar::watch(&window, 0);
+            titlebar::watch(window.app_handle(), 0);
             titlebar::observe(&window);
             let handle = app.handle().clone();
             let popup_app = handle.clone();
@@ -442,15 +449,28 @@ pub fn run(home: PathBuf) -> Result<()> {
                 if matches!(event, tauri::WindowEvent::Destroyed) {
                     popup::close_all(&popup_app);
                 }
+                if matches!(
+                    event,
+                    tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. }
+                ) {
+                    let desktop = popup_app.state::<Arc<Desktop>>();
+                    let view = desktop.connection.lock().unwrap().remote_view.clone();
+                    if let Some(view) = view {
+                        let _ = remote::fit(&view.window(), &view);
+                    }
+                }
             });
             desktop.submit(handle.clone(), Operation::Start);
             std::thread::spawn(move || loop {
                 std::thread::sleep(Duration::from_secs(2));
-                let Some(window) = desktop_window(&handle) else {
+                if handle.get_webview(&desktop.window_label).is_none() {
                     break;
-                };
+                }
                 let Some(revision) = desktop.connection.lock().unwrap().observation_revision()
                 else {
+                    continue;
+                };
+                let Some(window) = desktop_window(&handle) else {
                     continue;
                 };
                 let status = service::status(&desktop.home);

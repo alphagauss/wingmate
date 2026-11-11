@@ -1,6 +1,6 @@
-use super::{bridge, desktop_window, Desktop, StartupPage};
+use super::{bridge, Desktop, StartupPage};
 use std::{cell::Cell, sync::Arc, time::Duration};
-use tauri::{Manager, Url, WebviewWindow, WindowEvent};
+use tauri::{Manager, Url, Webview, WebviewWindow, Window, WindowEvent};
 use wingmate_launcher::service::Snapshot;
 
 #[derive(Clone)]
@@ -11,7 +11,7 @@ pub(super) struct Source {
 
 impl Source {
     fn new(url: &Url, page: &StartupPage, workspace: Option<&Snapshot>) -> Option<Self> {
-        if page.is_home(url) {
+        if page.is_home(url) || page.connections() == *url {
             return Some(Self {
                 address: url.as_str().to_owned(),
                 instance: None,
@@ -40,7 +40,8 @@ pub(super) fn expose(window: &WebviewWindow, source: &Source, theme: Theme, navi
         source.instance,
         theme,
         wingmate_launcher::IS_DEV,
-        navigation
+        navigation,
+        source.address.ends_with("/connections.html")
     ]);
     let script = include_str!("titlebar.js");
     let _ = window.eval(&format!("({script})({args})"));
@@ -62,7 +63,7 @@ impl Frame {
         self.navigation += 1;
         self.ready = false;
         self.source = None;
-        watch(window, self.navigation);
+        watch(window.app_handle(), self.navigation);
     }
 
     pub(super) fn bind(
@@ -89,11 +90,11 @@ impl Frame {
     }
 }
 
-pub(super) fn watch(window: &WebviewWindow, navigation: u32) {
+pub(super) fn watch(app: &tauri::AppHandle, navigation: u32) {
     if !cfg!(windows) {
         return;
     }
-    let app = window.app_handle().clone();
+    let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(5)).await;
         let handle = app.clone();
@@ -104,7 +105,8 @@ pub(super) fn watch(window: &WebviewWindow, navigation: u32) {
                 current.titlebar.navigation == navigation && !current.titlebar.ready;
             drop(current);
             if needs_fallback {
-                if let Some(window) = desktop_window(&handle) {
+                if let Some(webview) = handle.get_webview(&desktop.window_label) {
+                    let window = webview.window();
                     let _ = window.set_decorations(true);
                     let _ = show_if_hidden(&window);
                 }
@@ -113,7 +115,7 @@ pub(super) fn watch(window: &WebviewWindow, navigation: u32) {
     });
 }
 
-fn show_if_hidden(window: &WebviewWindow) -> tauri::Result<()> {
+fn show_if_hidden(window: &Window) -> tauri::Result<()> {
     if !window.is_visible()? {
         window.show()?;
     }
@@ -180,15 +182,15 @@ pub(super) enum Theme {
 
 #[tauri::command]
 pub(super) fn window_chrome(
-    window: WebviewWindow,
+    webview: Webview,
     desktop: tauri::State<'_, Arc<Desktop>>,
     action: Action,
     instance: Option<String>,
     navigation: u32,
 ) -> Result<bool, String> {
-    let url = window.url().map_err(|error| error.to_string())?;
+    let url = webview.url().map_err(|error| error.to_string())?;
     if !cfg!(windows)
-        || window.label() != desktop.window_label
+        || webview.label() != desktop.window_label
         || !desktop.connection.lock().unwrap().titlebar.allows(
             &url,
             instance.as_deref(),
@@ -197,6 +199,7 @@ pub(super) fn window_chrome(
     {
         return Err("此页面不能操作 Wingmate 主窗口".into());
     }
+    let window = webview.window();
     let result: tauri::Result<()> = match action {
         Action::Ready => {
             let ready = || -> tauri::Result<bool> {
@@ -215,7 +218,7 @@ pub(super) fn window_chrome(
         }
         Action::Fallback => {
             desktop.connection.lock().unwrap().titlebar.ready = false;
-            watch(&window, navigation);
+            watch(webview.app_handle(), navigation);
             return Ok(false);
         }
         Action::Theme(theme) => {

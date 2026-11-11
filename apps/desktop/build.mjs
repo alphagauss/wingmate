@@ -4,4 +4,6 @@ import { mkdir, copyFile } from 'node:fs/promises';
 await mkdir(new URL('./dist/', import.meta.url), { recursive: true });
 await copyFile(new URL('./index.html', import.meta.url), new URL('./dist/index.html', import.meta.url));
 await copyFile(new URL('./home.js', import.meta.url), new URL('./dist/home.js', import.meta.url));
+await copyFile(new URL('./connections.html', import.meta.url), new URL('./dist/connections.html', import.meta.url));
+await copyFile(new URL('./connections.js', import.meta.url), new URL('./dist/connections.js', import.meta.url));
 await copyFile(new URL('../../src-tauri/icons/logo.svg', import.meta.url), new URL('./dist/logo.svg', import.meta.url));

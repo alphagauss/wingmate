@@ -110,6 +110,10 @@ impl StartupPage {
         url == &self.url
     }
 
+    pub(super) fn connections(&self) -> Url {
+        self.url.join("connections.html").unwrap()
+    }
+
     fn render(&self, window: &WebviewWindow) {
         let status = self.status.lock().unwrap().clone();
         let args = serde_json::to_string(&(self.url.as_str(), status)).unwrap();

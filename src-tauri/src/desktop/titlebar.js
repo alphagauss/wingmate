@@ -1,4 +1,4 @@
-([address, instance, theme, dev, navigation]) => {
+([address, instance, theme, dev, navigation, connectionPanel]) => {
   const home = instance === null;
   if (window !== window.top || (home ? location.href : location.origin) !== address
     || window.__WINGMATE_TITLEBAR__) return;
@@ -28,7 +28,7 @@
       :host([data-home-theme="dark"]) { --caption-fill: #1b1b1c; color: #f9fafb; }
       .drag {
         position: absolute;
-        inset: 0 138px 0 0;
+        inset: 0 204px 0 0;
         pointer-events: auto;
         app-region: drag;
       }
@@ -62,6 +62,7 @@
           var(--ds-ease-in-out, cubic-bezier(.4, 0, .2, 1));
       }
       button svg { pointer-events: none; }
+      .connections { width: 66px; font: 12px system-ui, sans-serif; }
       button:hover { background: color-mix(in srgb, currentColor 13%, transparent); }
       button:active { background: color-mix(in srgb, currentColor 26%, transparent); }
       button:focus-visible { outline: 2px solid currentColor; outline-offset: -3px; }
@@ -97,6 +98,15 @@
     </div>`;
   const buttons = [...shadow.querySelectorAll('button')];
   const maximizeIcon = buttons[1].querySelector('path');
+  if (!connectionPanel) {
+    const connection = document.createElement('button');
+    connection.type = 'button';
+    connection.className = 'connections';
+    connection.textContent = '连接';
+    connection.title = '连接其他 Wingmate 主机';
+    connection.addEventListener('click', () => window.__TAURI_INTERNALS__.invoke('open_connections').catch(report));
+    shadow.querySelector('.buttons').prepend(connection);
+  }
   const status = shadow.querySelector('.status');
   let maximized = false;
 
@@ -195,7 +205,6 @@
     } else {
       mount();
     }
-  } else {
-    window.dispatchEvent(new Event('wingmate:titlebar'));
   }
+  window.dispatchEvent(new Event('wingmate:titlebar'));
 }
