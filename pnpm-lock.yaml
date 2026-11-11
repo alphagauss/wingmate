@@ -17,7 +17,14 @@ importers:
 
   apps/desktop: {}
 
-  plugins/wingmate-backends: {}
+  plugins/wingmate-backends:
+    devDependencies:
+      '@agentclientprotocol/sdk':
+        specifier: 2.5.0
+        version: 2.5.0(zod@4.6.7)
+      esbuild:
+        specifier: 0.27.7
+        version: 0.27.7
 
   plugins/wingmate-file-viewer:
     devDependencies:
@@ -46,6 +53,15 @@ importers:
   plugins/wingmate-web: {}
 
 packages:
+
+  '@agentclientprotocol/sdk@2.5.0':
+    resolution: {integrity: sha512-MFlXeIuwN6nZSK45SAsSnVjbLgQ2r4fnthoF1lQoGJP3PdaPRpOZeCF2Dds8S4cN8yZP5QbxB1bkJccGskmcYw==}
+    peerDependencies:
+      '@modelcontextprotocol/server': ^2.4.0
+      zod: ^3.25.76 || ^4.0.0
+    peerDependenciesMeta:
+      '@modelcontextprotocol/server':
+        optional: true
 
   '@esbuild/aix-ppc64@0.27.7':
     resolution: {integrity: sha512-EKX3Qwmhz1eMdEJokhALr0YiD0lhQNwDqkPYyPhiSwKrh7/4KRjQc04sZ8db+5DVVnZ1LmbNDI1uAMPEUBnQPg==}
@@ -665,7 +681,14 @@ packages:
     resolution: {integrity: sha512-YgvUTfwqyc7UXVMrB+SImsVYSmTS8X/tSrtdNZMImM+n7+QTriRXyXim0mBrTXNeqzVF0KWGgHPeiyViFFrNDw==}
     engines: {node: '>=18'}
 
+  zod@4.6.7:
+    resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
+
 snapshots:
+
+  '@agentclientprotocol/sdk@2.5.0(zod@4.6.7)':
+    dependencies:
+      zod: 4.6.7
 
   '@esbuild/aix-ppc64@0.27.7':
     optional: true
@@ -1143,3 +1166,5 @@ snapshots:
       fsevents: 2.3.3
 
   yallist@5.0.0: {}
+
+  zod@4.6.7: {}

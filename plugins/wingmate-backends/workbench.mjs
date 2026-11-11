@@ -24,30 +24,65 @@ export async function installWorkbench(ctx, backends) {
     gateway.dispatchRpc = async function (endpoint, payload, signal, peer) {
       const { wingmateAgent, ...native } = payload ?? {};
       const backend = backends.get(wingmateAgent);
-      if (!backend || peer.principal.kind !== 'owner' || !backend.handles(endpoint)) {
+      if (!backend || peer.principal.kind !== 'owner') {
         return dispatchRpc.call(this, endpoint, wingmateAgent === undefined ? payload : native, signal, peer);
       }
       try {
         peer.signal.throwIfAborted();
         signal.throwIfAborted();
+        if (endpoint === '$events/result' && backend.answer?.(native.args ?? native)) return { ok: true };
+        if (endpoint === 'permissionPresets/catalog' && backend.permissionOptions) {
+          const result = await dispatchRpc.call(this, endpoint, native, signal, peer);
+          return result.ok ? { ...result, value: { ...result.value, options: backend.permissionOptions() } } : result;
+        }
+        if (!backend.handles(endpoint)) return dispatchRpc.call(this, endpoint, native, signal, peer);
         return { ok: true, value: await backend.call(endpoint, native.args ?? native, signal) };
       } catch (error) {
         return { ok: false, error: { code: 'gateway/internal', message: String(error?.message ?? error), details: {} } };
       }
     };
-    gateway.openWireStream = function (endpoint, payload, uplink, peer, signal, ...rest) {
+    gateway.openWireStream = async function (endpoint, payload, uplink, peer, signal, ...rest) {
       const { wingmateAgent, ...native } = payload ?? {};
       const backend = backends.get(wingmateAgent);
-      if (!backend || peer.principal.kind !== 'owner' || !backend.handles(endpoint)) {
+      if (!backend || peer.principal.kind !== 'owner') {
         return openWireStream.call(this, endpoint, wingmateAgent === undefined ? payload : native, uplink, peer, signal, ...rest);
       }
       peer.signal.throwIfAborted();
       signal.throwIfAborted();
-      return backend.open(endpoint, native.args ?? native, signal);
+      const lifetime = AbortSignal.any([signal, peer.signal]);
+      if (endpoint === '$events' && backend.remote) {
+        const source = await openWireStream.call(this, endpoint, native, uplink, peer, signal, ...rest);
+        return mergeEvents(source, backend.remote(lifetime));
+      }
+      if (!backend.handles(endpoint)) return openWireStream.call(this, endpoint, native, uplink, peer, signal, ...rest);
+      return backend.open(endpoint, native.args ?? native, lifetime);
     };
     return () => {
       gateway.dispatchRpc = dispatchRpc;
       gateway.openWireStream = openWireStream;
     };
   }, 'wingmate-backends: Web routing');
+}
+
+async function *mergeEvents(native, projected) {
+  const sources = [native[Symbol.asyncIterator](), projected[Symbol.asyncIterator]()];
+  const read = index => sources[index].next().then(
+    result => ({ index, result }), error => ({ index, error }));
+  const pending = sources.map((_, index) => read(index));
+  try {
+    while (true) {
+      const { index, result, error } = await Promise.race(pending);
+      if (error) throw error;
+      if (result.done) return;
+      pending[index] = read(index);
+      // Each workbench has its own session catalog. Host-wide settings events
+      // still travel through the native Remote Event generation.
+      if (index === 0 && (result.value.event?.startsWith('api-session/')
+        || result.value.agentId)) continue;
+      yield result.value;
+    }
+  } finally {
+    for (const source of sources) void source.return?.().catch(() => {});
+    await Promise.allSettled(pending);
+  }
 }

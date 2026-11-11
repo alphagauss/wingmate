@@ -1,4 +1,6 @@
 // Adapted from ds-harness-remote virtual-catalog.ts and virtual-harness.ts.
+import { assistantBaseline } from './journal.mjs';
+
 export function workspace(backend, path, time) {
   return {
     workspaceId: `${backend}:cwd:${encodeURIComponent(path)}`,
@@ -28,6 +30,12 @@ export function projections(session) {
     values: {
       title: session.title,
       sessionListMetadata: { blank: session.blank, lastPromptAt: session.blank ? null : session.updatedAt },
+      ...(session.model && { modelSelection: {
+        lastUsed: null, next: { provider: session.backend, model: session.model.currentValue },
+      } }),
+      ...(session.mode && { permissions: {
+        currentValue: session.mode.currentValue,
+      } }),
     },
   };
 }
@@ -35,11 +43,11 @@ export function projections(session) {
 export function snapshot(session) {
   return {
     type: 'snapshot',
-    header: { version: 1, id: session.id, createdAt: session.createdAt, cwd: session.cwd, isSeeded: false },
+    header: { version: 3, id: session.id, createdAt: session.createdAt, cwd: session.cwd, isSeeded: false },
     cursor: session.records.at(-1)?.event.seq ?? -1,
     records: session.records.slice(),
     hasMore: false,
     projections: projections(session),
-    assistantStream: { revision: 0 },
+    assistantStream: assistantBaseline(session),
   };
 }

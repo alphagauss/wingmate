@@ -4,15 +4,27 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./host.mjs",
+    ".": "./dist/host.mjs",
     "./client": "./client.js",
     "./package.json": "./package.json"
   },
-  "engines": { "dsh": "0.2.2-rc.1" },
+  "engines": {
+    "dsh": "0.2.2-rc.1"
+  },
   "dsh": {
     "client": {
       "platform": "web",
-      "inject": ["@deepseek-ai/dsh-client-ui-sidebar"]
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
     }
+  },
+  "devDependencies": {
+    "@agentclientprotocol/sdk": "2.5.0",
+    "esbuild": "0.27.7"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.mjs"
   }
 }
