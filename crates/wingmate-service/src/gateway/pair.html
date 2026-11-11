@@ -15,14 +15,14 @@
 <script>
   (async () => {
     const message = document.getElementById('message');
-    const code = location.hash.slice(1);
-    history.replaceState(null, '', location.pathname);
+    const code = new URLSearchParams(location.search).get('auth');
+    history.replaceState(null, '', '/');
     if (!code) {
       message.textContent = '请在主机上生成配对链接或扫描二维码。';
       return;
     }
     try {
-      const response = await fetch(location.pathname, { method: 'POST', body: code });
+      const response = await fetch('/?auth', { method: 'POST', body: code });
       if (!response.ok) {
         message.textContent = '配对未成功，请从主机获取新的链接。';
         return;

@@ -149,10 +149,18 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
         421
     );
     let link = share(Pair)?.pairing_url.unwrap();
-    let (pair, code) = link.split_once('#').unwrap();
+    let prefix = url("/?auth=");
+    let code = link.strip_prefix(&prefix).context("配对链接格式错误")?;
+    let landing = client.get(&link).send()?;
+    assert_eq!(landing.status(), 200);
+    assert_eq!(landing.headers()["cache-control"], "no-store");
+    assert_eq!(landing.headers()["referrer-policy"], "no-referrer");
+    assert!(!landing.headers().contains_key("set-cookie"));
+    assert!(landing.text()?.contains("连接 Wingmate"));
+    assert!(share(Status)?.devices.is_empty());
     let exchange = |origin: &str| {
         client
-            .post(pair)
+            .post(url("/?auth"))
             .header("Origin", origin)
             .body(code.to_owned())
             .send()
@@ -201,6 +209,12 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
     let restarted: serde_json::Value = manage("start", None)?.json()?;
     assert_eq!(restarted["phase"], "running");
     assert_ne!(restarted["instance"], started["instance"]);
+    let root = client
+        .post(url("/"))
+        .header("Cookie", cookie)
+        .header("Origin", &origin)
+        .send()?;
+    assert_eq!(root.text()?, "DSH");
     let upload = client
         .post(url("/file"))
         .header("Cookie", cookie)

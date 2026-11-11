@@ -217,7 +217,15 @@ try {
   const gateway = 'http://' + address;
   assert.equal((await fetch(gateway)).status, 401);
   const { pairing_url } = await cli('share-pair');
-  const [pair, code] = pairing_url.split('#');
+  const link = new URL(pairing_url);
+  assert.equal(link.pathname, '/');
+  assert.equal(link.hash, '');
+  const code = link.searchParams.get('auth');
+  assert.ok(code);
+  const landing = await fetch(link);
+  assert.equal(landing.status, 200);
+  assert.equal(landing.headers.has('set-cookie'), false);
+  const pair = new URL('/?auth', gateway);
   const paired = await fetch(pair, { method: 'POST', headers: { Origin: gateway }, body: code });
   assert.equal(paired.status, 204);
   const shareCookie = paired.headers.getSetCookie()[0].split(';')[0];

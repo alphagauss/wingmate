@@ -26,11 +26,13 @@ fn target(link: &str) -> Result<Url> {
                 .is_some_and(|host| host.parse::<Ipv4Addr>().is_ok())
             && url.username().is_empty()
             && url.password().is_none()
-            && url.query().is_none()
-            && matches!(
-                (url.path(), url.fragment()),
-                ("/", None) | ("/_wingmate/pair", Some(_))
-            ),
+            && url.path() == "/"
+            && url.fragment().is_none()
+            && url.query().is_none_or(|query| {
+                query
+                    .strip_prefix("auth=")
+                    .is_some_and(|code| !code.is_empty() && !code.contains('&'))
+            }),
         "请输入 Wingmate 的局域网地址或配对链接"
     );
     Ok(url)
@@ -231,13 +233,15 @@ mod tests {
     #[test]
     fn accepts_only_wingmate_lan_links() {
         assert!(target("http://192.168.1.5:17321/").is_ok());
-        assert!(target("http://127.0.0.1:17321/_wingmate/pair#code").is_ok());
+        assert!(target("http://127.0.0.1:17321/?auth=code").is_ok());
         for invalid in [
             "javascript:alert(1)",
             "https://example.com/",
             "http://user:pass@192.168.1.5/",
+            "http://192.168.1.5/?auth=",
+            "http://192.168.1.5/?auth=code&auth=other",
             "http://192.168.1.5/?token=secret",
-            "http://192.168.1.5/_wingmate/pair",
+            "http://192.168.1.5/_wingmate/pair#code",
         ] {
             assert!(target(invalid).is_err(), "{invalid}");
         }

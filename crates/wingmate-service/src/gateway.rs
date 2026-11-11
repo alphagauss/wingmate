@@ -293,7 +293,7 @@ impl Control {
                 let gateway = active.as_ref().context("请先开启分享")?;
                 let code = Uuid::new_v4();
                 self.auth.lock().unwrap().pairing = Some((code, Instant::now() + PAIR_AGE));
-                pairing_url = Some(format!("{}/_wingmate/pair#{code}", gateway.origin));
+                pairing_url = Some(format!("{}/?auth={code}", gateway.origin));
             }
             Command::Revoke { id } => {
                 let mut auth = self.auth.lock().unwrap();
@@ -381,10 +381,17 @@ impl Gateway {
         {
             return response(StatusCode::FORBIDDEN, "不接受此来源的请求");
         }
-        if request.uri().path() == "/_wingmate/pair" {
-            return self.pair(request).await;
+        let path = request.uri().path();
+        if path == "/" {
+            match (request.method(), request.uri().query()) {
+                (&Method::GET, Some(query)) if query.starts_with("auth=") => {
+                    return html(include_str!("gateway/pair.html"));
+                }
+                (&Method::POST, Some("auth")) => return self.pair(request).await,
+                _ => {}
+            }
         }
-        if request.method() == Method::GET && request.uri().path() == "/_wingmate/identity" {
+        if request.method() == Method::GET && path == "/_wingmate/identity" {
             return json(serde_json::json!({"product": "wingmate", "transport": "lan"}));
         }
         let session = headers
@@ -407,7 +414,6 @@ impl Gateway {
         let Some(session) = session else {
             return response(StatusCode::UNAUTHORIZED, "请从主机获取新的配对链接");
         };
-        let path = request.uri().path();
         if path.starts_with("/_wingmate/") && path != "/_wingmate/status" {
             return match (request.method(), path) {
                 (&Method::GET, "/_wingmate/recovery") => recovery(),
@@ -497,10 +503,7 @@ impl Gateway {
     }
 
     async fn pair(&self, request: Request<Incoming>) -> Response<Body> {
-        if request.method() == Method::GET {
-            return html(include_str!("gateway/pair.html"));
-        }
-        if request.method() != Method::POST || request.headers().get(header::ORIGIN).is_none() {
+        if request.headers().get(header::ORIGIN).is_none() {
             return response(StatusCode::FORBIDDEN, "");
         }
         let Some(bytes) = bounded(request.into_body(), 36).await else {
