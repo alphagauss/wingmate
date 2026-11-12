@@ -6,4 +6,8 @@ Linux 基础包、Node、Python 和 PRoot 按 [dsh-Go 的 288234ae](https://gith
 
 DSH 使用 Wingmate 的 npm 锁安装 Linux ARM64 glibc 依赖，复用 [Office 裁剪与预览替换](../../plugins/wingmate-file-viewer/README.md#上游适配)。手机本地管理由 Kotlin 模块提供。生成目录、参考仓库和开发机器上的 npm 安装树均独立于载荷输入。
 
+本机工作台的 HTML 在 DSH 启动脚本前加载 WebView 兼容代码，补齐旧版 WebView 缺少的会话连接和工作区配置接口。升级 DSH 时，核对 HTML 注入位置和上游 API 用法。旧版 WebView 退出支持范围后可移除此补丁。
+
+DSH 在 Android 来宾的 `/root/Documents` 下创建默认工作区。来宾没有桌面环境的 XDG 目录查询工具，因此通过 DSH 的 Documents 路径配置指定位置。该目录随来宾用户数据保留。
+
 资源包的安装、启停与构建入口见 [Wingmate Android](../../apps/mobile/README.md)。

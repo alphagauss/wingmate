@@ -1,0 +1,11 @@
+[
+  {
+    "id": "load-android-webview-compatibility",
+    "package": "@deepseek-ai/dsh-web-frontend",
+    "version": "0.2.2-rc.1",
+    "file": "dist/index.html",
+    "sha256": "d3581179edd3dde7208abdd098fa8a95387f84ec3076bea0d2b53e4e91f2d4ec",
+    "before": "    <meta charset=\"utf-8\" />",
+    "after": "    <meta charset=\"utf-8\" />\n    <script src=\"./assets/wingmate-webview-compat.js\"></script>"
+  }
+]

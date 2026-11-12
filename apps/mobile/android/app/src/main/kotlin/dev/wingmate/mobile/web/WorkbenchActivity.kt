@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -61,6 +62,9 @@ class WorkbenchActivity : AppCompatActivity() {
             applyWindowInsets()
         }
         // Workbench events are scoped to the connected origin.
+        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
         webView = WebView(this).apply {
             setBackgroundColor(ui.background)
             settings.javaScriptEnabled = true

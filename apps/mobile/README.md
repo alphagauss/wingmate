@@ -6,7 +6,7 @@
 
 工作台的半透明圆形按钮可拖动，点按从右侧平移打开连接抽屉。点击工作台遮罩、关闭按钮或按返回键收起抽屉，保留当前工作台。抽屉可扫码、查看和刷新当前及最近连接、点按切换、长按重命名或删除。断开当前连接后按上游方式扫描其他主机。服务和任务由连接的主机管理。首版范围和真机验收条件见 [C2](../../ARCHITECTURE_PLAN.md#c2-android-远程版)。
 
-包体积和验证结果见 [Android 远程版记录](../../docs/records/2026-11-12-android-remote.md)及 [Android 本地版首包记录](../../docs/records/2026-11-12-android-local.md)。
+包体积和验证结果见 [Android 远程版记录](../../docs/records/2026-11-12-android-remote.md)及 [Android 本地版首包记录](../../docs/records/2026-11-12-android-local.md)。本地工作台已在真机验证的最低版本组合见[工作台连接和默认工作区修复](../../docs/records/2026-11-12-android-local.md#工作台连接和默认工作区修复)。
 
 ## 工程布局
 
@@ -28,6 +28,8 @@ node --test apps/mobile/test/*.test.mjs
 
 Release 产物分别在 `android/app/build/outputs/apk/remote/release/` 和 `android/app/build/outputs/apk/local/release/`，用 Android SDK 的 `apksigner` 签名后可安装。远程版延用 `dev.wingmate.mobile`、`targetSdk 36`，APK 只包含 DEX 和资源。本地版使用 `dev.wingmate.mobile.local`、`targetSdk 28` 和 ARM64 原生库，可与远程版并装。连接历史、Cookie 与本机运行数据归各自包名所有。同一应用覆盖安装需要沿用签名，远程版首页继续读入早期 APK 的连接历史。
 
+本地 APK 的安装门槛是 Android 8.0（`minSdk 26`）和 ARM64。
+
 本机测试包可以使用 Debug 构建生成的默认测试密钥。签名命令从仓库根目录运行。
 
 ```powershell
@@ -37,6 +39,8 @@ $apkSigner = Join-Path $env:ANDROID_HOME 'build-tools/36.0.0/apksigner.bat'
 ```
 
 Android Gradle 复用配置和任务输出，Kotlin 使用增量编译。网页直接随资源打包。Android 本地模块的 JVM 测试入口为 `:local-agent:testDebugUnitTest`。
+
+Debug 构建的工作台可通过 ADB 转发 WebView DevTools 端口，检查前端异常和 WebSocket 状态。
 
 ## 上游来源
 

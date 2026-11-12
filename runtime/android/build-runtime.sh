@@ -227,6 +227,9 @@ PYEOF
   {
     sed -n '/^- id: office-to-pdf$/,+1p' "$ROOT/plugins/cordis.patch.yml"
     cat <<'YAML'
+- id: workspace-controller
+  config:
+    documentsDirectory: /root/Documents
 - insert:
     - id: wingmate-file-viewer
       name: /opt/dsh/plugins/wingmate-file-viewer/host.mjs
@@ -239,6 +242,7 @@ YAML
       sha256sum "$base" "$node" "$python" "${extra_debs[@]}" "$proot_deb" "$talloc_deb" "$shmem_deb" |
         awk '{print $1}'
       sha256sum "$HERE/build-runtime.sh" "$HERE/lib/rtbuild.py" "$HERE/prepare-dsh.mjs" "$HERE/guest/"*.mjs \
+        "$HERE/patches/dsh-$dsh_version.json" "$HERE/webview-compat.js" \
         "$HERE/LICENSE.dsh-go" "$ROOT/runtime/package.json" "$ROOT/runtime/package-lock.json" \
         "$LOCKS/pnpm-$PNPM_VERSION/package.json" "$LOCKS/pnpm-$PNPM_VERSION/package-lock.json" \
         "$ROOT/scripts/runtime-files.mjs" "$ROOT/scripts/runtime-patches.mjs" \

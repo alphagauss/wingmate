@@ -16,3 +16,13 @@ Office 裁剪排除了 153,158,148 字节的展开文件。本次未做同参数
 Windows 上 JavaScript 测试通过 8 项，Kotlin JVM 测试通过 29 项，3 项需要 POSIX 文件系统的用例跳过。WSL 通过 QEMU 从最终载荷运行 ARM64 Node、Python、Git 和 pnpm，验证 Python 的 SSL、SQLite、venv 和 pip，加载 ARM64 Sharp，使用启动令牌登录 DSH Web，并逐字节核对服务返回的 DOCX、PPTX 预览 Worker。
 
 构建时未连接 Android 真机。首次释放、PRoot 与前台服务、实际模型和工具调用、切换连接、停机恢复以及升级后数据保留仍需在目标设备上验收。
+
+## 工作台连接和默认工作区修复
+
+**本地工作台已通过真机验证的最低组合为 Android 12 和 Android System WebView 96.0.4664.104（ARM64）。** 此次真机验证覆盖这一组合下的本机 Agent 启动、工作台连接和默认工作区自动创建。
+
+通过无线 ADB 复现问题。工作台的 WebSocket 握手返回 101，前端因缺少 Promise 和取消接口反复重连。连接恢复后，默认工作区初始化返回 `spawn xdg-user-dir ENOENT`。本地载荷在 DSH 启动前加载兼容脚本，并通过 DSH 配置指定来宾 Documents 目录。
+
+用新载荷覆盖安装 Debug 包后，真机自动创建默认工作区，显示工作区、会话和输入框，未再出现重连和默认工作区错误。来宾 `/root` 和 `/root/.dsh` 的 inode 保持一致，`/opt/dsh` 已替换。WSL 的隔离空数据目录也通过了登录、兼容脚本加载顺序和默认工作区创建验证。此次未调用真实模型。
+
+本地 Debug 与签名 Release APK 内的 XZ 哈希一致。更新后的本地 Release 为 133,283,338 字节，SHA-256 为 `ef92809d9f71d84c9b194c12f80dfa39c02a86a5e0a48b01d959e996d45ce9e4`。远程版重新构建并通过签名、对齐和包内容检查。
