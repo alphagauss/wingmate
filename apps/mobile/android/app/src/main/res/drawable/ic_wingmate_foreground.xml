@@ -3,7 +3,7 @@
     android:viewportWidth="108" android:viewportHeight="108">
     <!-- Keep the mark inside the adaptive icon's central safe area. -->
     <group android:scaleX="0.57" android:scaleY="0.57"
-        android:translateX="18" android:translateY="16">
+        android:translateX="16" android:translateY="20">
         <path android:fillColor="#BAD5FF"
             android:pathData="M66,68 C61,75 54,80 46,81 Q43,82 45,79 C49,76 51,72 52,68 Z" />
         <path android:fillColor="#FFFFFF" android:fillType="evenOdd"

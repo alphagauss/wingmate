@@ -49,8 +49,10 @@ test('restores the previous home history and opens a scanned link through the na
   reply('scan', { value: { text: link } })
   await setImmediate()
   assert.equal(elements.get('#scan-progress').hidden, false)
+  assert.equal(elements.get('#scan-progress').className, 'connecting')
   reply('open', { error: 'Connection failed' }, { link })
   await scanned
+  assert.equal(elements.get('#scan-progress').className, '')
   assert.equal(elements.get('#notice').textContent, 'Connection failed')
   assert.equal(elements.get('#scan-progress').hidden, true)
   assert.deepEqual(requests, [])

@@ -39,6 +39,7 @@ function setScanning(active, text = '', cancellable = true) {
   scanning = active
   actions.hidden = active
   progress.hidden = !active
+  progress.className = active && !cancellable ? 'connecting' : ''
   document.querySelector('#scan-message').textContent = text
   document.querySelector('#cancel-scan').hidden = !cancellable
 }

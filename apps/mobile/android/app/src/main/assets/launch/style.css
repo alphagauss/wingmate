@@ -48,12 +48,6 @@ h3 { font-size: 14px; }
   gap: 12px;
   padding: 32px;
 }
-.brand-mark {
-  width: 104px;
-  height: 76px;
-  background: var(--foreground);
-  mask: url("logo.svg") center / contain no-repeat;
-}
 .actions { display: grid; gap: 12px; }
 .actions { padding: 0 24px 24px; }
 button, input {
@@ -93,6 +87,14 @@ input[aria-invalid="true"] { border-color: var(--danger); }
 .error { color: var(--danger); }
 #scan-progress { display: grid; justify-items: center; gap: 16px; margin-top: 16px; }
 #scan-message { color: var(--muted); font-size: 14px; line-height: 24px; text-align: center; }
+#scan-progress.connecting #scan-message {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .breathing-light { display: flex; align-items: center; height: 24px; gap: 10px; }
 .breathing-light i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: .25; animation: breathe .9s ease-in-out infinite; }
 .breathing-light i:nth-child(2) { animation-delay: .15s; }

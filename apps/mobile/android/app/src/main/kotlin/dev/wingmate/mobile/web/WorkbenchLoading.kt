@@ -44,13 +44,20 @@ internal class WorkbenchLoading(
         body.addView(ImageView(context).apply {
             setImageResource(R.drawable.ic_wingmate_foreground)
             setColorFilter(ui.foreground)
-            contentDescription = "Wingmate"
-        }, context.dp(132), context.dp(96))
-        body.addView(ui.text("Wingmate", 24f, bold = true))
-        body.addView(BreathingDots(context, ui.foreground), LinearLayout.LayoutParams(
+            // Crop the empty padding around the adaptive icon's whale.
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, context.dp(172), context.dp(76))
+        body.addView(ui.text("Wingmate", 24f, bold = true).apply {
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = context.dp(6) })
+        body.addView(BreathingDots(context, ui.foreground).apply {
+            contentDescription = labels["connection.loading"]
+            importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
+        }, LinearLayout.LayoutParams(
             context.dp(44), context.dp(24)
-        ).apply { topMargin = context.dp(28) })
-        body.addView(ui.text(labels["connection.loading"], 14f, ui.muted))
+        ).apply { topMargin = context.dp(18) })
         postDelayed(timeout, 20_000)
     }
 

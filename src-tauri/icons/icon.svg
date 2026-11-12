@@ -2,7 +2,7 @@
   <title id="title">Wingmate · 翼鳍鲸</title>
   <desc id="desc">蓝色圆角底上的白鲸向右游动，近侧胸鳍像机翼一样向后展开，浅蓝色的远侧胸鳍从腹线下露出一小截。</desc>
   <rect width="128" height="128" rx="28" fill="#2459C7"/>
-  <g transform="translate(1 -5)">
+  <g transform="translate(-3 -1)">
     <path fill="#BAD5FF" d="
       M 65 73
       C 60 80 53 85 45 86

@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
   <title id="title">Wingmate · 翼鳍鲸</title>
   <desc id="desc">透明背景上的蓝鲸向右游动，近侧胸鳍像机翼一样向后展开，浅蓝色的远侧胸鳍从腹线下露出一小截。</desc>
-  <g transform="translate(1 -5)">
+  <g transform="translate(-3 -1)">
     <path fill="#7DA3EB" d="
       M 65 73
       C 60 80 53 85 45 86
