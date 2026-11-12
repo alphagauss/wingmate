@@ -82,6 +82,7 @@ impl Credentials {
         let authority = format!("127.0.0.1:{port}");
         let upstream_origin = format!("http://{authority}");
         let request_uri = request.uri().clone();
+        let method = request.method().clone();
         let upgrade = request.headers().get(header::UPGRADE);
         let websocket =
             upgrade.is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(b"websocket"));
@@ -152,10 +153,11 @@ impl Credentials {
         }
         let (mut parts, body) = reply.into_parts();
         strip_hop_headers(&mut parts.headers, upgraded);
+        let cache_control = cache_control(&method, &request_uri, parts.status, &parts.headers);
         parts.headers.remove(header::SET_COOKIE);
         parts.headers.insert(
             header::CACHE_CONTROL,
-            header::HeaderValue::from_static("no-store"),
+            header::HeaderValue::from_static(cache_control),
         );
         if let Some(location) = parts
             .headers
@@ -191,6 +193,43 @@ impl Credentials {
             StreamBody::new(frames).boxed_unsync(),
         ))
     }
+}
+
+fn cache_control(
+    method: &Method,
+    uri: &hyper::Uri,
+    status: StatusCode,
+    headers: &HeaderMap,
+) -> &'static str {
+    if !matches!(*method, Method::GET | Method::HEAD)
+        || !matches!(status, StatusCode::OK | StatusCode::NOT_MODIFIED)
+        || headers.contains_key(header::SET_COOKIE)
+    {
+        return "no-store";
+    }
+    let mut cache = headers.get_all(header::CACHE_CONTROL).iter();
+    let upstream = cache.next();
+    if cache.next().is_some() {
+        return "no-store";
+    }
+    // DSH identifies immutable plugin code with rev, including /plugins/??…&rev=… batches.
+    if upstream.is_some_and(|value| value == "public, max-age=31536000, immutable")
+        && uri.path().starts_with("/plugins/")
+        && uri.query().is_some_and(|query| {
+            query
+                .split('&')
+                .any(|part| part.strip_prefix("rev=").is_some_and(|rev| !rev.is_empty()))
+        })
+    {
+        return "private, max-age=31536000, immutable";
+    }
+    if upstream.is_some_and(|value| value == "no-cache")
+        && uri.path().starts_with("/assets/")
+        && headers.contains_key(header::ETAG)
+    {
+        return "private, no-cache";
+    }
+    "no-store"
 }
 
 fn strip_hop_headers(headers: &mut HeaderMap, websocket: bool) {

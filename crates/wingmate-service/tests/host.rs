@@ -209,6 +209,16 @@ const server = createServer(async (request, response) => {
     response.writeHead(302, { location: '?version=1' }).end();
     return;
   }
+  if (request.url.startsWith('/plugins/') || request.url === '/api/private?rev=test') {
+    response.writeHead(200, { 'cache-control': 'public, max-age=31536000, immutable' }).end('bundle');
+    return;
+  }
+  if (request.url === '/assets/main.js') {
+    const unchanged = request.headers['if-none-match'] === '"main"';
+    response.writeHead(unchanged ? 304 : 200, { 'cache-control': 'no-cache', etag: '"main"' });
+    response.end(unchanged ? undefined : 'static');
+    return;
+  }
   response.setHeader('set-cookie', 'dsh_test=hidden; Path=/');
   response.setHeader('content-type', 'application/octet-stream');
   for await (const chunk of request) response.write(chunk);
@@ -374,6 +384,33 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
         .send()?;
     assert_eq!(redirect.status(), 302);
     assert_eq!(redirect.headers()["location"], "/file?version=1");
+    let bundle = url("/plugins/??test/client.js&rev=one");
+    let versioned = client.get(&bundle).header("Cookie", cookie).send()?;
+    assert_eq!(versioned.status(), 200);
+    assert_eq!(
+        versioned.headers()["cache-control"],
+        "private, max-age=31536000, immutable"
+    );
+    let anonymous = client.get(&bundle).send()?;
+    assert_eq!(anonymous.status(), 401);
+    assert_eq!(anonymous.headers()["cache-control"], "no-store");
+    for path in ["/plugins/test/client.js", "/api/private?rev=test"] {
+        let reply = client.get(url(path)).header("Cookie", cookie).send()?;
+        assert_eq!(reply.headers()["cache-control"], "no-store");
+    }
+    let changed = client
+        .get(url("/assets/main.js"))
+        .header("Cookie", cookie)
+        .send()?;
+    assert_eq!(changed.headers()["cache-control"], "private, no-cache");
+    let etag = changed.headers()["etag"].clone();
+    let unchanged = client
+        .get(url("/assets/main.js"))
+        .header("Cookie", cookie)
+        .header("If-None-Match", etag)
+        .send()?;
+    assert_eq!(unchanged.status(), 304);
+    assert_eq!(unchanged.headers()["cache-control"], "private, no-cache");
     assert_eq!(
         client
             .get(url("/"))
