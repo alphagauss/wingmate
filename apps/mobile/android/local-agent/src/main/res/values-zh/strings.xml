@@ -1,0 +1,8 @@
+<resources>
+    <string name="local_runtime_title">本机 Agent</string>
+    <string name="local_runtime_installing">正在准备 Linux 运行时</string>
+    <string name="local_runtime_starting">正在启动 DSH</string>
+    <string name="local_runtime_stopping">正在停止 DSH</string>
+    <string name="local_runtime_running">DSH 正在本机运行</string>
+    <string name="local_runtime_stop">停止</string>
+</resources>

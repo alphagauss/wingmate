@@ -4,6 +4,10 @@ pluginManagement {
         mavenCentral()
         gradlePluginPortal()
     }
+    plugins {
+        id("com.android.application") version "9.3.1"
+        id("com.android.library") version "9.3.1"
+    }
 }
 
 dependencyResolutionManagement {
@@ -15,3 +19,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "wingmate-android"
 include(":app")
+include(":local-agent")

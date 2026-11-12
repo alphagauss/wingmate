@@ -1,0 +1,8 @@
+<resources>
+    <string name="local_runtime_title">Local Agent</string>
+    <string name="local_runtime_installing">Preparing the Linux runtime</string>
+    <string name="local_runtime_starting">Starting DSH</string>
+    <string name="local_runtime_stopping">Stopping DSH</string>
+    <string name="local_runtime_running">DSH is running on this phone</string>
+    <string name="local_runtime_stop">Stop</string>
+</resources>

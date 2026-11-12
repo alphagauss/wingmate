@@ -1,5 +1,42 @@
+import org.gradle.api.file.ArchiveOperations
+import org.gradle.api.file.FileSystemOperations
+import org.gradle.api.file.RelativePath
+import javax.inject.Inject
+
 plugins {
-    id("com.android.application") version "9.3.1"
+    id("com.android.application")
+}
+
+abstract class UnpackLocalRuntime @Inject constructor(
+    private val archives: ArchiveOperations,
+    private val files: FileSystemOperations,
+) : DefaultTask() {
+    @get:InputFile abstract val bundle: RegularFileProperty
+    @get:OutputDirectory abstract val assets: DirectoryProperty
+    @get:OutputDirectory abstract val libraries: DirectoryProperty
+
+    @TaskAction
+    fun unpack() {
+        val tree = archives.zipTree(bundle)
+        for ((prefix, output) in listOf("assets" to assets, "jniLibs" to libraries)) {
+            files.sync {
+                from(tree) {
+                    include("$prefix/**")
+                    eachFile {
+                        relativePath = RelativePath(!isDirectory, *relativePath.segments.drop(1).toTypedArray())
+                    }
+                    includeEmptyDirs = false
+                }
+                into(output)
+            }
+        }
+    }
+}
+
+val unpackLocalRuntime = tasks.register<UnpackLocalRuntime>("unpackLocalRuntime") {
+    bundle.set(rootProject.layout.projectDirectory.file("../../../work/build/android/runtime-arm64-v8a.zip"))
+    assets.set(layout.buildDirectory.dir("generated/localRuntime/assets"))
+    libraries.set(layout.buildDirectory.dir("generated/localRuntime/jniLibs"))
 }
 
 android {
@@ -19,6 +56,26 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    flavorDimensions += "execution"
+    productFlavors {
+        create("remote") {
+            dimension = "execution"
+        }
+        create("local") {
+            dimension = "execution"
+            applicationIdSuffix = ".local"
+            minSdk = 26
+            targetSdk = 28
+            ndk { abiFilters += "arm64-v8a" }
+        }
+    }
+
+    androidResources.noCompress += "xz"
+    packaging.jniLibs.apply {
+        useLegacyPackaging = true
+        keepDebugSymbols += listOf("**/libproot*.so", "**/libtalloc.so", "**/libandroid-shmem.so")
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -28,7 +85,13 @@ android {
     }
 }
 
+androidComponents.onVariants(androidComponents.selector().withFlavor("execution" to "local")) { variant ->
+    variant.sources.assets?.addGeneratedSourceDirectory(unpackLocalRuntime, UnpackLocalRuntime::assets)
+    variant.sources.jniLibs?.addGeneratedSourceDirectory(unpackLocalRuntime, UnpackLocalRuntime::libraries)
+}
+
 dependencies {
+    "localImplementation"(project(":local-agent"))
     implementation("androidx.webkit:webkit:1.14.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-ktx:1.10.1")
