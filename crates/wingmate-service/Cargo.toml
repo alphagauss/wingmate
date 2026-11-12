@@ -13,6 +13,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 sha2 = "0.10"
 uuid = { version = "1", features = ["serde", "v4"] }
 tiny_http = "0.12"
+flate2 = "1"
 futures-util = { version = "0.3", default-features = false }
 http-body-util = "0.1"
 hyper = { version = "1", features = ["client", "http1", "server"] }

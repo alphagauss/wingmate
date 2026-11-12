@@ -1,21 +1,27 @@
-use super::{response, Body, Session};
+use super::{response, Access, Body, Session};
 use crate::engine::Snapshot;
 use anyhow::{Context, Result};
+use flate2::{write::GzEncoder, Compression};
 use http_body_util::{BodyExt, StreamBody};
-use hyper::{body::Incoming, header, HeaderMap, Method, Request, Response, StatusCode};
+use hyper::{
+    body::{Bytes, Frame, Incoming},
+    header, HeaderMap, Method, Request, Response, StatusCode,
+};
 use hyper_util::rt::TokioIo;
-use std::time::Duration;
+use std::{io::Write, time::Duration};
 use tokio::net::TcpStream;
 use tokio_util::sync::CancellationToken;
 
 pub(super) struct Credentials {
+    access: Access,
     client: reqwest::Client,
     cached: tokio::sync::Mutex<Option<(String, header::HeaderValue)>>,
 }
 
 impl Credentials {
-    pub(super) fn new() -> Result<Self> {
+    pub(super) fn new(access: Access) -> Result<Self> {
         Ok(Self {
+            access,
             client: reqwest::Client::builder()
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
@@ -83,6 +89,7 @@ impl Credentials {
         let upstream_origin = format!("http://{authority}");
         let request_uri = request.uri().clone();
         let method = request.method().clone();
+        let gzip = self.access == Access::Public && accepts_gzip(request.headers());
         let upgrade = request.headers().get(header::UPGRADE);
         let websocket =
             upgrade.is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(b"websocket"));
@@ -180,19 +187,97 @@ impl Credentials {
                 }
             }
         }
-        let frames =
-            futures_util::stream::unfold((body, session), |(mut body, session)| async move {
+        let frames = futures_util::stream::unfold(
+            (body, session),
+            |(mut body, session)| async move {
                 tokio::select! {
                     biased;
                     _ = session.ended() => None,
-                    frame = body.frame() => frame.map(|frame| (frame, (body, session))),
+                    frame = body.frame() => frame.map(|frame| (frame.map_err(anyhow::Error::from), (body, session))),
                 }
-            });
-        Ok(Response::from_parts(
-            parts,
-            StreamBody::new(frames).boxed_unsync(),
-        ))
+            },
+        );
+        let mut body = StreamBody::new(frames).boxed_unsync();
+        if self.access == Access::Public
+            && method == Method::GET
+            && parts.status == StatusCode::OK
+            && parts
+                .headers
+                .get(header::CONTENT_TYPE)
+                .is_some_and(|value| {
+                    value.to_str().is_ok_and(|value| {
+                        value
+                            .split(';')
+                            .next()
+                            .unwrap_or_default()
+                            .trim()
+                            .eq_ignore_ascii_case("text/event-stream")
+                    })
+                })
+            && !parts.headers.contains_key(header::CONTENT_ENCODING)
+        {
+            parts.headers.append(
+                header::VARY,
+                header::HeaderValue::from_static("accept-encoding"),
+            );
+            if gzip {
+                parts.headers.remove(header::CONTENT_LENGTH);
+                parts.headers.remove(header::ETAG);
+                parts.headers.insert(
+                    header::CONTENT_ENCODING,
+                    header::HeaderValue::from_static("gzip"),
+                );
+                body = gzip_event_stream(body);
+            }
+        }
+        Ok(Response::from_parts(parts, body))
     }
+}
+
+fn accepts_gzip(headers: &HeaderMap) -> bool {
+    let mut wildcard = false;
+    for entry in headers
+        .get_all(header::ACCEPT_ENCODING)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+    {
+        let (coding, quality) = entry.split_once(';').unwrap_or((entry, "q=1"));
+        let allowed = quality
+            .trim()
+            .strip_prefix("q=")
+            .and_then(|value| value.trim().parse::<f32>().ok())
+            .is_some_and(|quality| quality > 0.0 && quality <= 1.0);
+        if coding.trim().eq_ignore_ascii_case("gzip") {
+            return allowed;
+        }
+        if coding.trim() == "*" {
+            wildcard = allowed;
+        }
+    }
+    wildcard
+}
+
+fn gzip_event_stream(body: Body) -> Body {
+    let encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    let frames =
+        futures_util::stream::try_unfold((body, Some(encoder)), |(mut body, encoder)| async move {
+            let Some(mut encoder) = encoder else {
+                return Ok(None);
+            };
+            while let Some(frame) = body.frame().await {
+                if let Ok(data) = frame?.into_data() {
+                    // Match Desktop's Z_SYNC_FLUSH so an open stream sends each update promptly.
+                    encoder.write_all(&data)?;
+                    encoder.flush()?;
+                    let chunk = Bytes::from(std::mem::take(encoder.get_mut()));
+                    return Ok(Some((Frame::data(chunk), (body, Some(encoder)))));
+                }
+            }
+            let footer = Bytes::from(encoder.finish()?);
+            Ok(Some((Frame::data(footer), (body, None))))
+        });
+    StreamBody::new(frames).boxed_unsync()
 }
 
 fn cache_control(

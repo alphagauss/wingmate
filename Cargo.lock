@@ -4805,6 +4805,7 @@ name = "wingmate-service"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "flate2",
  "fs2",
  "futures-util",
  "http-body-util",

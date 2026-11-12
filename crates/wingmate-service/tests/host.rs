@@ -144,6 +144,36 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
     assert_eq!(recovery.status(), 200);
     assert!(recovery.text()?.contains("/_wingmate/home.js"));
 
+    runtime(service.home.path())?;
+    let started = host::call(&endpoint, "start", None)?;
+    let events = |encoding: &str| {
+        client
+            .get(format!("{loopback}/plugins/events"))
+            .header("Host", authority)
+            .header("Cookie", cookie)
+            .header("Accept-Encoding", encoding)
+            .send()
+    };
+    let plain = events("gzip;q=0, *;q=1")?;
+    assert_eq!(plain.status(), 200);
+    assert!(!plain.headers().contains_key("content-encoding"));
+    drop(plain);
+    let compressed = events("br, gzip")?;
+    assert_eq!(compressed.status(), 200);
+    assert_eq!(compressed.headers()["content-type"], "text/event-stream");
+    assert_eq!(compressed.headers()["content-encoding"], "gzip");
+    assert_eq!(compressed.headers()["cache-control"], "no-store");
+    assert_eq!(compressed.headers()["vary"], "accept-encoding");
+    let mut stream = BufReader::new(flate2::read::GzDecoder::new(compressed));
+    for expected in ["data: graph\n", "\n", "data: rebuilt\n", "\n"] {
+        let mut line = String::new();
+        stream.read_line(&mut line)?;
+        assert_eq!(line, expected);
+    }
+    drop(stream);
+    let business = started.business.context("缺少已启动的业务实例")?;
+    host::call(&endpoint, "stop", Some(&business.instance))?;
+
     let named = "wingmate.example.test";
     let configured = host::share(
         &endpoint,
@@ -207,6 +237,13 @@ const server = createServer(async (request, response) => {
   }
   if (request.url === '/file?download') {
     response.writeHead(302, { location: '?version=1' }).end();
+    return;
+  }
+  if (request.url === '/plugins/events') {
+    response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+    response.write('data: graph\n\n');
+    const timer = setTimeout(() => response.write('data: rebuilt\n\n'), 100);
+    response.on('close', () => clearTimeout(timer));
     return;
   }
   if (request.url.startsWith('/plugins/') || request.url === '/api/private?rev=test') {

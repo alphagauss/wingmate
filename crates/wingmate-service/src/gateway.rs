@@ -26,7 +26,7 @@ use std::{
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-type Body = UnsyncBoxBody<Bytes, hyper::Error>;
+type Body = UnsyncBoxBody<Bytes, anyhow::Error>;
 const SESSION_AGE: u64 = 30 * 24 * 60 * 60;
 const PAIR_AGE: Duration = Duration::from_secs(300);
 
@@ -434,7 +434,7 @@ impl Control {
             cookie: format!("wingmate_share_{}", address.port()),
             auth: self.auth.clone(),
             closed: CancellationToken::new(),
-            upstream: proxy::Credentials::new()?,
+            upstream: proxy::Credentials::new(access)?,
         });
         Ok((gateway, listener))
     }
