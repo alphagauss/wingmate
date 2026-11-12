@@ -10,12 +10,13 @@ test('each page restores its backend selection and marks both official carriers'
     setItem(key, value) { this.values.set(key, value); }
   }
   const sent = [];
+  const requests = [];
   const storage = new Storage();
   const globals = {
     URL, Storage, localStorage: storage, sessionStorage: new Storage(),
     location: { href: 'http://localhost/?wingmate-agent=codex' },
     __WINGMATE_AGENTS__: [{ id: 'codex' }],
-    fetch(input, options) { sent.push(JSON.parse(options.body)); return Promise.resolve({}); },
+    fetch(input, options) { requests.push({ input, options }); return Promise.resolve({}); },
     WebSocket: class { send(data) { sent.push(JSON.parse(data)); } },
   };
   await globals.localStorage.setItem('ordinary-setting', 'original');
@@ -24,10 +25,17 @@ test('each page restores its backend selection and marks both official carriers'
   assert.equal(globals.localStorage.getItem('dsh.sessions.current'), 'external-session');
   assert.equal(globals.sessionStorage.getItem('wingmate.current.codex'), 'external-session');
   assert.equal(globals.localStorage.getItem('ordinary-setting'), 'original');
-  globals.__DSH_TRANSPORT__.fetch('api/session/prompt', { body: JSON.stringify({ payload: { args: {} } }) });
+  const events = { method: 'GET', headers: { accept: 'text/event-stream' }, signal: new AbortController().signal };
+  await globals.__DSH_TRANSPORT__.fetch('plugins/events', events);
+  assert.equal(requests[0].input, 'plugins/events');
+  assert.equal(requests[0].options, events);
+  await globals.__DSH_TRANSPORT__.fetch('api/session/prompt', {
+    method: 'POST', body: JSON.stringify({ type: 'client-request', payload: { args: {} } }),
+  });
+  assert.equal(JSON.parse(requests[1].options.body).payload.wingmateAgent, 'codex');
   const socket = globals.__DSH_TRANSPORT__.createWebSocket('ws://localhost/api/remote.mux');
   socket.send(JSON.stringify({ type: 'open', endpoint: 'session/follow', payload: { args: {} } }));
-  assert.deepEqual(sent.map(message => message.payload.wingmateAgent), ['codex', 'codex']);
+  assert.equal(sent[0].payload.wingmateAgent, 'codex');
   socket.send(JSON.stringify({ type: 'cancel', streamId: 'own-stream' }));
   assert.equal(sent.at(-1).wingmateAgent, undefined);
 });

@@ -26,7 +26,17 @@
   globalThis.__DSH_TRANSPORT__ = {
     ...original,
     fetch(input, options) {
-      const message = JSON.parse(options.body);
+      if (typeof input !== 'string' || !input.startsWith('api/')
+          || options?.method !== 'POST' || typeof options.body !== 'string') {
+        return request(input, options);
+      }
+      let message;
+      try {
+        message = JSON.parse(options.body);
+      } catch {
+        return request(input, options);
+      }
+      if (message?.type !== 'client-request') return request(input, options);
       message.payload = { ...message.payload, wingmateAgent: backend };
       return request(input, { ...options, body: JSON.stringify(message) }).then(async response => {
         if (message.method === 'session/list') {
