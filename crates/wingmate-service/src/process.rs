@@ -119,13 +119,9 @@ pub fn start(
 }
 
 #[cfg(windows)]
-fn give_ownership(child: &Child, lock: &File) -> Result<()> {
+pub(crate) fn job_for_child(child: &Child) -> Result<std::os::windows::io::OwnedHandle> {
     use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
-    use windows_sys::Win32::{
-        Foundation::{DuplicateHandle, DUPLICATE_SAME_ACCESS},
-        System::{JobObjects::*, Threading::GetCurrentProcess},
-    };
-
+    use windows_sys::Win32::System::JobObjects::*;
     unsafe {
         let handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());
         if handle.is_null() {
@@ -146,6 +142,19 @@ fn give_ownership(child: &Child, lock: &File) -> Result<()> {
         if AssignProcessToJobObject(job.as_raw_handle(), child.as_raw_handle()) == 0 {
             return Err(std::io::Error::last_os_error()).context("绑定进程 Job 失败");
         }
+        Ok(job)
+    }
+}
+
+#[cfg(windows)]
+fn give_ownership(child: &Child, lock: &File) -> Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::{
+        Foundation::{DuplicateHandle, DUPLICATE_SAME_ACCESS},
+        System::Threading::GetCurrentProcess,
+    };
+    let job = job_for_child(child)?;
+    unsafe {
         // 复制到 Node 的句柄不可继承，Node 退出时系统会释放运行锁并回收 Job 内的进程。
         for handle in [lock.as_raw_handle(), job.as_raw_handle()] {
             let mut remote = std::ptr::null_mut();

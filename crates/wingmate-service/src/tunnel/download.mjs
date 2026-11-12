@@ -19,7 +19,7 @@ const FALLBACK_VERSION = '2026.10.0'
 
 const MIRROR_PREFIX = 'https://ghfast.top/'
 
-const DOWNLOAD_TIMEOUT_MS = 120_000
+const DOWNLOAD_TIMEOUT_MS = 600_000
 const VERSION_TIMEOUT_MS = 5_000
 const EXTRACT_TIMEOUT_MS = 60_000
 
@@ -87,13 +87,18 @@ export async function downloadInto(url, asset, directory, digest, onProgress) {
   const total = Number(response.headers.get('content-length')) || undefined
   const chunks = []
   let received = 0
+  let reported = 0
   for await (const chunk of response.body ?? []) {
     chunks.push(chunk)
     received += chunk.length
-    onProgress?.({ stage: 'download', received, total })
+    if (received - reported >= 256 * 1024) {
+      onProgress?.({ stage: 'download', received, total })
+      reported = received
+    }
   }
   if (received === 0)
     throw new Error('响应为空')
+  onProgress?.({ stage: 'download', received, total })
   const body = Buffer.concat(chunks, received)
   if (`sha256:${createHash('sha256').update(body).digest('hex')}` !== digest)
     throw new Error('SHA-256 校验失败')

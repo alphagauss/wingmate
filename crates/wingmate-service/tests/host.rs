@@ -36,6 +36,144 @@ fn spawn(home: &Path) -> Result<Child> {
         .stderr(Stdio::null())
         .spawn()?)
 }
+
+fn tunnel_host(home: &Path, binary: &Path, origin: &Path) -> Result<Host> {
+    let directory = tempfile::tempdir_in(home)?;
+    let mut command = Command::new(env!("CARGO_BIN_EXE_wingmate-service"));
+    wingmate_service::runtime::quiet(&mut command);
+    let child = command
+        .arg("--home")
+        .arg(directory.path())
+        .env("CLOUDFLARED_PATH", binary)
+        .env("TEST_TUNNEL_ORIGIN", origin)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    Ok(Host {
+        child,
+        home: directory,
+    })
+}
+
+fn tunnel_ready(endpoint: &host::Endpoint) -> Result<String> {
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        let status = host::share(endpoint, &host::ShareCommand::Status)?
+            .tunnel
+            .unwrap();
+        if let Some(url) = status.url {
+            return Ok(url);
+        }
+        anyhow::ensure!(status.error.is_none(), "{:?}", status.error);
+        anyhow::ensure!(Instant::now() < deadline, "隧道未就绪");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
+    use host::{ShareCommand as Share, TunnelMode};
+
+    let temp = tempfile::tempdir()?;
+    let binary = temp.path().join(if cfg!(windows) {
+        "cloudflared.exe"
+    } else {
+        "cloudflared"
+    });
+    let compiled = Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cloudflared.rs"))
+        .arg("-o")
+        .arg(&binary)
+        .output()?;
+    anyhow::ensure!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+    let origin_path = temp.path().join("origin");
+    let mut service = tunnel_host(temp.path(), &binary, &origin_path)?;
+    let endpoint = wait(service.home.path())?;
+    let client = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(3))
+        .build()?;
+    host::share(
+        &endpoint,
+        &Share::TunnelStart {
+            mode: TunnelMode::Quick,
+        },
+    )?;
+    let public = tunnel_ready(&endpoint)?;
+    let loopback = fs::read_to_string(&origin_path)?;
+    let authority = public.trim_start_matches("https://");
+    assert_eq!(client.get(&loopback).send()?.status(), 421);
+    assert_eq!(
+        client
+            .get(format!("{loopback}/_wingmate/status"))
+            .header("Host", authority)
+            .send()?
+            .status(),
+        401
+    );
+    let pairing = host::share(&endpoint, &Share::TunnelPair)?
+        .pairing_url
+        .unwrap();
+    let code = pairing.strip_prefix(&format!("{public}/?auth=")).unwrap();
+    let exchange = |origin: &str| {
+        client
+            .post(format!("{loopback}/?auth"))
+            .header("Host", authority)
+            .header("Origin", origin)
+            .body(code.to_owned())
+            .send()
+    };
+    assert_eq!(exchange("https://wrong.example")?.status(), 403);
+    let paired = exchange(&public)?;
+    assert_eq!(paired.status(), 204);
+    let cookie = paired.headers()["set-cookie"].to_str()?;
+    assert!(cookie.ends_with("; Secure"));
+    let cookie = cookie.split(';').next().unwrap();
+    assert_eq!(exchange(&public)?.status(), 401);
+    let recovery = client
+        .get(&loopback)
+        .header("Host", authority)
+        .header("Cookie", cookie)
+        .header("Accept", "text/html")
+        .send()?;
+    assert_eq!(recovery.status(), 200);
+    assert!(recovery.text()?.contains("/_wingmate/home.js"));
+
+    let named = "wingmate.example.test";
+    let configured = host::share(
+        &endpoint,
+        &Share::TunnelConfigure {
+            hostname: named.into(),
+            token: Some("test-tunnel-token".into()),
+        },
+    )?;
+    assert!(!serde_json::to_string(&configured)?.contains("test-tunnel-token"));
+    assert_eq!(
+        configured.tunnel.unwrap().url.as_deref(),
+        Some(public.as_str())
+    );
+    host::share(
+        &endpoint,
+        &Share::TunnelStart {
+            mode: TunnelMode::Named,
+        },
+    )?;
+    assert_eq!(tunnel_ready(&endpoint)?, format!("https://{named}"));
+    assert!(client
+        .get(&loopback)
+        .header("Host", authority)
+        .send()
+        .is_err());
+    host::call(&endpoint, "shutdown", None)?;
+    assert!(service.child.wait()?.success());
+    assert!(std::net::TcpListener::bind("127.0.0.1:3089").is_ok());
+    Ok(())
+}
 fn wait(home: &Path) -> Result<host::Endpoint> {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {

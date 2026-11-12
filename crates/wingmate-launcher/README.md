@@ -8,6 +8,6 @@
 
 `stop` 停止业务并保留管理服务；`service-stop` 仅在业务已停止时退出服务。服务意外退出后，`start` 可恢复管理连接。当前不提供旧发现协议的迁移路径。
 
-局域网分享可从桌面或 `wingmate share-*` 命令管理。启用分享及配对见[服务模块](../wingmate-service/README.md#局域网分享)。
+局域网分享可用 `wingmate share-*` 管理，公网隧道可用 `wingmate tunnel-*` 管理。启用和配对见[服务模块](../wingmate-service/README.md#web-入口)。
 
 命令与登录启动注册属于本模块，指向外层发行入口，不指向指纹目录中的服务或桌面副本。桌面设置只调用注册接口。运行组件和数据规则见[运行时维护指南](../../docs/runtime-maintenance.md)与[服务模块](../wingmate-service/README.md)。

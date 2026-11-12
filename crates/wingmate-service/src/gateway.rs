@@ -1,7 +1,7 @@
-//! Serve the managed DSH Web through local and LAN listeners.
+//! Serve the managed DSH Web through local, LAN and public listeners.
 mod proxy;
 
-use crate::{engine, host};
+use crate::{engine, host, tunnel};
 use anyhow::{Context, Result};
 use http_body_util::{combinators::UnsyncBoxBody, BodyExt, Full, Limited};
 use hyper::{
@@ -34,11 +34,24 @@ const PAIR_AGE: Duration = Duration::from_secs(300);
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum Command {
     Status,
-    Enable { address: Option<Ipv4Addr> },
+    Enable {
+        address: Option<Ipv4Addr>,
+    },
     Disable,
     Pair,
     PairLocal,
-    Revoke { id: Uuid },
+    Revoke {
+        id: Uuid,
+    },
+    TunnelConfigure {
+        hostname: String,
+        token: Option<String>,
+    },
+    TunnelStart {
+        mode: tunnel::Mode,
+    },
+    TunnelStop,
+    TunnelPair,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -52,6 +65,8 @@ pub struct ShareStatus {
     #[serde(default)]
     pub pairing_urls: Vec<String>,
     pub devices: Vec<Device>,
+    #[serde(default)]
+    pub tunnel: Option<tunnel::Status>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -60,6 +75,7 @@ pub enum Access {
     Local,
     #[default]
     Lan,
+    Public,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -102,6 +118,13 @@ fn now() -> u64 {
 
 fn digest(value: &str) -> String {
     format!("{:x}", Sha256::digest(value.as_bytes()))
+}
+
+fn session_key(token: Uuid, public_origin: Option<&str>) -> String {
+    match public_origin {
+        Some(origin) => digest(&format!("{origin}\n{token}")),
+        None => digest(&token.to_string()),
+    }
 }
 
 fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>> {
@@ -158,7 +181,13 @@ impl Auth {
         host::publish(&home.join("share-devices.json"), &devices)
     }
 
-    fn exchange(&mut self, home: &Path, access: Access, provided: Uuid) -> Result<Option<Uuid>> {
+    fn exchange(
+        &mut self,
+        home: &Path,
+        access: Access,
+        provided: Uuid,
+        public_origin: Option<&str>,
+    ) -> Result<Option<Uuid>> {
         if !self
             .pairing
             .get(&access)
@@ -167,7 +196,7 @@ impl Auth {
             return Ok(None);
         }
         let token = Uuid::new_v4();
-        let key = digest(&token.to_string());
+        let key = session_key(token, public_origin);
         let paired_at = now();
         let device = Device {
             id: Uuid::new_v4(),
@@ -196,6 +225,7 @@ struct Gateway {
     address: SocketAddrV4,
     access: Access,
     origin: String,
+    public: Option<tunnel::State>,
     cookie: String,
     auth: Arc<Mutex<Auth>>,
     closed: CancellationToken,
@@ -221,6 +251,7 @@ pub(super) struct Control {
     lan: Mutex<Option<LanShare>>,
     local: Option<Arc<Gateway>>,
     auth: Arc<Mutex<Auth>>,
+    tunnel: Mutex<tunnel::Tunnel>,
     runtime: tokio::runtime::Runtime,
 }
 
@@ -264,6 +295,7 @@ impl Control {
             lan: Mutex::new(None),
             local: None,
             auth,
+            tunnel: Mutex::default(),
             runtime: tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
                 .enable_all()
@@ -284,6 +316,19 @@ impl Control {
             Ok(gateway) => control.local = Some(gateway),
             Err(error) => eprintln!("无法启动本机 Web 入口：{error:#}"),
         }
+        let restore_tunnel = || -> Result<()> {
+            let config = tunnel::Config::load(&control.home)?;
+            if let Some(mode) = config.enabled {
+                config.check(mode)?;
+                let mut active = control.tunnel.lock().unwrap();
+                control.start_tunnel(&mut active, config, mode)?;
+            }
+            Ok(())
+        };
+        if let Err(error) = restore_tunnel() {
+            eprintln!("无法恢复公网隧道：{error:#}");
+            control.tunnel.lock().unwrap().failed(error);
+        }
         Ok(control)
     }
 
@@ -293,7 +338,13 @@ impl Control {
             eprintln!("无法读取本机 Web 端口：{error:#}");
             None
         });
-        let bind = |port| self.bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port), Access::Local);
+        let bind = |port| {
+            self.bind(
+                SocketAddrV4::new(Ipv4Addr::LOCALHOST, port),
+                Access::Local,
+                None,
+            )
+        };
         let (gateway, listener) = port
             .and_then(|port| bind(port).ok())
             .map_or_else(|| bind(0), Ok)?;
@@ -337,7 +388,7 @@ impl Control {
         let mut listeners = Vec::new();
         for &ip in addresses {
             let (gateway, listener) = self
-                .bind(SocketAddrV4::new(ip, port), Access::Lan)
+                .bind(SocketAddrV4::new(ip, port), Access::Lan, None)
                 .with_context(|| format!("无法在 {ip} 开启局域网分享"))?;
             port = gateway.address.port();
             listeners.push((gateway, listener));
@@ -366,6 +417,7 @@ impl Control {
         &self,
         bind: SocketAddrV4,
         access: Access,
+        public: Option<tunnel::State>,
     ) -> Result<(Arc<Gateway>, tokio::net::TcpListener)> {
         let listener = std::net::TcpListener::bind(bind).context("无法监听 Web 入口")?;
         listener.set_nonblocking(true)?;
@@ -378,12 +430,44 @@ impl Control {
             address,
             access,
             origin: format!("http://{address}"),
+            public,
             cookie: format!("wingmate_share_{}", address.port()),
             auth: self.auth.clone(),
             closed: CancellationToken::new(),
             upstream: proxy::Credentials::new()?,
         });
         Ok((gateway, listener))
+    }
+
+    fn start_tunnel(
+        &self,
+        active: &mut tunnel::Tunnel,
+        config: tunnel::Config,
+        mode: tunnel::Mode,
+    ) -> Result<()> {
+        active.stop();
+        self.auth.lock().unwrap().pairing.remove(&Access::Public);
+        let state = tunnel::starting();
+        let port = if mode == tunnel::Mode::Named {
+            tunnel::NAMED_PORT
+        } else {
+            0
+        };
+        let (gateway, listener) = self
+            .bind(
+                SocketAddrV4::new(Ipv4Addr::LOCALHOST, port),
+                Access::Public,
+                Some(state.clone()),
+            )
+            .context("无法监听公网隧道回源端口")?;
+        let _enter = self.runtime.enter();
+        let listener = tunnel::Listener {
+            address: gateway.address,
+            closed: gateway.closed.clone(),
+            task: self.runtime.spawn(gateway.serve(listener)),
+        };
+        active.start(self.home.clone(), config, mode, state, listener);
+        Ok(())
     }
 
     pub(super) fn call(&self, command: Command) -> Result<ShareStatus> {
@@ -443,6 +527,41 @@ impl Control {
                     false
                 });
             }
+            Command::TunnelConfigure { hostname, token } => {
+                let _active = self.tunnel.lock().unwrap();
+                let mut config = tunnel::Config::load(&self.home)?;
+                config.configure(&hostname, token)?;
+                config.save(&self.home)?;
+            }
+            Command::TunnelStart { mode } => {
+                let mut active = self.tunnel.lock().unwrap();
+                let mut config = tunnel::Config::load(&self.home)?;
+                config.check(mode)?;
+                config.enabled = Some(mode);
+                config.save(&self.home)?;
+                if let Err(error) = self.start_tunnel(&mut active, config, mode) {
+                    active.failed(error);
+                }
+            }
+            Command::TunnelStop => {
+                let mut active = self.tunnel.lock().unwrap();
+                let mut config = tunnel::Config::load(&self.home)?;
+                config.enabled = None;
+                config.save(&self.home)?;
+                active.stop();
+                self.auth.lock().unwrap().pairing.remove(&Access::Public);
+            }
+            Command::TunnelPair => {
+                let active = self.tunnel.lock().unwrap();
+                let url = active.status(&self.home).url.context("请先开启公网隧道")?;
+                let code = Uuid::new_v4();
+                self.auth
+                    .lock()
+                    .unwrap()
+                    .pairing
+                    .insert(Access::Public, (code, Instant::now() + PAIR_AGE));
+                pairing_urls.push(format!("{url}/?auth={code}"));
+            }
         }
         let mut devices: Vec<_> = self
             .auth
@@ -467,6 +586,7 @@ impl Control {
             pairing_url: pairing_urls.first().cloned(),
             pairing_urls,
             devices,
+            tunnel: Some(self.tunnel.lock().unwrap().status(&self.home)),
         })
     }
 }
@@ -505,16 +625,30 @@ impl Gateway {
 
     async fn handle(&self, request: Request<Incoming>) -> Response<Body> {
         let headers = request.headers();
+        let public = self
+            .public
+            .as_ref()
+            .and_then(|state| state.lock().unwrap().url.clone());
+        let (origin, authority) = match public.as_deref() {
+            Some(origin) => (origin, origin.strip_prefix("https://").unwrap()),
+            None if self.access == Access::Public => {
+                return response(StatusCode::SERVICE_UNAVAILABLE, "公网隧道尚未就绪");
+            }
+            None => (
+                self.origin.as_str(),
+                self.origin.strip_prefix("http://").unwrap(),
+            ),
+        };
         if headers
             .get(header::HOST)
             .and_then(|value| value.to_str().ok())
-            != Some(&self.address.to_string())
+            != Some(authority)
         {
             return response(StatusCode::MISDIRECTED_REQUEST, "分享地址不匹配");
         }
         if headers
             .get(header::ORIGIN)
-            .is_some_and(|value| value != self.origin.as_str())
+            .is_some_and(|value| value != origin)
             || (headers
                 .get("sec-fetch-site")
                 .is_some_and(|value| value == "cross-site")
@@ -532,7 +666,9 @@ impl Gateway {
                 (&Method::GET, Some(query)) if query.starts_with("auth=") => {
                     return html(include_str!("gateway/pair.html"));
                 }
-                (&Method::POST, Some("auth")) => return self.pair(request).await,
+                (&Method::POST, Some("auth")) => {
+                    return self.pair(request, public.as_deref()).await
+                }
                 _ => {}
             }
         }
@@ -552,7 +688,7 @@ impl Gateway {
                     .lock()
                     .unwrap()
                     .sessions
-                    .get(&digest(&token.to_string()))
+                    .get(&session_key(token, public.as_deref()))
                     .filter(|session| session.device.access == self.access)
                     .cloned()
             })
@@ -648,7 +784,11 @@ impl Gateway {
         }
     }
 
-    async fn pair(&self, request: Request<Incoming>) -> Response<Body> {
+    async fn pair(
+        &self,
+        request: Request<Incoming>,
+        public_origin: Option<&str>,
+    ) -> Response<Body> {
         if request.headers().get(header::ORIGIN).is_none() {
             return response(StatusCode::FORBIDDEN, "");
         }
@@ -666,7 +806,7 @@ impl Gateway {
             if self.closed.is_cancelled() {
                 return response(StatusCode::SERVICE_UNAVAILABLE, "分享入口已关闭");
             }
-            auth.exchange(&self.home, self.access, code)
+            auth.exchange(&self.home, self.access, code, public_origin)
         };
         match token {
             Ok(Some(token)) => {
@@ -674,8 +814,13 @@ impl Gateway {
                 reply.headers_mut().insert(
                     header::SET_COOKIE,
                     format!(
-                        "{}={token}; Path=/; Max-Age={SESSION_AGE}; HttpOnly; SameSite=Strict",
-                        self.cookie
+                        "{}={token}; Path=/; Max-Age={SESSION_AGE}; HttpOnly; SameSite=Strict{}",
+                        self.cookie,
+                        if public_origin.is_some() {
+                            "; Secure"
+                        } else {
+                            ""
+                        }
                     )
                     .parse()
                     .unwrap(),
@@ -770,7 +915,9 @@ mod tests {
             ..Auth::default()
         };
         let home = tempfile::tempdir()?;
-        assert!(auth.exchange(home.path(), Access::Lan, code)?.is_none());
+        assert!(auth
+            .exchange(home.path(), Access::Lan, code, None)?
+            .is_none());
         assert!(auth.sessions.is_empty());
         Ok(())
     }

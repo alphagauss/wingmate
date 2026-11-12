@@ -2,6 +2,7 @@
 use crate::engine::{self, Snapshot};
 use crate::gateway;
 pub use crate::gateway::{Command as ShareCommand, ShareStatus};
+pub use crate::tunnel::Mode as TunnelMode;
 use anyhow::{Context, Result};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};

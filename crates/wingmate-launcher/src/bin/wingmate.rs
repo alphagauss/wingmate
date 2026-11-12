@@ -3,7 +3,7 @@
 use anyhow::{bail, Result};
 use wingmate_launcher::{
     integration,
-    service::{self, ShareCommand},
+    service::{self, ShareCommand, TunnelMode},
 };
 fn main() {
     #[cfg(windows)]
@@ -25,7 +25,15 @@ fn run() -> Result<()> {
     let remaining: Vec<_> = args.collect();
     let max = if matches!(
         command.as_deref(),
-        Some("commands" | "login-startup" | "internal-restart" | "share-enable" | "share-revoke")
+        Some(
+            "commands"
+                | "login-startup"
+                | "internal-restart"
+                | "share-enable"
+                | "share-revoke"
+                | "tunnel-configure"
+                | "tunnel-start"
+        )
     ) {
         1
     } else {
@@ -35,6 +43,7 @@ fn run() -> Result<()> {
     let mut args = remaining.into_iter();
     if matches!(command.as_deref(), Some("--help" | "-h")) {
         println!("用法: wingmate [命令]\n\n无参数         打开桌面\nstart          准备运行内容并启动业务后台\nstatus         查看业务后台状态\nstop           停止业务后台，保留管理服务\nrestart        重启业务后台并切换变更的服务和运行内容\nservice-status 查看管理服务状态\nservice-start  启动管理服务\nservice-stop   业务停止后退出管理服务\nservice-restart 业务停止后切换管理服务版本\nshare-status   查看 Web 入口及配对状态\nshare-enable [IPv4] 开启局域网分享\nshare-disable  关闭局域网分享\nshare-pair     生成局域网配对链接\nshare-pair-local 生成本机浏览器配对链接\nshare-revoke <设备 ID> 撤销已配对设备\ncommands [on|off] 注册或撤销终端命令\nlogin-startup [on|off] 设置登录启动\n-h, --help     显示帮助");
+        println!("\n公网隧道\ntunnel-configure <域名> 从标准输入读取 Tunnel Token 并保存具名配置\ntunnel-start <quick|named> 启动或切换公网隧道\ntunnel-status  查看公网隧道状态\ntunnel-stop    关闭公网隧道\ntunnel-pair    生成公网配对链接");
         return Ok(());
     }
     let home = wingmate_launcher::directory()?;
@@ -52,6 +61,27 @@ fn run() -> Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("缺少设备 ID"))?
                 .parse()?,
         }),
+        Some("tunnel-status") => Some(ShareCommand::Status),
+        Some("tunnel-configure") => {
+            use std::io::{self, BufRead, Read};
+            let hostname = args.next().ok_or_else(|| anyhow::anyhow!("缺少公网域名"))?;
+            let mut token = String::new();
+            io::stdin().lock().take(4097).read_line(&mut token)?;
+            anyhow::ensure!(token.len() <= 3500, "Tunnel Token 太长");
+            Some(ShareCommand::TunnelConfigure {
+                hostname,
+                token: Some(token),
+            })
+        }
+        Some("tunnel-start") => Some(ShareCommand::TunnelStart {
+            mode: match args.next().as_deref() {
+                Some("quick") => TunnelMode::Quick,
+                Some("named") => TunnelMode::Named,
+                _ => bail!("隧道模式应为 quick 或 named"),
+            },
+        }),
+        Some("tunnel-stop") => Some(ShareCommand::TunnelStop),
+        Some("tunnel-pair") => Some(ShareCommand::TunnelPair),
         _ => None,
     };
     if let Some(command) = share {
