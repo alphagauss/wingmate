@@ -20,10 +20,11 @@ fn target(link: &str) -> Result<Url> {
     let link = link.trim();
     let url = Url::parse(link).context("请输入 Wingmate 分享链接")?;
     anyhow::ensure!(
-        url.scheme() == "http"
+        ((url.scheme() == "http"
             && url
                 .host_str()
-                .is_some_and(|host| host.parse::<Ipv4Addr>().is_ok())
+                .is_some_and(|host| host.parse::<Ipv4Addr>().is_ok()))
+            || (url.scheme() == "https" && url.domain().is_some()))
             && url.username().is_empty()
             && url.password().is_none()
             && url.path() == "/"
@@ -33,7 +34,7 @@ fn target(link: &str) -> Result<Url> {
                     .strip_prefix("auth=")
                     .is_some_and(|code| !code.is_empty() && !code.contains('&'))
             }),
-        "请输入 Wingmate 的局域网地址或配对链接"
+        "请输入 Wingmate 的连接地址或配对链接"
     );
     Ok(url)
 }
@@ -54,7 +55,7 @@ pub(super) fn fit(window: &Window, view: &Webview) -> tauri::Result<()> {
 pub(super) struct Workbench {
     pub view: Webview,
     pub origin: String,
-    local: bool,
+    transport: String,
 }
 
 pub(super) fn render_header(app: &tauri::AppHandle) {
@@ -68,7 +69,7 @@ pub(super) fn render_header(app: &tauri::AppHandle) {
             remote.origin,
             current.titlebar_theme,
             cfg!(windows),
-            remote.local
+            remote.transport
         ])
     };
     let Some(main) = app.get_webview(&desktop.window_label) else {
@@ -97,11 +98,14 @@ pub(super) async fn connect_remote(
     let url = target(&link).map_err(|error| error.to_string())?;
     let origin = url.origin().ascii_serialization();
     let client = reqwest::Client::builder()
-        .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(4))
-        .build()
-        .map_err(|_| "无法初始化远程连接")?;
+        .timeout(Duration::from_secs(4));
+    let client = if url.scheme() == "http" {
+        client.no_proxy()
+    } else {
+        client
+    };
+    let client = client.build().map_err(|_| "无法初始化远程连接")?;
     let response = client
         .get(format!("{origin}/_wingmate/identity"))
         .send()
@@ -113,8 +117,12 @@ pub(super) async fn connect_remote(
         .json()
         .await
         .map_err(|_| "无法识别 Wingmate 主机")?;
-    let local = url.host_str() == Some("127.0.0.1") && identity.transport == "local";
-    if identity.product != "wingmate" || !(identity.transport == "lan" || local) {
+    let supported = match (url.scheme(), identity.transport.as_str()) {
+        ("http", "local") => url.host_str() == Some("127.0.0.1"),
+        ("http", "lan") | ("https", "public") => true,
+        _ => false,
+    };
+    if identity.product != "wingmate" || !supported {
         return Err("此链接未提供 Wingmate 连接入口".into());
     }
     connection_panel::local_panel(&webview, &desktop)?;
@@ -158,7 +166,7 @@ pub(super) async fn connect_remote(
     let previous = current.remote.replace(Workbench {
         view,
         origin: origin.clone(),
-        local,
+        transport: identity.transport,
     });
     drop(current);
     if let Some(previous) = previous {
@@ -201,7 +209,7 @@ struct SharePairing {
     qr: String,
 }
 
-fn lan_pairings(status: &ShareStatus) -> Result<Vec<SharePairing>> {
+fn pairings(status: &ShareStatus) -> Result<Vec<SharePairing>> {
     use qrcode::render::svg;
 
     let urls = if status.pairing_urls.is_empty() {
@@ -244,8 +252,8 @@ pub(super) async fn local_share(
     let home = desktop.home.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<ShareReply> {
         let status = service::share(&home, &command)?;
-        let pairings = if matches!(command, ShareCommand::Pair) {
-            lan_pairings(&status)?
+        let pairings = if matches!(command, ShareCommand::Pair | ShareCommand::TunnelPair) {
+            pairings(&status)?
         } else {
             Vec::new()
         };
@@ -261,12 +269,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepts_only_wingmate_lan_links() {
+    fn accepts_wingmate_http_ipv4_and_https_domain_links() {
         assert!(target("http://192.168.1.5:17321/").is_ok());
         assert!(target("http://127.0.0.1:17321/?auth=code").is_ok());
+        assert!(target("https://example.com/?auth=code").is_ok());
         for invalid in [
             "javascript:alert(1)",
-            "https://example.com/",
+            "http://example.com/",
+            "https://127.0.0.1/",
+            "https://example.com/anything",
             "http://user:pass@192.168.1.5/",
             "http://192.168.1.5/?auth=",
             "http://192.168.1.5/?auth=code&auth=other",

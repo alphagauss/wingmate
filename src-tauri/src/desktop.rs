@@ -488,6 +488,7 @@ pub fn run(home: PathBuf) -> Result<()> {
             connection_panel::resize_connections,
             connection_panel::close_connections,
             remote::connect_remote,
+            connection_panel::open_tunnel_settings,
             remote::return_local,
             remote::local_share
         ])

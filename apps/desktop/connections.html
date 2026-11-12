@@ -62,7 +62,7 @@
     font-size: 12px; font-weight: 500; white-space: nowrap;
   }
   #local-pair[aria-disabled="true"] { color: var(--accent); background: var(--selected); cursor: default; }
-  #saved, #share-result, #message, .settings-hint { margin-top: 10px; }
+  #saved, #share-result, #tunnel-result, #message, .settings-hint { margin-top: 10px; }
   #current { margin-bottom: 9px; }
   #message { color: var(--error); overflow-wrap: anywhere; }
   #message:empty { display: none; }
@@ -83,7 +83,7 @@
     padding: 10px; border: 1px solid var(--line); border-radius: 10px;
     background: light-dark(#f8f9fb, #232427);
   }
-  #share-code { display: block; width: 124px; height: 124px; border-radius: 6px; background: white; }
+  .pairing-card img { display: block; width: 124px; height: 124px; border-radius: 6px; background: white; }
   .pairing-details { display: grid; gap: 6px; align-self: center; justify-items: start; min-width: 0; }
   .pairing-heading { font-size: 13px; font-weight: 600; }
   .pairing-address {
@@ -121,9 +121,13 @@
   #share-address-options button[aria-pressed="true"] {
     color: light-dark(#2856ae, #a9bfff); background: var(--selected); font-weight: 600;
   }
-  #share-copy { min-height: 26px; width: 76px; padding: 0 6px; border-radius: 6px; font-size: 12px; }
+  #share-copy, #tunnel-copy { min-height: 26px; width: 76px; padding: 0 6px; border-radius: 6px; font-size: 12px; }
   #share-copy.copied { color: var(--accent); background: var(--selected); }
-  #share-link { margin: 8px 0 0; white-space: normal; overflow-wrap: anywhere; user-select: text; }
+  #share-link, #tunnel-link { margin: 8px 0 0; white-space: normal; overflow-wrap: anywhere; user-select: text; }
+  #tunnel { display: grid; gap: 9px; }
+  #tunnel [aria-pressed="true"] { color: var(--accent); background: var(--selected); font-weight: 600; }
+  #tunnel progress { width: 100%; height: 8px; accent-color: var(--accent); }
+  #tunnel-status { overflow-wrap: anywhere; }
 </style>
 <main aria-labelledby="heading">
   <header>
@@ -134,14 +138,15 @@
   </header>
   <div role="tablist" aria-label="远程连接">
     <button id="connect-tab" type="button" role="tab" aria-selected="true" aria-controls="connect">连接主机</button>
-    <button id="share-tab" type="button" role="tab" aria-selected="false" aria-controls="share" tabindex="-1">分享本机</button>
+    <button id="share-tab" type="button" role="tab" aria-selected="false" aria-controls="share" tabindex="-1">局域网</button>
+    <button id="tunnel-tab" type="button" role="tab" aria-selected="false" aria-controls="tunnel" tabindex="-1">公网隧道</button>
   </div>
   <section id="connect" role="tabpanel" aria-labelledby="connect-tab">
     <p id="current" class="muted" hidden></p>
     <form>
       <label for="link">分享链接</label>
       <div class="row">
-        <input id="link" type="url" required autocomplete="off" placeholder="http://192.168.1.10:12345/">
+        <input id="link" type="url" required autocomplete="off" placeholder="http://192.168.1.10:12345/ 或 https://域名/">
         <button class="primary" type="submit">连接</button>
       </div>
     </form>
@@ -186,6 +191,33 @@
       <p id="share-link" class="pairing-address" hidden></p>
     </div>
     <p class="settings-hint muted">在「Wingmate 后台服务」管理分享和设备。</p>
+  </section>
+  <section id="tunnel" role="tabpanel" aria-labelledby="tunnel-tab" hidden>
+    <div class="row" role="group" aria-label="隧道模式">
+      <button type="button" data-mode="quick" aria-pressed="true">临时隧道</button>
+      <button type="button" data-mode="named" aria-pressed="false">具名隧道</button>
+    </div>
+    <p id="tunnel-status" class="muted" role="status">正在读取隧道状态…</p>
+    <progress id="tunnel-progress" aria-label="下载进度" hidden></progress>
+    <p id="tunnel-address" class="pairing-address" hidden></p>
+    <p id="tunnel-hint" class="muted" hidden></p>
+    <div class="row">
+      <button id="tunnel-start" type="button" hidden>开启隧道</button>
+      <button id="tunnel-stop" type="button" hidden>关闭</button>
+      <button id="tunnel-pair" type="button" hidden>生成配对码</button>
+      <button id="tunnel-settings" type="button" hidden>前往配置</button>
+    </div>
+    <div id="tunnel-result" hidden>
+      <div class="pairing-card">
+        <img id="tunnel-code" width="124" height="124" alt="公网配对二维码">
+        <div class="pairing-details">
+          <p class="pairing-heading">扫码配对</p>
+          <button id="tunnel-copy" type="button" aria-live="polite">复制链接</button>
+          <p class="muted">5 分钟内可用一次</p>
+        </div>
+      </div>
+      <p id="tunnel-link" class="pairing-address" hidden></p>
+    </div>
   </section>
   <p id="message" role="alert"></p>
 </main>

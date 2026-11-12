@@ -1,4 +1,4 @@
-([origin, theme, windows, local]) => {
+([origin, theme, windows, transport]) => {
   let header = document.querySelector('[data-wingmate-remote-header]');
   if (!header) {
     header = document.createElement('div');
@@ -41,5 +41,6 @@
   }
   header.dataset.theme = theme;
   header.toggleAttribute('data-windows', windows);
-  header.shadowRoot.querySelector('[role="status"]').textContent = (local ? '本机 · ' : '局域网 · ') + new URL(origin).host;
+  const label = { local: '本机', lan: '局域网', public: '公网' }[transport];
+  header.shadowRoot.querySelector('[role="status"]').textContent = label + ' · ' + new URL(origin).host;
 }

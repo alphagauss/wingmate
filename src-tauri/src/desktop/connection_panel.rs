@@ -169,3 +169,38 @@ pub(super) fn close_connections(
         .destroy()
         .map_err(|error| error.to_string())
 }
+
+#[tauri::command]
+pub(super) fn open_tunnel_settings(
+    webview: Webview,
+    desktop: State<'_, Arc<Desktop>>,
+) -> Result<(), String> {
+    let panel = local_panel(&webview, &desktop)?;
+    let main = webview
+        .app_handle()
+        .get_webview(&desktop.window_label)
+        .ok_or("主窗口已关闭")?;
+    let origin = desktop
+        .connection
+        .lock()
+        .unwrap()
+        .workspace()
+        .and_then(bridge::origin)
+        .ok_or("请先启动本机 DSH，再配置具名隧道")?;
+    if main
+        .url()
+        .map_err(|error| error.to_string())?
+        .origin()
+        .ascii_serialization()
+        != origin
+    {
+        return Err("请先打开本机工作台，再配置具名隧道".into());
+    }
+    super::remote::return_local(main.clone(), desktop)?;
+    main.eval(format!(
+        "if (location.origin === {} && window.__WINGMATE_BACKEND__) window.dispatchEvent(new Event('wingmate:tunnel-settings'));",
+        serde_json::json!(origin)
+    )).map_err(|error| error.to_string())?;
+    let _ = panel.destroy();
+    Ok(())
+}

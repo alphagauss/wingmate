@@ -250,6 +250,8 @@ function selectTab(tab) {
     document.getElementById(item.getAttribute('aria-controls')).hidden = !selected;
   }
   message.textContent = '';
+  clearTimeout(tunnelPoll);
+  if (tab.id === 'tunnel-tab' && !tunnelBusy) updateTunnel();
   if (tab.id === 'share-tab' && !shareStatusRequest) {
     shareStatus.textContent = '正在读取分享状态…';
     shareStatusRequest = updateShare('status').catch(error => {
@@ -265,7 +267,8 @@ for (const tab of tabs) {
   tab.addEventListener('keydown', event => {
     const target = event.key === 'Home' ? tabs[0]
       : event.key === 'End' ? tabs.at(-1)
-      : ['ArrowLeft', 'ArrowRight'].includes(event.key) ? tabs.find(item => item !== tab) : null;
+      : event.key === 'ArrowLeft' ? tabs.at(tabs.indexOf(tab) - 1)
+      : event.key === 'ArrowRight' ? tabs[(tabs.indexOf(tab) + 1) % tabs.length] : null;
     if (!target) return;
     event.preventDefault();
     selectTab(target);
@@ -322,3 +325,128 @@ shareCopy.addEventListener('click', async () => {
   shareCopy.classList.add('copied');
   shareCopyTimer = setTimeout(resetShareCopy, 1000);
 });
+
+const tunnelPanel = document.getElementById('tunnel');
+const tunnelModes = [...tunnelPanel.querySelectorAll('[data-mode]')];
+const tunnelStatus = document.getElementById('tunnel-status');
+const tunnelProgress = document.getElementById('tunnel-progress');
+const tunnelAddress = document.getElementById('tunnel-address');
+const tunnelHint = document.getElementById('tunnel-hint');
+const tunnelStart = document.getElementById('tunnel-start');
+const tunnelStop = document.getElementById('tunnel-stop');
+const tunnelPair = document.getElementById('tunnel-pair');
+const tunnelSettings = document.getElementById('tunnel-settings');
+const tunnelResult = document.getElementById('tunnel-result');
+const tunnelCode = document.getElementById('tunnel-code');
+const tunnelCopy = document.getElementById('tunnel-copy');
+const tunnelLink = document.getElementById('tunnel-link');
+
+let tunnel;
+let tunnelMode;
+let tunnelPairing;
+let tunnelPoll;
+let tunnelRequest = 0;
+let tunnelBusy = false;
+let tunnelReadError;
+
+function showTunnelPairing(pairing) {
+  tunnelPairing = pairing;
+  tunnelResult.hidden = !pairing;
+  tunnelLink.hidden = true;
+  tunnelLink.textContent = '';
+  tunnelCopy.textContent = '复制链接';
+  if (pairing) tunnelCode.src = 'data:image/svg+xml,' + encodeURIComponent(pairing.qr);
+  else tunnelCode.removeAttribute('src');
+}
+
+function renderTunnel() {
+  const mode = tunnelMode ?? tunnel?.mode ?? 'quick';
+  const running = Boolean(tunnel?.url);
+  const progress = tunnel?.progress;
+  const switching = running && tunnel.mode !== mode;
+  const needsSettings = mode === 'named' && !tunnel?.hostname;
+  const downloading = progress?.stage === 'download';
+  const percent = downloading && progress.total ? Math.min(100, Math.floor((progress.received ?? 0) * 100 / progress.total)) : null;
+  const stages = {
+    check: '正在检查 cloudflared…',
+    download: percent === null ? '已下载 ' + ((progress?.received ?? 0) / 1048576).toFixed(1) + ' MiB' : '正在下载 cloudflared · ' + percent + '%',
+    extract: '正在解压 cloudflared…',
+    verify: '正在校验 cloudflared…',
+    connect: '正在连接 Cloudflare…',
+  };
+  const text = tunnelReadError ?? tunnel?.error ?? (progress ? stages[progress.stage] : running ? '隧道已开启' : tunnel ? '隧道已关闭' : '请更新 Wingmate 管理服务');
+  if (tunnelStatus.textContent !== text) tunnelStatus.textContent = text;
+  tunnelProgress.hidden = !downloading;
+  if (percent === null) tunnelProgress.removeAttribute('value');
+  else { tunnelProgress.max = 100; tunnelProgress.value = percent; }
+  tunnelAddress.textContent = tunnel?.url ?? '';
+  tunnelAddress.title = tunnelAddress.textContent;
+  tunnelAddress.hidden = !running;
+  tunnelHint.textContent = needsSettings ? '先在 Wingmate 后台服务详情页填写域名和 Tunnel Token。'
+    : switching ? '切换会断开现有公网连接。'
+    : mode === 'quick' ? '连接器重启后会分配新地址，需要重新配对。'
+    : running ? '重启隧道会短暂断开公网连接。' : '';
+  tunnelHint.hidden = !tunnelHint.textContent;
+  tunnelStart.hidden = !tunnel || Boolean(progress) || needsSettings || (running && !switching && mode === 'quick');
+  tunnelStart.textContent = switching ? '切换并重启' : running ? '重启隧道' : '开启隧道';
+  tunnelStop.hidden = !tunnel?.mode;
+  tunnelPair.hidden = !running;
+  tunnelPair.textContent = tunnelPairing ? '重新生成' : '生成配对码';
+  tunnelSettings.hidden = !needsSettings || !tunnel;
+  for (const button of tunnelModes) {
+    button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
+    button.disabled = tunnelBusy || Boolean(progress);
+  }
+  for (const button of [tunnelStart, tunnelStop, tunnelPair, tunnelSettings]) button.disabled = tunnelBusy;
+}
+
+async function updateTunnel(command = { action: 'status' }) {
+  clearTimeout(tunnelPoll);
+  const id = ++tunnelRequest;
+  if (command.action !== 'status') {
+    tunnelBusy = true;
+    showTunnelPairing(null);
+    message.textContent = '';
+    renderTunnel();
+  }
+  try {
+    const status = await invoke('local_share', { command });
+    if (id !== tunnelRequest) return;
+    tunnelReadError = undefined;
+    if (status.tunnel?.url !== tunnel?.url) showTunnelPairing(null);
+    tunnel = status.tunnel;
+    if (command.action === 'tunnel_pair') showTunnelPairing(status.pairings[0]);
+  } catch (error) {
+    if (id !== tunnelRequest) return;
+    if (command.action === 'status') tunnelReadError = String(error);
+    else if (!tunnelPanel.hidden) report(error);
+  } finally {
+    if (id === tunnelRequest) {
+      tunnelBusy = false;
+      renderTunnel();
+      if (!tunnelPanel.hidden) tunnelPoll = setTimeout(updateTunnel, tunnel?.progress ? 350 : 1500);
+    }
+  }
+}
+
+for (const button of tunnelModes) button.addEventListener('click', () => {
+  tunnelMode = button.dataset.mode;
+  renderTunnel();
+});
+tunnelStart.addEventListener('click', () => updateTunnel({ action: 'tunnel_start', mode: tunnelMode ?? tunnel?.mode ?? 'quick' }));
+tunnelStop.addEventListener('click', () => updateTunnel({ action: 'tunnel_stop' }));
+tunnelPair.addEventListener('click', () => updateTunnel({ action: 'tunnel_pair' }));
+tunnelSettings.addEventListener('click', () => act(tunnelSettings, () => invoke('open_tunnel_settings')));
+tunnelCopy.addEventListener('click', () => act(tunnelCopy, async () => {
+  const pairing = tunnelPairing;
+  if (!pairing) return;
+  try {
+    await navigator.clipboard.writeText(pairing.url);
+    if (pairing === tunnelPairing) tunnelCopy.textContent = '已复制';
+  } catch {
+    if (pairing !== tunnelPairing) return;
+    tunnelLink.textContent = pairing.url;
+    tunnelLink.hidden = false;
+    report('请手动复制配对链接');
+  }
+}));

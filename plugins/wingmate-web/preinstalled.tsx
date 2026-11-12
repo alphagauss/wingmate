@@ -35,7 +35,7 @@ type Primitives = {
 const plugins = [
   { id: 'dsh-wingmate-backends', entry: 'wingmate-backends/dist/host.mjs', title: 'Wingmate 执行后端', summary: '在侧栏底部切换 DSH 和 Codex。' },
   { id: 'dsh-wingmate-file-viewer', entry: 'wingmate-file-viewer/host.mjs', title: 'Wingmate 文件预览', summary: '在工作台的文件侧栏预览文档和媒体。' },
-  { id: 'dsh-wingmate-web', entry: 'wingmate-web/host.mjs', title: 'Wingmate 后台服务', summary: '管理当前主机的后台服务与局域网分享。' },
+  { id: 'dsh-wingmate-web', entry: 'wingmate-web/host.mjs', title: 'Wingmate 后台服务', summary: '管理当前主机的后台服务与分享。' },
 ];
 type Plugin = typeof plugins[number];
 const noPreviews: readonly Preview[] = [];

@@ -80,6 +80,52 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function NamedTunnelSettings({ tunnel, pending, save }) {
+      const [notice, setNotice] = useState('');
+      const field = { display: 'grid', gap: 4 };
+      const input = { padding: '6px 8px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)' };
+      async function submit(event) {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const data = new FormData(form);
+        const token = data.get('token')?.trim() || undefined;
+        setNotice('');
+        if (await save({ action: 'tunnel_configure', hostname: data.get('hostname'), token })) {
+          form.elements.namedItem('token').value = '';
+          setNotice('已保存，下次开启或重启隧道时生效。');
+        }
+      }
+      return h('section', { 'aria-label': '具名隧道', style: detailSection },
+        h('h2', { style: detailHeading }, '具名隧道'),
+        h('div', { style: { ...actionsStyle, ...detailStyle } },
+          '在 Cloudflare 发布路由中填写 Service URL',
+          h('code', { style: valueStyle }, tunnel.named_service),
+          h(Button, { size: 'sm', variant: 'outline', onClick: async () => {
+            try {
+              await navigator.clipboard.writeText(tunnel.named_service);
+              setNotice('已复制回源地址。');
+            } catch {
+              setNotice('请手动复制回源地址。');
+            }
+          } }, '复制地址'),
+        ),
+        h('form', { method: 'post', style: { ...detailSection, maxWidth: 420 }, onSubmit: submit },
+          h('label', { style: field }, '公开域名',
+            h('input', { name: 'hostname', style: input, defaultValue: tunnel.hostname ?? '', required: true,
+              placeholder: 'wingmate.example.com', spellCheck: false, autoComplete: 'off', disabled: pending }),
+          ),
+          h('label', { style: field }, 'Tunnel Token',
+            h('input', { name: 'token', type: 'password', style: input, autoComplete: 'off', disabled: pending,
+              required: !tunnel.hostname, placeholder: tunnel.hostname ? '留空保留已保存的 Token' : '粘贴 Cloudflare Tunnel Token' }),
+          ),
+          h('div', { style: actionsStyle },
+            h(Button, { type: 'submit', size: 'sm', variant: 'outline', disabled: pending }, '保存'),
+            h('span', { role: 'status', style: detailStyle }, notice),
+          ),
+        ),
+      );
+    }
+
     function ShareSettings({ openSettings }) {
       const bridge = useSyncExternalStore(subscribe, getBridge);
       const share = bridge?.share;
@@ -101,8 +147,10 @@ window.__ModuleLoader__.load({
         setError('');
         try {
           setStatus(await share(command));
+          return true;
         } catch (failure) {
           setError(String(failure));
+          return false;
         } finally {
           setPending(false);
         }
@@ -128,8 +176,9 @@ window.__ModuleLoader__.load({
               '监听地址', addresses.map(address => h('code', { key: address, style: valueStyle }, 'http://' + address)),
             ),
           ),
-          error && h('div', { role: 'alert', style: alertStyle }, error),
         ),
+        share && status?.tunnel && h(NamedTunnelSettings, { tunnel: status.tunnel, pending, save: run }),
+        share && error && h('div', { role: 'alert', style: alertStyle }, error),
         share && h('section', { 'aria-label': '已配对设备', style: detailSection },
           h('div', { style: { ...actionsStyle, justifyContent: 'space-between' } },
             h('h2', { style: detailHeading }, '已配对设备'),
@@ -140,7 +189,7 @@ window.__ModuleLoader__.load({
             key: device.id, label: device.id.slice(0, 8), last: index === status.devices.length - 1,
             control: h(Button, { size: 'sm', variant: 'outline', disabled: pending, onClick: () => run({ action: 'revoke', id: device.id }) }, '撤销'),
           }, h('div', { style: detailStyle },
-            `${device.access === 'local' ? '本机' : '局域网'} · ${new Date(device.paired_at * 1000).toLocaleString()}`,
+            `${{ local: '本机', lan: '局域网', public: '公网' }[device.access]} · ${new Date(device.paired_at * 1000).toLocaleString()}`,
           ))),
         ),
         openSettings && h('section', { style: detailSection, 'aria-label': '后台服务设置' },
@@ -382,6 +431,18 @@ window.__ModuleLoader__.load({
           name: 'settings.section', id: 'wingmate-backend', order: 90, label: '后台服务',
         }, BackendSettings));
         if (desktop) {
+          ctx.inject(['pluginNavigation'], scope => {
+            scope.effect(() => {
+              const open = () => {
+                if (!getBridge()) return;
+                scope.pluginNavigation.openList();
+                const entry = scope.slots.entries('main').find(item => item.options.key === 'plugins');
+                entry?.store?.create().actions.setView({ kind: 'item', id: 'dsh-wingmate-web' });
+              };
+              window.addEventListener('wingmate:tunnel-settings', open);
+              return () => window.removeEventListener('wingmate:tunnel-settings', open);
+            }, 'Wingmate tunnel settings navigation');
+          });
           ctx.effect(() => {
             let unregister;
             const registerTitlebar = () => {

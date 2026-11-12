@@ -11,7 +11,7 @@ commands.allow = ["open_connections", "return_local"]
 [[permission]]
 identifier = "allow-remote-workbench"
 description = "Allows the connection popover to connect to a remote workbench and manage its own window."
-commands.allow = ["connect_remote", "resize_connections", "close_connections"]
+commands.allow = ["connect_remote", "resize_connections", "close_connections", "open_tunnel_settings"]
 
 [[permission]]
 identifier = "allow-local-share"
