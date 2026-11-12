@@ -1,0 +1,75 @@
+package dev.wingmate.mobile.remote
+
+import android.app.Activity
+import android.content.Intent
+import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
+import dev.wingmate.mobile.i18n.ConnectionStrings
+import dev.wingmate.mobile.web.WorkbenchActivity
+
+internal class ConnectionFlow(
+    private val activity: ComponentActivity,
+    private val onConnectionRequested: () -> Unit = {},
+    onDisconnect: (String) -> Unit = {}
+) {
+    val store by lazy { ConnectionStore(activity) }
+    private val labels by lazy { ConnectionStrings(activity) }
+    private var scanningResult: ((String?) -> Unit)? = null
+    private var attempt = 0
+    private val workbench = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        it.data?.getStringExtra("scanAfterDisconnect")?.let(onDisconnect)
+    }
+    private val scanner = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        val result = scanningResult
+        scanningResult = null
+        result?.invoke(if (it.resultCode == Activity.RESULT_OK) it.data?.getStringExtra("text") else null)
+    }
+
+    fun scan(onNotice: (String?) -> Unit) {
+        readPairingLink { link -> if (link != null) connect(link, onNotice) }
+    }
+
+    fun readPairingLink(onResult: (String?) -> Unit) {
+        onConnectionRequested()
+        attempt++
+        scanningResult = onResult
+        scanner.launch(Intent(activity, ScannerActivity::class.java))
+    }
+
+    fun connect(raw: String, onNotice: (String?) -> Unit) {
+        onConnectionRequested()
+        val generation = ++attempt
+        val target = ConnectionTarget.parse(raw)
+        if (target == null) {
+            onNotice(labels["scan.invalidAddress"])
+            return
+        }
+        Thread {
+            val available = probeConnection(target.origin, 5000)
+            activity.runOnUiThread {
+                if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                if (generation != attempt) {
+                    onNotice(labels["common.cancel"])
+                    return@runOnUiThread
+                }
+                if (!available) {
+                    onNotice(labels["connection.connectionFailed"])
+                    return@runOnUiThread
+                }
+                onNotice(null)
+                launch(target)
+            }
+        }.start()
+    }
+
+    fun launch(target: ConnectionTarget) {
+        store.remember(target.origin)
+        val intent = Intent(activity, WorkbenchActivity::class.java).putExtra("link", target.link)
+        if (activity is WorkbenchActivity) {
+            activity.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT))
+            activity.finish()
+        } else {
+            workbench.launch(intent)
+        }
+    }
+}
