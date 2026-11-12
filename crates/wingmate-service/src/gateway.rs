@@ -29,6 +29,7 @@ use uuid::Uuid;
 type Body = UnsyncBoxBody<Bytes, anyhow::Error>;
 const SESSION_AGE: u64 = 30 * 24 * 60 * 60;
 const PAIR_AGE: Duration = Duration::from_secs(300);
+const PAIR_PAGE: &str = include_str!("gateway/pair.html");
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
@@ -661,16 +662,31 @@ impl Gateway {
             return response(StatusCode::FORBIDDEN, "不接受此来源的请求");
         }
         let path = request.uri().path();
-        if path == "/" {
-            match (request.method(), request.uri().query()) {
-                (&Method::GET, Some(query)) if query.starts_with("auth=") => {
-                    return html(include_str!("gateway/pair.html"));
-                }
-                (&Method::POST, Some("auth")) => {
-                    return self.pair(request, public.as_deref()).await
-                }
-                _ => {}
-            }
+        let query = request.uri().query();
+        let root_navigation = request.method() == Method::GET && path == "/";
+        let pairing_link = root_navigation && query.is_some_and(|query| query.starts_with("auth="));
+        let wants_html = headers.get(header::ACCEPT).is_some_and(|value| {
+            value
+                .to_str()
+                .is_ok_and(|value| value.contains("text/html"))
+        });
+        if request.method() == Method::POST && path == "/" && query == Some("auth") {
+            return self.pair(request, public.as_deref()).await;
+        }
+        // The DSH mobile app probes for this public manifest before opening a saved host.
+        if request.method() == Method::GET
+            && path == "/manifest.webmanifest"
+            && headers
+                .get(header::ACCEPT)
+                .is_some_and(|value| value == "application/manifest+json")
+        {
+            return content(
+                StatusCode::OK,
+                "application/manifest+json",
+                Bytes::from_static(
+                    br#"{"name":"DeepSeek Harness","short_name":"DSH","start_url":"/"}"#,
+                ),
+            );
         }
         if request.method() == Method::GET && path == "/_wingmate/identity" {
             return json(serde_json::json!({"product": "wingmate", "transport": self.access}));
@@ -694,8 +710,22 @@ impl Gateway {
             })
             .filter(Session::active);
         let Some(session) = session else {
+            if pairing_link {
+                return html(StatusCode::OK, PAIR_PAGE);
+            }
+            if root_navigation && (wants_html || query == Some("pair=1")) {
+                return html(StatusCode::UNAUTHORIZED, PAIR_PAGE);
+            }
             return response(StatusCode::UNAUTHORIZED, "请从主机获取新的配对链接");
         };
+        if pairing_link {
+            // A WebView may reopen the original one-time link while its cookie is still valid.
+            let mut reply = response(StatusCode::SEE_OTHER, "");
+            reply
+                .headers_mut()
+                .insert(header::LOCATION, header::HeaderValue::from_static("/"));
+            return reply;
+        }
         if path.starts_with("/_wingmate/") && path != "/_wingmate/status" {
             return match (request.method(), path) {
                 (&Method::GET, "/_wingmate/recovery") => recovery(),
@@ -731,13 +761,7 @@ impl Gateway {
                 .forward(request, state, session, self.closed.clone())
                 .await;
         }
-        if request.method() == Method::GET
-            && headers.get(header::ACCEPT).is_some_and(|value| {
-                value
-                    .to_str()
-                    .is_ok_and(|value| value.contains("text/html"))
-            })
-        {
+        if request.method() == Method::GET && wants_html {
             return recovery();
         }
         response(StatusCode::SERVICE_UNAVAILABLE, "业务后台未就绪")
@@ -889,12 +913,15 @@ fn content(status: StatusCode, media: &'static str, body: Bytes) -> Response<Bod
 }
 
 fn recovery() -> Response<Body> {
-    html(include_str!("../../../apps/launcher/index.html"))
+    html(
+        StatusCode::OK,
+        include_str!("../../../apps/launcher/index.html"),
+    )
 }
 
-fn html(text: &'static str) -> Response<Body> {
+fn html(status: StatusCode, text: &'static str) -> Response<Body> {
     let mut reply = content(
-        StatusCode::OK,
+        status,
         "text/html; charset=utf-8",
         Bytes::from_static(text.as_bytes()),
     );

@@ -96,6 +96,7 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
     let endpoint = wait(service.home.path())?;
     let client = reqwest::blocking::Client::builder()
         .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(3))
         .build()?;
     host::share(
@@ -108,6 +109,20 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
     let loopback = fs::read_to_string(&origin_path)?;
     let authority = public.trim_start_matches("https://");
     assert_eq!(client.get(&loopback).send()?.status(), 421);
+    let manifest = client
+        .get(format!("{loopback}/manifest.webmanifest"))
+        .header("Host", authority)
+        .header("Accept", "application/manifest+json")
+        .send()?;
+    assert_eq!(manifest.status(), 200);
+    assert_eq!(manifest.headers()["cache-control"], "no-store");
+    assert_eq!(manifest.json::<serde_json::Value>()?["short_name"], "DSH");
+    let phone_pair = client
+        .get(format!("{loopback}/?pair=1"))
+        .header("Host", authority)
+        .send()?;
+    assert_eq!(phone_pair.status(), 401);
+    assert!(phone_pair.text()?.contains("id=\"loginForm\""));
     assert_eq!(
         client
             .get(format!("{loopback}/_wingmate/status"))
@@ -135,6 +150,14 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
     assert!(cookie.ends_with("; Secure"));
     let cookie = cookie.split(';').next().unwrap();
     assert_eq!(exchange(&public)?.status(), 401);
+    let reopen = client
+        .get(format!("{loopback}/?auth={code}"))
+        .header("Host", authority)
+        .header("Cookie", cookie)
+        .send()?;
+    assert_eq!(reopen.status(), 303);
+    assert_eq!(reopen.headers()["location"], "/");
+    assert!(!reopen.headers().contains_key("set-cookie"));
     let recovery = client
         .get(&loopback)
         .header("Host", authority)
