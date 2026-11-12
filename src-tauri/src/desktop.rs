@@ -17,7 +17,8 @@ use std::{
     time::Duration,
 };
 use tauri::{
-    webview::PageLoadEvent, AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    webview::PageLoadEvent, AppHandle, Manager, Url, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
 };
 use wingmate_launcher::{
     service::{self, HostStatus, RestartTarget, Snapshot, StartupStage},
@@ -109,14 +110,18 @@ impl ConnectionState {
         page: &StartupPage,
         state: Snapshot,
     ) -> Result<()> {
-        let origin =
-            bridge::origin(&state).ok_or_else(|| anyhow::anyhow!("后台未提供可用的工作台地址"))?;
+        let url = state
+            .url
+            .as_deref()
+            .and_then(|url| Url::parse(url).ok())
+            .ok_or_else(|| anyhow::anyhow!("后台未提供可用的工作台地址"))?;
+        let origin = url.origin().ascii_serialization();
         if !self.authorized_origins.contains(&origin) {
             bridge::authorize(app, &origin)?;
             self.authorized_origins.insert(origin);
         }
         self.view = View::Workspace(state);
-        page.open_workspace(app, self.workspace().unwrap());
+        page.open_workspace(app, url);
         Ok(())
     }
 

@@ -1,7 +1,7 @@
 use super::desktop_window;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Url, WebviewWindow};
-use wingmate_launcher::service::{Snapshot, StartupStage};
+use wingmate_launcher::service::StartupStage;
 
 #[derive(Clone, PartialEq, Eq, serde::Serialize)]
 pub(super) struct CardStatus {
@@ -171,20 +171,7 @@ impl StartupPage {
         });
     }
 
-    pub(super) fn open_workspace(&self, app: &AppHandle, state: &Snapshot) {
-        let Some(url) = state.url.as_ref().and_then(|url| url.parse().ok()) else {
-            self.show(
-                app,
-                CardStatus::failure(
-                    StartupStage::Connecting,
-                    state
-                        .error
-                        .clone()
-                        .unwrap_or_else(|| "后台未提供可用的工作台地址".into()),
-                ),
-            );
-            return;
-        };
+    pub(super) fn open_workspace(&self, app: &AppHandle, url: Url) {
         let page = self.clone();
         let handle = app.clone();
         let _ = app.run_on_main_thread(move || {
