@@ -1,6 +1,7 @@
 package dev.wingmate.mobile
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.WebResourceRequest
@@ -39,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        val localAgent = localAgentAction(this)
 
         val assets = WebViewAssetLoader.Builder()
             .setDomain(LAUNCH_HOST)
@@ -65,8 +67,8 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        val drawer = ConnectionDrawer(this, webView, connections)
-        bridge = ConnectionBridge(this, webView, connections, drawer::open)
+        val drawer = ConnectionDrawer(this, webView, connections, openLocalAgent = localAgent)
+        bridge = ConnectionBridge(this, webView, connections, drawer::open, localAgent)
         webView.addJavascriptInterface(bridge, CONNECTION_BRIDGE)
         setContentView(FrameLayout(this).apply {
             addView(drawer, FrameLayout.LayoutParams(-1, -1))
@@ -83,6 +85,19 @@ class MainActivity : AppCompatActivity() {
             }
         })
         webView.loadUrl("http://$LAUNCH_HOST${LAUNCH_PATH}index.html")
+        openLocalFromNotification(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        openLocalFromNotification(intent)
+    }
+
+    private fun openLocalFromNotification(intent: Intent) {
+        if (intent.getBooleanExtra("openLocalAgent", false)) {
+            intent.removeExtra("openLocalAgent")
+            localAgentAction(this)?.invoke()
+        }
     }
 
     override fun onDestroy() {

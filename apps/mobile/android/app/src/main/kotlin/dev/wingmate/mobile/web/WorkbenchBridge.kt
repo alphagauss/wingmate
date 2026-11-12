@@ -125,6 +125,7 @@ internal class WorkbenchBridge(
         val click = Intent(activity, WorkbenchActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             .putExtra("link", "$origin/").putExtra("notificationSession", session)
+            .putExtra("localAgent", activity.intent.getBooleanExtra("localAgent", false))
             .putExtra("notificationTag", tag)
         val notification = NotificationCompat.Builder(activity, channel)
             .setSmallIcon(R.drawable.ic_manage)

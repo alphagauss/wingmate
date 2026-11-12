@@ -95,6 +95,7 @@ document.querySelector('#discover').onclick = () => discover()
 document.querySelector('#cancel-scan').onclick = cancelScan
 document.querySelector('#scan').onclick = scan
 document.querySelector('#history').onclick = () => action('drawer')
+document.querySelector('#local-agent').onclick = () => action('localAgent')
 
 async function restore() {
   const startingGeneration = generation
@@ -106,7 +107,8 @@ async function restore() {
     for (const element of document.querySelectorAll('[data-i18n]'))
       element.textContent = label(element.dataset.i18n, element.textContent)
     localStorage.removeItem(historyKey)
-    if (settings.count && startingGeneration === generation && !scanning)
+    document.querySelector('#local-agent').hidden = !settings.localAgent
+    if (!settings.localAgent && settings.count && startingGeneration === generation && !scanning)
       void discover({ historyOnly: true })
   }
   catch {

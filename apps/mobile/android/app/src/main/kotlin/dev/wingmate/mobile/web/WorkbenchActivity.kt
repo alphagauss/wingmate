@@ -24,6 +24,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import dev.wingmate.mobile.i18n.ConnectionStrings
+import dev.wingmate.mobile.localAgentAction
 import dev.wingmate.mobile.remote.ConnectionDrawer
 import dev.wingmate.mobile.remote.ConnectionFlow
 import dev.wingmate.mobile.remote.addManagementButton
@@ -84,7 +85,8 @@ class WorkbenchActivity : AppCompatActivity() {
         }
         workbench.addView(webView, FrameLayout.LayoutParams(-1, -1))
 
-        val drawer = ConnectionDrawer(this, workbench, connections, activeOrigin)
+        val drawer = ConnectionDrawer(this, workbench, connections, activeOrigin,
+            localAgentAction(this), intent.getBooleanExtra("localAgent", false))
         loading = WorkbenchLoading(this, ::retry, drawer::open)
         workbench.addView(loading, FrameLayout.LayoutParams(-1, -1))
         bridge = WorkbenchBridge(this, webView, activeOrigin, ::ready) { theme ->
@@ -137,19 +139,22 @@ class WorkbenchActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        val next = Uri.parse(intent.getStringExtra("link") ?: return).workbenchOrigin() ?: return
+        val link = Uri.parse(intent.getStringExtra("link") ?: return)
+        val next = link.workbenchOrigin() ?: return
         if (next != activeOrigin) {
             startActivity(Intent(this, WorkbenchActivity::class.java).putExtras(intent)
                 .addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT))
             finish()
         } else {
             setIntent(intent)
-            applyNotificationFocus()
+            if (intent.getBooleanExtra("localAgent", false) && link.getQueryParameter("token") != null) retry()
+            else applyNotificationFocus()
         }
     }
 
     private fun workbenchClient(origin: Uri) = object : WebViewClient() {
-        private var clearPairingHistory = origin.getQueryParameter("auth") != null
+        private val pairingParameter = if (intent.getBooleanExtra("localAgent", false)) "token" else "auth"
+        private var clearPairingHistory = origin.getQueryParameter(pairingParameter) != null
         private var authenticating = false
 
         private fun sameOrigin(uri: Uri): Boolean =
@@ -182,7 +187,11 @@ class WorkbenchActivity : AppCompatActivity() {
         }
 
         override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
-            if (!sameOrigin(Uri.parse(url))) return
+            val current = Uri.parse(url)
+            if (!sameOrigin(current)) return
+            if (pairingParameter == "token" && current.path == "/" && current.getQueryParameter("token") != null) {
+                clearPairingHistory = true
+            }
             loadFailed = false
             bridge.started()
             loading.start()
@@ -192,7 +201,7 @@ class WorkbenchActivity : AppCompatActivity() {
             val current = Uri.parse(url)
             if (!sameOrigin(current)) return
             bridge.finished()
-            if (clearPairingHistory && current.getQueryParameter("auth") == null) {
+            if (clearPairingHistory && current.getQueryParameter(pairingParameter) == null) {
                 view.clearHistory()
                 CookieManager.getInstance().flush()
                 clearPairingHistory = false

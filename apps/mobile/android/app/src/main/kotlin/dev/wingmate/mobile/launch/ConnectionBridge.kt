@@ -14,7 +14,8 @@ internal class ConnectionBridge(
     private val activity: Activity,
     private val webView: WebView,
     private val connections: ConnectionFlow,
-    private val openDrawer: () -> Unit
+    private val openDrawer: () -> Unit,
+    private val openLocalAgent: (() -> Unit)?,
 ) {
     private val labels by lazy { ConnectionStrings(activity) }
     private var discovery: Thread? = null
@@ -38,10 +39,15 @@ internal class ConnectionBridge(
                     openDrawer()
                     reply()
                 }
+                "localAgent" -> {
+                    openLocalAgent?.invoke()
+                    reply()
+                }
                 "restore" -> {
                     args.optJSONArray("recent")?.let(connections.store::migrate)
                     reply(JSONObject().put("count", connections.store.entries().size)
-                        .put("language", labels.language).put("messages", labels.messages))
+                        .put("language", labels.language).put("messages", labels.messages)
+                        .put("localAgent", openLocalAgent != null))
                 }
                 "discover" -> discover(args.optBoolean("historyOnly"), args.optString("skip").ifEmpty { null }) {
                     reply(error = it)

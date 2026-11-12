@@ -28,7 +28,9 @@ internal class ConnectionDrawer(
     private val activity: AppCompatActivity,
     private val content: View,
     private val flow: ConnectionFlow,
-    private val current: String? = null
+    private val current: String? = null,
+    private val openLocalAgent: (() -> Unit)? = null,
+    private val localCurrent: Boolean = false,
 ) : DrawerLayout(activity) {
     private var ui = ConnectionUi(activity)
     private val labels = ConnectionStrings(activity)
@@ -153,13 +155,16 @@ internal class ConnectionDrawer(
         body.addView(ui.text(labels["connection.currentConnection"], 14f, bold = true), LinearLayout.LayoutParams(-1, -2).apply {
             setMargins(dp(20), 0, dp(20), dp(12))
         })
-        if (current == null) {
+        if (localCurrent) {
+            addLocalAgent()
+        } else if (current == null) {
             body.addView(ui.text(labels["connection.noConnection"], 14f, ui.muted).apply {
                 setPadding(dp(32), dp(20), dp(32), dp(20))
             })
         } else {
             body.addView(row(entries.firstOrNull { it.origin == current } ?: SavedConnection(current)))
         }
+        if (!localCurrent) addLocalAgent()
         body.addView(heading(labels["connection.recentConnections"], 14f, R.drawable.ic_refresh, labels["connection.refreshConnections"], ::refresh),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
         if (entries.isEmpty()) {
@@ -172,6 +177,14 @@ internal class ConnectionDrawer(
             }) }
         }
         body.setPadding(0, 0, 0, dp(24))
+    }
+
+    private fun addLocalAgent() {
+        val open = openLocalAgent ?: return
+        body.addView(ui.button(labels["localAgent.title"]) {
+            close()
+            open()
+        }, LinearLayout.LayoutParams(-1, -2).apply { setMargins(dp(20), dp(8), dp(20), 0) })
     }
 
     private fun row(entry: SavedConnection) = LinearLayout(activity).apply {
@@ -205,7 +218,8 @@ internal class ConnectionDrawer(
 
     private fun refresh() {
         if (checking) return
-        val origins = (flow.store.entries().take(5).map { it.origin } + listOfNotNull(current)).distinct()
+        val remoteCurrent = current.takeUnless { localCurrent }
+        val origins = (flow.store.entries().take(5).map { it.origin } + listOfNotNull(remoteCurrent)).distinct()
         if (origins.isEmpty()) return
         checking = true
         val workers = Executors.newFixedThreadPool(origins.size)
