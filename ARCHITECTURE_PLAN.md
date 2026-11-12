@@ -155,7 +155,7 @@ B1 已提前完成。B2 先交付局域网双端。后续可分别安排 B3、C1
 | A2 | Claude 接入与跨后端一致性 | A1 | 暂缓，后续按需适配 |
 | B1 | 独立管理服务与无 GUI 发行引导 | 发行组件机制 | 已完成（[验证记录](docs/records/2026-11-11-management-service.md)） |
 | B2 | 通用网关、局域网分享、共享启动页及远程启停 | B1；多内核集成验收使用 A1 | 已实现并通过同机验收，跨设备待验（[验证记录](docs/records/2026-11-11-lan-gateway.md)） |
-| B3 | Cloudflare 临时和具名隧道接入 | B2 | 已实现，真实公网验收待完成（[验证记录](docs/records/2026-11-12-public-tunnel.md)） |
+| B3 | Cloudflare 临时和具名隧道接入 | B2 | 已实现，临时隧道已部分实测（[验证记录](docs/records/2026-11-12-public-tunnel.md)） |
 | C1 | TUI 移植与发行集成 | A1、B2；公网验收需要 B3 | 未开始 |
 | C2 | Android 远程版 | A1、B2；公网验收需要 B3 | 未开始 |
 | D1 | Android 本地运行版与两种构建组合 | C2；复用已接入后端的能力契约 | 未开始 |
