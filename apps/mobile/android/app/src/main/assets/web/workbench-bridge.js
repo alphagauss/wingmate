@@ -22,6 +22,26 @@
   }
   if (typeof window.__dshBridgeDispose === 'function') window.__dshBridgeDispose();
   window.__dshBridgeNonce = nonce;
+  var settingsStyleObserver = null;
+  function adaptSettingsStyle() {
+    var selector = 'style[data-plugin-css="@deepseek-ai/dsh-client-ui-settings-general/SettingsRoot.module.css"]';
+    function restoreMediaQuery() {
+      var style = document.head.querySelector(selector);
+      if (!style) return;
+      var original = style.textContent;
+      var compatible = original.replace(/@media\s*\(\s*width\s*<=\s*767px\s*\)/g, '@media (max-width: 767px)');
+      if (original !== compatible) style.textContent = compatible;
+    }
+    // DSH adds this stylesheet when its settings plugin loads.
+    settingsStyleObserver = new MutationObserver(restoreMediaQuery);
+    settingsStyleObserver.observe(document.head, { childList: true });
+    restoreMediaQuery();
+  }
+  // The released CSS minifies max-width into range syntax, supported from WebView 104.
+  if (!window.matchMedia('(width >= 0px)').matches) {
+    if (document.head) adaptSettingsStyle();
+    else document.addEventListener('DOMContentLoaded', adaptSettingsStyle, { once: true });
+  }
   var active = true;
   var instances = new Map();
   var sessionRunning = new Map();
@@ -292,6 +312,8 @@
     window.removeEventListener('load', ready);
     window.removeEventListener('pagehide', dispose);
     document.removeEventListener('DOMContentLoaded', suppressTapHighlight);
+    document.removeEventListener('DOMContentLoaded', adaptSettingsStyle);
+    if (settingsStyleObserver) settingsStyleObserver.disconnect();
     if (window.__dshBridgeNonce === nonce) window.__dshBridgeNonce = null;
     pendingFocus = null;
     clearTimeout(focusTimer);
