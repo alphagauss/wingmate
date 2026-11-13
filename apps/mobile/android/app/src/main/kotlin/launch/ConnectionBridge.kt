@@ -14,7 +14,7 @@ internal class ConnectionBridge(
     private val activity: Activity,
     private val webView: WebView,
     private val connections: ConnectionFlow,
-    private val openDrawer: () -> Unit,
+    private val openRemote: () -> Unit,
     private val openLocalAgent: (() -> Unit)?,
 ) {
     private val labels by lazy { ConnectionStrings(activity) }
@@ -36,7 +36,7 @@ internal class ConnectionBridge(
                 "scan" -> connections.readPairingLink { link -> reply(JSONObject().put("text", link)) }
                 "open" -> connections.connect(args.optString("link")) { notice -> reply(error = notice) }
                 "drawer" -> {
-                    openDrawer()
+                    openRemote()
                     reply()
                 }
                 "localAgent" -> {

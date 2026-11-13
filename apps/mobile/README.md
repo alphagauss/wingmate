@@ -4,7 +4,7 @@
 
 首页沿用上游的「自动扫描局域网」「扫码连接」「最近连接」。自动扫描先检查历史主机，再探测上游默认端口和历史局域网端口。第一次连接使用随机端口的 Wingmate 主机可扫码或粘贴配对链接。
 
-工作台的半透明圆形按钮可拖动，点按从右侧平移打开连接抽屉。点击工作台遮罩、关闭按钮或按返回键收起抽屉，保留当前工作台。抽屉可扫码、查看和刷新当前及最近连接、点按切换、长按重命名或删除。断开当前连接后按上游方式扫描其他主机。服务和任务由连接的主机管理。首版范围和真机验收条件见 [C2](../../ARCHITECTURE_PLAN.md#c2-android-远程版)。
+点按工作台的可拖动浮动按钮，从右侧滑入全屏应用设置。点顶部返回、按系统返回键或右滑，从子页回到设置首页，再退回原工作台。首页的「最近连接」直接打开远程主机管理，可扫码或手输、查看和刷新连接、点按切换、长按重命名或删除。断开当前连接后可以扫描其他主机。服务和任务由连接的主机管理。应用设置与远程连接的验收范围见 [D2](../../ARCHITECTURE_PLAN.md#d2-android-全屏应用设置)和 [C2](../../ARCHITECTURE_PLAN.md#c2-android-远程版)。
 
 手机窄屏使用 DSH 工作台自带的全屏设置页。对不支持 CSS 媒体查询范围语法的 WebView，本地和远程工作台共用的桥接脚本将设置页断点还原为 `max-width` 写法。升级 DSH 时核对设置样式的标识和断点。
 
@@ -12,9 +12,9 @@
 
 ## 工程布局
 
-按 dsh-Go 的 `app/android` 组织 Android 工程。`android/app/src/main/kotlin/dev/wingmate/mobile/` 下，`MainActivity` 装配首页，`launch/` 承载首页桥接，`remote/` 管理远程连接、扫码和抽屉，`web/` 承载工作台，`i18n/` 和 `theme/` 提供文案与外观。网页资源放在相应的 `assets/launch/` 和 `assets/web/`。
+Android 工程沿用 Gradle 默认源码集，应用 Kotlin 源码在 `android/app/src/main/kotlin/` 下按功能组织，包名由源码声明。应用设置使用原生界面，布局参考 [dsh-Go 设置页](https://github.com/ccch1mneyyy/dsh-Go/tree/be885805dd69c66926970140f7f9fd15167bbec8/app/lib/ui/settings)。设置和工作台共用 Activity，保留原 WebView 和会话状态，颜色跟随当前 DSH 工作台主题。
 
-`android/local-agent/` 提供本地运行时的安装、进程和前台服务，只有本地版依赖该模块。Kotlin 源码放在模块的 `src/main/kotlin/`。本机入口由首页和连接抽屉打开，可以启动、停止和查看日志。运行就绪后，应用通过 DSH 的回环地址和登录令牌打开同一个工作台。返回首页、关闭工作台和切换远程连接都不会停止本机进程。
+`android/local-agent/` 提供本地运行时的安装、进程和前台服务，只有本地版依赖该模块。本机入口由首页和应用设置打开，可以启动、停止和查看日志。运行就绪后，应用通过 DSH 的回环地址和登录令牌打开同一个工作台。返回首页、关闭工作台和切换远程连接都不会停止本机进程。
 
 首次安装从 APK 释放完整环境。之后在基础环境身份相同的情况下，只更新 DSH、Node 和应用管理的文件，保留 Linux 环境、Python 用户包、会话和工作区。基础环境不兼容时报告原因，保留现有目录。载荷构建和移植来源见 [Android 本地运行载荷](../../runtime/android/README.md)，真机验收范围见 [D1](../../ARCHITECTURE_PLAN.md#d1-android-本地运行版)。
 
@@ -46,6 +46,6 @@ Debug 构建的工作台可通过 ADB 转发 WebView DevTools 端口，检查前
 
 ## 上游来源
 
-从 deepseek-harness-desktop [`ff5e4815` 的移动端](https://github.com/dsh-tauri/deepseek-harness-desktop/tree/ff5e4815a7d7a7920d4b4dc02af18fdf0ac9e937/apps/native)移植了页面布局、主题配色、四种语言、发现与连接交互，以及工作台通知脚本。连接页使用 HTML/CSS，扫码和抽屉由 Android 控件实现。工作台脚本只接收已连接来源的主页面事件。主机身份与配对沿用 Wingmate 网关协议。构建输入均来自本仓库和声明的依赖。
+从 deepseek-harness-desktop [`ff5e4815` 的移动端](https://github.com/dsh-tauri/deepseek-harness-desktop/tree/ff5e4815a7d7a7920d4b4dc02af18fdf0ac9e937/apps/native)移植了首页、主题配色、四种语言、发现与连接交互，以及工作台通知脚本。连接首页使用 HTML/CSS，扫码和远程主机管理由 Android 控件实现。工作台脚本只接收已连接来源的主页面事件。主机身份与配对沿用 Wingmate 网关协议。构建输入均来自本仓库和声明的依赖。
 
 上游 [许可证](android/app/src/main/assets/launch/UPSTREAM-LICENSE.txt)和[禁止商业二次开发的附加条款](android/app/src/main/assets/launch/UPSTREAM-LICENSE.details.txt)随应用资源一并打包。

@@ -25,15 +25,15 @@ internal class ConnectionFlow(
         result?.invoke(if (it.resultCode == Activity.RESULT_OK) it.data?.getStringExtra("text") else null)
     }
 
-    fun scan(onNotice: (String?) -> Unit) {
-        readPairingLink { link -> if (link != null) connect(link, onNotice) }
+    fun scan(onNotice: (String?) -> Unit, manual: Boolean = false) {
+        readPairingLink(manual) { link -> if (link != null) connect(link, onNotice) }
     }
 
-    fun readPairingLink(onResult: (String?) -> Unit) {
+    fun readPairingLink(manual: Boolean = false, onResult: (String?) -> Unit) {
         onConnectionRequested()
         attempt++
         scanningResult = onResult
-        scanner.launch(Intent(activity, ScannerActivity::class.java))
+        scanner.launch(Intent(activity, ScannerActivity::class.java).putExtra("manual", manual))
     }
 
     fun connect(raw: String, onNotice: (String?) -> Unit) {

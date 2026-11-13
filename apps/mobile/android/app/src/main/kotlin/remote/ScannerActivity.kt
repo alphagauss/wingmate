@@ -158,6 +158,7 @@ class ScannerActivity : AppCompatActivity() {
         root.addView(manualPanel, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
         armCamera()
+        if (intent.getBooleanExtra("manual", false)) switchMode(true)
     }
 
     override fun onResume() {

@@ -2,6 +2,7 @@ package dev.wingmate.mobile
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.WebResourceRequest
@@ -14,8 +15,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.webkit.WebViewAssetLoader
 import dev.wingmate.mobile.launch.ConnectionBridge
-import dev.wingmate.mobile.remote.ConnectionDrawer
 import dev.wingmate.mobile.remote.ConnectionFlow
+import dev.wingmate.mobile.settings.AppSettings
 import dev.wingmate.mobile.theme.applyWindowInsets
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
@@ -28,6 +29,7 @@ private const val CONNECTION_BRIDGE = "wingmateConnection"
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var bridge: ConnectionBridge
+    private lateinit var appSettings: AppSettings
     private val connections = ConnectionFlow(
         this,
         onConnectionRequested = { bridge.cancelDiscovery() },
@@ -67,17 +69,16 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        val drawer = ConnectionDrawer(this, webView, connections, openLocalAgent = localAgent)
-        bridge = ConnectionBridge(this, webView, connections, drawer::open, localAgent)
+        appSettings = AppSettings(this, webView, connections, openLocalAgent = localAgent)
+        bridge = ConnectionBridge(this, webView, connections, appSettings::openRemote, localAgent)
         webView.addJavascriptInterface(bridge, CONNECTION_BRIDGE)
         setContentView(FrameLayout(this).apply {
-            addView(drawer, FrameLayout.LayoutParams(-1, -1))
+            addView(appSettings.view, FrameLayout.LayoutParams(-1, -1))
             applyWindowInsets()
         })
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (drawer.showing()) drawer.close()
-                else {
+                if (!appSettings.back()) {
                     isEnabled = false
                     onBackPressedDispatcher.onBackPressed()
                     isEnabled = true
@@ -86,6 +87,11 @@ class MainActivity : AppCompatActivity() {
         })
         webView.loadUrl("http://$LAUNCH_HOST${LAUNCH_PATH}index.html")
         openLocalFromNotification(intent)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        appSettings.onConfigurationChanged()
     }
 
     override fun onNewIntent(intent: Intent) {

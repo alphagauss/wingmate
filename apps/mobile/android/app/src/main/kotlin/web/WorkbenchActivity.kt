@@ -6,6 +6,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -26,9 +27,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import dev.wingmate.mobile.i18n.ConnectionStrings
 import dev.wingmate.mobile.localAgentAction
-import dev.wingmate.mobile.remote.ConnectionDrawer
 import dev.wingmate.mobile.remote.ConnectionFlow
 import dev.wingmate.mobile.remote.addManagementButton
+import dev.wingmate.mobile.settings.AppSettings
 import dev.wingmate.mobile.theme.ConnectionUi
 import dev.wingmate.mobile.theme.applyWindowInsets
 
@@ -37,6 +38,7 @@ class WorkbenchActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var bridge: WorkbenchBridge
     private lateinit var loading: WorkbenchLoading
+    private lateinit var appSettings: AppSettings
     private lateinit var activeOrigin: String
     private var loadFailed = false
     private var paused = true
@@ -89,27 +91,32 @@ class WorkbenchActivity : AppCompatActivity() {
         }
         workbench.addView(webView, FrameLayout.LayoutParams(-1, -1))
 
-        val drawer = ConnectionDrawer(this, workbench, connections, activeOrigin,
-            localAgentAction(this), intent.getBooleanExtra("localAgent", false))
-        loading = WorkbenchLoading(this, ::retry, drawer::open)
+        appSettings = AppSettings(this, workbench, connections, activeOrigin,
+            intent.getBooleanExtra("localAgent", false), localAgentAction(this))
+        loading = WorkbenchLoading(this, ::retry, appSettings::open)
         workbench.addView(loading, FrameLayout.LayoutParams(-1, -1))
         bridge = WorkbenchBridge(this, webView, activeOrigin, ::ready) { theme ->
-            drawer.applyTheme(theme)
+            appSettings.applyTheme(theme)
             loading.applyTheme(theme)
         }
-        root.addView(drawer, FrameLayout.LayoutParams(-1, -1))
-        workbench.addManagementButton(getSharedPreferences("connection", MODE_PRIVATE), drawer::open)
+        root.addView(appSettings.view, FrameLayout.LayoutParams(-1, -1))
+        workbench.addManagementButton(getSharedPreferences("connection", MODE_PRIVATE), appSettings::open)
         setContentView(root)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
-                    drawer.showing() -> drawer.close()
+                    appSettings.back() -> Unit
                     webView.canGoBack() -> webView.goBack()
                     else -> finish()
                 }
             }
         })
         webView.loadUrl(link)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (::appSettings.isInitialized) appSettings.onConfigurationChanged()
     }
 
     private fun retry() {

@@ -40,10 +40,8 @@ internal class ConnectionUi(private val context: Context, darkOverride: Boolean?
     val foreground = Color.parseColor(if (dark) "#f9fafb" else "#0f1115")
     val muted = Color.parseColor(if (dark) "#adb2b8" else "#81858c")
     val surface = Color.parseColor(if (dark) "#1b1b1c" else "#f9fafb")
-    val backdrop = Color.parseColor(if (dark) "#80000000" else "#3d000000")
     val border = Color.parseColor(if (dark) "#1fffffff" else "#1a000000")
     val danger = Color.parseColor(if (dark) "#f87171" else "#dc2626")
-    val onDanger = if (dark) Color.parseColor("#0f1115") else Color.WHITE
 
     fun text(value: String, size: Float, color: Int = foreground, bold: Boolean = false) =
         TextView(context).apply {

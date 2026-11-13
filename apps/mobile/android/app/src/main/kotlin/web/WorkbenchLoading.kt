@@ -78,7 +78,7 @@ internal class WorkbenchLoading(
         body.addView(ui.button(labels["connection.reconnect"], primary = true, action = retry), LinearLayout.LayoutParams(
             -1, -2
         ).apply { topMargin = context.dp(20) })
-        body.addView(ui.button(labels["connection.connectionInfo"], action = connections))
+        body.addView(ui.button(labels["settings.title"], action = connections))
     }
 
     private fun show() {

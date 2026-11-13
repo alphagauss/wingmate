@@ -28,7 +28,7 @@ internal fun FrameLayout.addManagementButton(
         val padding = context.dp(14)
         setPadding(padding, padding, padding, padding)
         alpha = .66f
-        contentDescription = ConnectionStrings(context)["connection.connectionInfo"]
+        contentDescription = ConnectionStrings(context)["settings.title"]
         setOnClickListener { openManagement() }
     }
     val touchSize = context.dp(48)
