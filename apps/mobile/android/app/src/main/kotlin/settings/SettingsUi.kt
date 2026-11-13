@@ -31,7 +31,13 @@ internal class SettingsUi(private val context: Context, theme: String) {
     private val secondary = Color.parseColor(if (dark) "#adb2b8" else "#61666b")
     val success = Color.parseColor(if (dark) "#8dd5ad" else "#26724a")
 
-    fun page(title: String, backLabel: String, back: () -> Unit, content: LinearLayout.() -> Unit) =
+    fun page(
+        title: String,
+        backLabel: String,
+        back: () -> Unit,
+        action: View?,
+        content: LinearLayout.() -> Unit
+    ) =
         ScrollView(context).apply {
             isFillViewport = true
             isFocusableInTouchMode = true
@@ -40,13 +46,13 @@ internal class SettingsUi(private val context: Context, theme: String) {
             ))
             addView(column().apply {
                 setPadding(dp(16), dp(12), dp(16), dp(28))
-                addView(AppCompatImageButton(context).apply {
-                    setImageResource(R.drawable.ic_settings_back)
-                    imageTintList = ColorStateList.valueOf(colors.foreground)
-                    background = ripple(24, colors.surface)
-                    contentDescription = backLabel
-                    setOnClickListener { back() }
-                }, dp(44), dp(44))
+                addView(LinearLayout(context).apply {
+                    addView(toolbarButton(R.drawable.ic_settings_back, backLabel, back), dp(48), dp(48))
+                    if (action != null) {
+                        addView(View(context), LinearLayout.LayoutParams(0, 0, 1f))
+                        addView(action, dp(48), dp(48))
+                    }
+                }, -1, -2)
                 addView(colors.text(title, 28f, bold = true).apply {
                     ViewCompat.setAccessibilityHeading(this, true)
                 }, LinearLayout.LayoutParams(-1, -2).apply {
@@ -54,6 +60,17 @@ internal class SettingsUi(private val context: Context, theme: String) {
                 })
                 content()
             })
+        }
+
+    fun scanButton(label: String, action: () -> Unit) = toolbarButton(R.drawable.ic_scan, label, action)
+
+    private fun toolbarButton(icon: Int, label: String, action: () -> Unit) =
+        AppCompatImageButton(context).apply {
+            setImageResource(icon)
+            imageTintList = ColorStateList.valueOf(colors.foreground)
+            background = ripple(24, colors.surface)
+            contentDescription = label
+            setOnClickListener { action() }
         }
 
     fun LinearLayout.section(title: String? = null, content: LinearLayout.() -> Unit) {
@@ -74,7 +91,7 @@ internal class SettingsUi(private val context: Context, theme: String) {
         icon: Int? = null,
         valueColor: Int = secondary,
         maxSubtitleLines: Int = 2,
-        tone: Tone = Tone.AI,
+        tone: Tone = Tone.HOSTS,
         action: (() -> Unit)? = null
     ) = LinearLayout(context).apply {
         gravity = Gravity.CENTER_VERTICAL
@@ -157,9 +174,6 @@ internal class SettingsUi(private val context: Context, theme: String) {
             context.rounded(Color.WHITE, radius))
 
     enum class Tone(val lightFill: String, val lightInk: String, val darkFill: String, val darkInk: String) {
-        AI("#e2eeff", "#285fa7", "#23364f", "#93bdff"),
-        CAPABILITIES("#fff0dc", "#785213", "#49391f", "#f0d3a5"),
-        APPEARANCE("#eee8fb", "#594788", "#38324b", "#d7c8ff"),
         GENERAL("#e6f0e1", "#3a6533", "#2e402a", "#bfdcb5"),
         HOSTS("#def3ee", "#1c6256", "#1e403b", "#a0e0d0"),
         HELP("#e0f1f6", "#246378", "#253e49", "#a7d9ed")

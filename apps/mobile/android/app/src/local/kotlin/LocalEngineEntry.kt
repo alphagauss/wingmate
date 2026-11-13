@@ -37,6 +37,14 @@ private class EngineSettings(
     private val status get() = requireNotNull(LocalRuntime.status.value)
     private val installed get() = LocalRuntime.isInstalled(activity)
 
+    override val openWorkbench: (() -> Unit)?
+        get() = if (status is RuntimeStatus.Ready) ::openCurrentWorkbench else null
+
+    private fun openCurrentWorkbench() {
+        val ready = status as? RuntimeStatus.Ready ?: return
+        open(Uri.parse(ready.address).buildUpon().path("/").appendQueryParameter("token", ready.token).build())
+    }
+
     override val summary: String
         get() = labels[when (status) {
             RuntimeStatus.Stopped -> if (installed) "localAgent.stopped" else "localAgent.notInstalled"
@@ -74,10 +82,7 @@ private class EngineSettings(
                     addView(row(labels[action], action = { LocalRuntime.start(activity) }))
                 }
                 is RuntimeStatus.Ready -> {
-                    addView(row(labels["localAgent.open"], action = {
-                        val ready = status as? RuntimeStatus.Ready ?: return@row
-                        open(Uri.parse(ready.address).buildUpon().path("/").appendQueryParameter("token", ready.token).build())
-                    }))
+                    addView(row(labels["localAgent.open"], action = openWorkbench))
                     addView(row(labels["localAgent.restart"], action = {
                         confirm("localAgent.restart") { LocalRuntime.restart(activity) }
                     }))

@@ -17,12 +17,15 @@ import java.util.concurrent.Executors
 internal class RemoteHostSettings(
     private val activity: AppCompatActivity,
     private val flow: ConnectionFlow,
-    private val current: String?,
+    currentOrigin: String?,
+    private val localCurrent: Boolean,
     private val autoConnectDefault: Boolean
 ) {
+    private val current = currentOrigin.takeUnless { localCurrent }
     private val labels = ConnectionStrings(activity)
     private val preferences = AppPreferences(activity)
     private var content: LinearLayout? = null
+    private var openLocal: (() -> Unit)? = null
     private lateinit var ui: SettingsUi
     private var health = emptyMap<String, Boolean>()
     private var notice: String? = null
@@ -37,13 +40,14 @@ internal class RemoteHostSettings(
 
     val count: Int get() = flow.store.entries().size
     val currentName: String?
-        get() = current?.let { origin ->
+        get() = if (localCurrent) labels["settings.thisPhone"] else current?.let { origin ->
             (flow.store.entries().firstOrNull { it.origin == origin } ?: SavedConnection(origin)).label
         }
 
-    fun attach(ui: SettingsUi, parent: LinearLayout) {
+    fun attach(ui: SettingsUi, parent: LinearLayout, openLocal: (() -> Unit)?) {
         stop()
         this.ui = ui
+        this.openLocal = openLocal
         content = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
             .also(parent::addView)
         render()
@@ -53,6 +57,7 @@ internal class RemoteHostSettings(
     fun stop() {
         content?.removeCallbacks(refreshTimer)
         content = null
+        openLocal = null
     }
 
     private fun render() {
@@ -64,10 +69,16 @@ internal class RemoteHostSettings(
             notice?.let { body.addView(colors.text(it, 14f, colors.danger)) }
             body.section(labels["connection.currentConnection"]) {
                 if (current == null) {
-                    addView(row(labels["connection.noConnection"]))
+                    addView(row(currentName ?: labels["connection.noConnection"]))
                 } else {
                     addView(hostRow(entries.firstOrNull { it.origin == current } ?: SavedConnection(current)))
                     addView(row(labels["connection.disconnect"], action = { disconnect(scan = true) }))
+                }
+            }
+            if (!localCurrent) openLocal?.let { open ->
+                body.section {
+                    addView(row(labels["settings.thisPhone"], value = labels["localAgent.running"],
+                        icon = R.drawable.ic_settings_engine, action = open))
                 }
             }
             body.section(labels["connection.recentConnections"]) {
@@ -97,7 +108,7 @@ internal class RemoteHostSettings(
         }]
         return ui.row(entry.label, value = state, icon = R.drawable.ic_settings_host,
             valueColor = if (status == true) ui.success else ui.colors.foreground,
-            action = { flow.connect(entry.origin, ::showNotice) }
+            action = if (entry.origin == current) null else ({ flow.connect(entry.origin, ::showNotice) })
         ).apply {
             setOnLongClickListener { edit(entry); true }
             androidx.core.view.ViewCompat.setTooltipText(this, labels["connection.editHint"])

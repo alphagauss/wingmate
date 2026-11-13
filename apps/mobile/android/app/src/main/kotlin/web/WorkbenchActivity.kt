@@ -97,13 +97,11 @@ class WorkbenchActivity : AppCompatActivity() {
         workbench.addView(webView, FrameLayout.LayoutParams(-1, -1))
 
         appSettings = AppSettings(this, workbench, connections, activeOrigin,
-            localCurrent, localEngineSettings(this, ::openLocalWorkbench),
-            openDshSettings = { bridge.openSettings(it) })
+            localCurrent, localEngineSettings(this, ::openLocalWorkbench))
         loading = WorkbenchLoading(this, ::retry, appSettings::open)
         workbench.addView(loading, FrameLayout.LayoutParams(-1, -1))
-        bridge = WorkbenchBridge(this, webView, activeOrigin, ::ready, appSettings::dshSettingsOpened) { theme ->
+        bridge = WorkbenchBridge(this, webView, activeOrigin, ::ready) { theme ->
             appSettings.applyTheme(theme)
-            appSettings.setDshReady(true)
             loading.applyTheme(theme)
         }
         root.addView(appSettings.view, FrameLayout.LayoutParams(-1, -1))
@@ -228,7 +226,6 @@ class WorkbenchActivity : AppCompatActivity() {
             }
             loadFailed = false
             bridge.started()
-            appSettings.setDshReady(false)
             loading.start()
         }
 

@@ -15,31 +15,34 @@ import dev.wingmate.mobile.theme.dp
 internal class AppSettings(
     private val activity: AppCompatActivity,
     workbench: View,
-    flow: ConnectionFlow,
+    private val flow: ConnectionFlow,
     current: String? = null,
     private val localCurrent: Boolean = false,
     private val localEngine: LocalEngineSettings? = null,
-    private val languageChanged: () -> Unit = {},
-    private val openDshSettings: ((DshSettings) -> Boolean)? = null
+    private val languageChanged: () -> Unit = {}
 ) {
     private val labels = ConnectionStrings(activity)
     private var theme = "system"
     private var ui = SettingsUi(activity, theme)
     private val overlay: SettingsOverlay = SettingsOverlay(activity, workbench, ::back)
     val view: View get() = overlay
-    private val remote = RemoteHostSettings(activity, flow, current.takeUnless { localCurrent }, localEngine == null)
+    private val remote = RemoteHostSettings(activity, flow, current, localCurrent, localEngine == null)
     private val general = GeneralSettings(activity) {
         languageChanged()
         render()
     }
-    private var dshReady = false
     private var page = Page.HOME
     private var firstPage = Page.HOME
     private var searchQuery = ""
     private var fromSearch = false
 
     init {
-        localEngine?.observe { if (page == Page.LOCAL || page == Page.HOME) refresh() }
+        localEngine?.observe {
+            when (page) {
+                Page.HOME, Page.REMOTE, Page.LOCAL -> refresh()
+                else -> Unit
+            }
+        }
         overlay.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) = Unit
             override fun onViewDetachedFromWindow(v: View) = remote.stop()
@@ -82,21 +85,6 @@ internal class AppSettings(
         return true
     }
 
-    fun setDshReady(ready: Boolean) {
-        if (dshReady == ready) return
-        dshReady = ready
-        if (page == Page.HOME || page == Page.SEARCH) refresh()
-    }
-
-    fun dshSettingsOpened(opened: Boolean) {
-        if (!overlay.showing || overlay.closing) return
-        if (opened) {
-            close()
-        } else {
-            Toast.makeText(activity, labels["settings.webUnavailable"], Toast.LENGTH_SHORT).show()
-        }
-    }
-
     fun refresh() {
         if (overlay.showing && !overlay.closing) render()
     }
@@ -130,11 +118,12 @@ internal class AppSettings(
         remote.stop()
         val panel = overlay.page
         panel.removeAllViews()
-        panel.addView(ui.page(labels[page.title], labels["settings.back"], { back() }) {
+        val scan = if (page == Page.HOME) ui.scanButton(labels["scan.scanQr"], ::scan) else null
+        panel.addView(ui.page(labels[page.title], labels["settings.back"], { back() }, scan) {
             when (page) {
                 Page.HOME -> home(this)
                 Page.SEARCH -> search(this)
-                Page.REMOTE -> remote.attach(ui, this)
+                Page.REMOTE -> remote.attach(ui, this, localEngine?.openWorkbench)
                 Page.NOTIFICATIONS -> general.notifications(ui, this)
                 Page.PERMISSIONS -> general.permissions(ui, this)
                 Page.DIAGNOSTICS -> general.diagnostics(ui, this,
@@ -145,18 +134,19 @@ internal class AppSettings(
         })
     }
 
+    private fun scan() {
+        flow.scan({ notice ->
+            if (notice != null) Toast.makeText(activity, notice, Toast.LENGTH_SHORT).show()
+        })
+    }
+
     private fun home(body: LinearLayout) = with(ui) {
         body.addView(searchButton(labels["settings.search"]) { navigate(Page.SEARCH) },
             LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = activity.dp(16) })
         body.section {
-            if (localCurrent) {
-                addView(row(labels["settings.thisPhone"], labels["connection.currentConnection"],
-                    icon = R.drawable.ic_settings_engine, tone = SettingsUi.Tone.HOSTS, action = ::openLocal))
-            } else {
-                addView(row(remote.currentName ?: labels["connection.noConnection"],
-                    labels["settings.remoteHosts"], icon = R.drawable.ic_settings_host, tone = SettingsUi.Tone.HOSTS,
-                    action = { navigate(Page.REMOTE) }))
-            }
+            addView(row(labels["connection.currentConnection"],
+                remote.currentName ?: labels["connection.noConnection"], value = labels["settings.switchHost"],
+                icon = R.drawable.ic_settings_host, action = { navigate(Page.REMOTE) }))
             localEngine?.let { addView(row(labels["localAgent.title"], it.summary,
                 icon = R.drawable.ic_settings_engine, tone = SettingsUi.Tone.HOSTS, action = ::openLocal)) }
         }
@@ -194,14 +184,6 @@ internal class AppSettings(
     }
 
     private fun groups(): List<Group> = buildList {
-        if (dshReady && openDshSettings != null) {
-            add(Group("settings.ai", SettingsUi.Tone.AI, listOf(webItem(DshSettings.MODELS, R.drawable.ic_settings_models),
-                webItem(DshSettings.PRESETS, R.drawable.ic_settings_engine))))
-            add(Group("settings.capabilities", SettingsUi.Tone.CAPABILITIES,
-                listOf(webItem(DshSettings.PLUGINS, R.drawable.ic_settings_plugins))))
-            add(Group("settings.appearance", SettingsUi.Tone.APPEARANCE,
-                listOf(webItem(DshSettings.GENERAL, R.drawable.ic_settings_theme, labels["settings.$theme"]))))
-        }
         add(Group("settings.general", SettingsUi.Tone.GENERAL, listOf(
             Item("settings.language", R.drawable.ic_manage, general.languageName, general::language),
             item(Page.NOTIFICATIONS, R.drawable.ic_settings_bell, general.state(general.notificationsEnabled)),
@@ -220,21 +202,12 @@ internal class AppSettings(
     private fun item(page: Page, icon: Int, value: String? = null) =
         Item(page.title, icon, value) { navigate(page) }
 
-    private fun webItem(section: DshSettings, icon: Int, value: String? = null) =
-        Item(section.title, icon, value) {
-            if (openDshSettings?.invoke(section) == false) dshSettingsOpened(false)
-        }
-
     private data class Item(val title: String, val icon: Int, val value: String? = null, val action: () -> Unit)
     private data class Group(val title: String, val tone: SettingsUi.Tone, val items: List<Item>)
 
     private enum class Page(val title: String) {
-        HOME("settings.title"), SEARCH("settings.search"), REMOTE("settings.remoteHosts"),
+        HOME("settings.title"), SEARCH("settings.search"), REMOTE("settings.switchHost"),
         NOTIFICATIONS("settings.taskNotifications"), PERMISSIONS("settings.permissions"),
         DIAGNOSTICS("settings.diagnostics"), ABOUT("settings.about"), LOCAL("localAgent.title")
     }
-}
-
-internal enum class DshSettings(val title: String) {
-    MODELS("settings.models"), PRESETS("settings.presets"), PLUGINS("settings.plugins"), GENERAL("settings.theme")
 }
