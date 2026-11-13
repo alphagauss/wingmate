@@ -585,13 +585,13 @@ PY_DROP_DIRS = ("test", "idlelib", "tkinter", "turtledemo", "lib2to3/tests")
 
 
 def python_drop(rel):
-    """Parts of python-build-standalone that are useless on a phone (GUI, test suite)."""
+    """Trim the GUI, tests and Berkeley DB backend from the bundled Python."""
     parts = rel.split("/")
     if len(parts) >= 3 and parts[0] == "lib" and parts[1].startswith("python3."):
         sub = "/".join(parts[2:])
         if any(sub == d or sub.startswith(d + "/") for d in PY_DROP_DIRS):
             return True
-        if sub.startswith("lib-dynload/_tkinter"):
+        if sub.startswith(("lib-dynload/_tkinter", "lib-dynload/_dbm.")):
             return True
         if sub == "turtle.py":
             return True
