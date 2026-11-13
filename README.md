@@ -1,8 +1,16 @@
 # Wingmate
 
-Wingmate 是面向个人使用的 DeepSeek Harness 发行版，提供运行时分发和后台管理，复用官方 Web 和插件生态。
+Wingmate 是一个面向个人使用的 DeepSeek Harness（DSH）发行版。可以在自己的电脑或服务器上运行 Agent，再用浏览器、另一台电脑或 Android 手机接着做任务。
 
-统一入口 `wingmate` 不依赖 GUI。桌面发行仍是单个可执行文件，内含独立管理服务、运行内容和桌面组件；无 GUI 构建省去桌面。关闭窗口后服务与任务继续运行。后续方向见[项目约定](docs/product.md#未来方向尚未交付)。
+## 亮点
+
+- **轻量单文件**。桌面组件和 DSH 运行时装在一个可执行文件里，使用系统安装的 Node.js。Windows x64 的一次构建约 73 MiB，其中压缩的 DSH 基础运行时约 54 MiB。[体积记录](docs/records/2026-11-13-windows-package-size.md)
+- **自带远程访问**。可以用桌面端连接别的 Wingmate 主机，也可以把这台电脑的 DSH 工作台分享给自己的其他设备。支持局域网配对和 Cloudflare 公网隧道。[连接方式](crates/wingmate-service/README.md#web-入口)
+- **关窗口，任务照跑**。后台独立运行，可以在界面或命令行查看状态、启动、停止和重启 DSH。服务器可直接使用无界面版本。
+- **Android 有两种版本**。纯远程版用来连接已有的 Wingmate 主机。本地版既能远程连接，也能在 ARM64 手机上直接运行 DSH Agent。[Android 使用与构建](apps/mobile/README.md)
+- **支持 DSH 和 Codex**。可以在工作台侧栏切换，原来的任务会继续运行。[Codex 接入说明](plugins/wingmate-backends/README.md)
+
+项目以个人使用为主，不接受 Pull Request（PR）。欢迎按适用许可证 fork 后自行二次开发。
 
 ## 使用
 
@@ -70,4 +78,11 @@ pnpm test:smoke
 
 [apps](apps/README.md)、[crates](crates/README.md)、[packages](packages/README.md) 分别承载前端应用、Rust 库和实际需要共享的前端/JavaScript 包。
 
-Wingmate 是自用社区封装，与 [DeepSeek Harness 官方项目](https://github.com/deepseek-ai/deepseek-harness) 无隶属关系。发行内容保留各组件要求的许可证及声明。
+## 上游项目与许可
+
+Wingmate 是独立维护的社区发行版。Wingmate 自有代码默认采用 [MIT 许可证](LICENSE)。移植代码、按其他许可证发布的组合产物和随包依赖适用各自的许可条款。
+
+- **DeepSeek Harness** 提供 Agent、Web 工作台和插件生态，所用版本采用 MIT 许可。[项目](https://github.com/deepseek-ai/deepseek-harness) · [版本许可](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.1/LICENSE)
+- **dsh-Go** 是 Android 本地运行时的移植来源。采用的载荷构建脚本及本机引擎代码涉及 AGPLv3。[项目](https://github.com/ccch1mneyyy/dsh-Go) · [本地运行载荷](runtime/android/README.md) · [上游许可](https://github.com/ccch1mneyyy/dsh-Go/blob/288234ae52fdfcfc2b0a0388763c371d0b09ea7d/LICENSE)
+- **deepseek-harness-desktop** 是 Android 连接界面、工作台通知脚本和公网隧道下载逻辑的移植来源。上游许可由 MIT 文本和限制商业二次开发的附加条款组成。[项目](https://github.com/dsh-tauri/deepseek-harness-desktop) · [Android 采用记录](apps/mobile/README.md#上游来源) · [隧道采用记录](crates/wingmate-service/README.md#公网隧道)
+- **ds-harness-remote** 是外部 Agent 工作区与会话投影的参考，相关代码保留 MIT 声明。[项目](https://github.com/liguobao/ds-harness-remote) · [执行后端插件](plugins/wingmate-backends/README.md)

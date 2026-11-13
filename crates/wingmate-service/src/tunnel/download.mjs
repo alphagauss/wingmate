@@ -1,4 +1,5 @@
-// Adapted from deepseek-harness-desktop fa55bd68883e, MIT (LICENSE.desktop).
+// Adapted from deepseek-harness-desktop fa55bd68883e.
+// See LICENSE.desktop and the additional upstream terms in ../../README.md.
 import { Buffer } from 'node:buffer'
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'

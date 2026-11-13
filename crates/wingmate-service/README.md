@@ -38,7 +38,9 @@
 
 无 GUI 时，可运行 `wingmate tunnel-configure <域名>` 并通过标准输入传入 Token。用 `wingmate tunnel-start quick` 或 `wingmate tunnel-start named` 启动或切换，再用 `wingmate tunnel-status` 查看状态。连接器就绪后，`wingmate tunnel-pair` 生成 `https://域名/?auth=<配对码>`。关闭用 `wingmate tunnel-stop`，撤销设备用 `wingmate share-revoke <设备 ID>`。
 
-首次开启会查找 `CLOUDFLARED_PATH`、系统 PATH 和管理目录下的 `tunnel/bin/`。缺少可用程序时，使用系统 Node 按平台下载官方连接器，校验 SHA-256 和版本输出后保存到该目录，供两种模式复用。当前下载逻辑源自 Desktop `fa55bd68883e`，保留 [MIT 声明](src/tunnel/LICENSE.desktop)。自动下载覆盖 Windows x64、macOS x64/ARM64、Linux x64/ARM64，其他平台可手动提供可执行文件。
+首次开启会查找 `CLOUDFLARED_PATH`、系统 PATH 和管理目录下的 `tunnel/bin/`。缺少可用程序时，使用系统 Node 按平台下载官方连接器，校验 SHA-256 和版本输出后保存到该目录，供两种模式复用。自动下载覆盖 Windows x64、macOS x64/ARM64、Linux x64/ARM64，其他平台可手动提供可执行文件。
+
+[`src/tunnel/download.mjs`](src/tunnel/download.mjs) 中的下载逻辑移植自 deepseek-harness-desktop `fa55bd68883e`，适用上游 MIT 文本及禁止商业二次开发的附加条款。[MIT 文本](src/tunnel/LICENSE.desktop) · [上游附加条款](https://github.com/dsh-tauri/deepseek-harness-desktop/blob/fa55bd68883e/LICENSE.details)
 
 ## 数据与管理边界
 

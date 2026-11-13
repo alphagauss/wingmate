@@ -50,6 +50,10 @@ Debug 构建的工作台可通过 ADB 转发 WebView DevTools 端口，检查前
 
 ## 上游来源
 
+本地版的 [`local-agent`](android/local-agent/) 从 dsh-Go 移植了部分运行时安装、升级、解压和进程管理代码。移植代码沿用 AGPLv3，许可文本随本地版 APK 分发。纯远程版不编入这个模块。[上游提交](https://github.com/ccch1mneyyy/dsh-Go/tree/288234ae52fdfcfc2b0a0388763c371d0b09ea7d/app/android/app/src/main/kotlin/io/github/ccch1mneyyy/dsh_app/runtime) · [许可文本](../../runtime/android/LICENSE.dsh-go)
+
 从 deepseek-harness-desktop [`ff5e4815` 的移动端](https://github.com/dsh-tauri/deepseek-harness-desktop/tree/ff5e4815a7d7a7920d4b4dc02af18fdf0ac9e937/apps/native)移植了首页、主题配色、四种语言、发现与连接交互，以及工作台通知脚本。连接首页使用 HTML/CSS，扫码和远程主机管理由 Android 控件实现。工作台脚本只接收已连接来源的主页面事件。主机身份与配对沿用 Wingmate 网关协议。构建输入均来自本仓库和声明的依赖。
 
-上游 [许可证](android/app/src/main/assets/launch/UPSTREAM-LICENSE.txt)和[禁止商业二次开发的附加条款](android/app/src/main/assets/launch/UPSTREAM-LICENSE.details.txt)随应用资源一并打包。
+两个 APK 共用上述移植代码和资源。上游的 MIT 文本与禁止商业二次开发的附加条款随应用资源一并打包。[MIT 文本](android/app/src/main/assets/launch/UPSTREAM-LICENSE.txt) · [附加条款](android/app/src/main/assets/launch/UPSTREAM-LICENSE.details.txt)
+
+本地版将 `local-agent` 编入同一个 APK。若它与应用代码构成 AGPLv3 覆盖的组合程序，分发时须按 AGPLv3 为该组合程序提供对应源码和构建脚本。要按 AGPLv3 分发这一组合，需为其中受商业二次开发限制的代码取得兼容授权，或替换相关实现。[AGPLv3 第 5、6、10 条](https://opensource.org/license/agpl-3.0)
