@@ -8,16 +8,19 @@ import dev.wingmate.mobile.remote.ConnectionFlow
 import dev.wingmate.mobile.remote.ConnectionTarget
 import dev.wingmate.mobile.remote.NoLanNetwork
 import dev.wingmate.mobile.remote.discoverConnection
+import dev.wingmate.mobile.settings.AppPreferences
 import org.json.JSONObject
 
 internal class ConnectionBridge(
     private val activity: Activity,
     private val webView: WebView,
     private val connections: ConnectionFlow,
+    private val openSettings: () -> Unit,
     private val openRemote: () -> Unit,
     private val openLocalAgent: (() -> Unit)?,
 ) {
     private val labels by lazy { ConnectionStrings(activity) }
+    private val preferences = AppPreferences(activity)
     private var discovery: Thread? = null
 
     @JavascriptInterface
@@ -39,6 +42,10 @@ internal class ConnectionBridge(
                     openRemote()
                     reply()
                 }
+                "settings" -> {
+                    openSettings()
+                    reply()
+                }
                 "localAgent" -> {
                     openLocalAgent?.invoke()
                     reply()
@@ -47,6 +54,7 @@ internal class ConnectionBridge(
                     args.optJSONArray("recent")?.let(connections.store::migrate)
                     reply(JSONObject().put("count", connections.store.entries().size)
                         .put("language", labels.language).put("messages", labels.messages)
+                        .put("autoConnect", preferences.autoConnect(openLocalAgent == null))
                         .put("localAgent", openLocalAgent != null))
                 }
                 "discover" -> discover(args.optBoolean("historyOnly"), args.optString("skip").ifEmpty { null }) {
@@ -59,6 +67,10 @@ internal class ConnectionBridge(
                 else -> reply(error = "未知的连接操作")
             }
         }
+    }
+
+    fun updateLabels() {
+        webView.evaluateJavascript("window.applyWingmateLabels?.(${JSONObject.quote(labels.language)}, ${labels.messages})", null)
     }
 
     fun cancelDiscovery() {

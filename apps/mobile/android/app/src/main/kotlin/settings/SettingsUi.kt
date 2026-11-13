@@ -9,8 +9,11 @@ import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.widget.ImageView
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import androidx.appcompat.widget.SwitchCompat
+import androidx.appcompat.content.res.AppCompatResources
 import androidx.appcompat.widget.AppCompatImageButton
 import androidx.core.view.ViewCompat
 import dev.wingmate.mobile.R
@@ -106,6 +109,45 @@ internal class SettingsUi(private val context: Context, theme: String) {
             setOnClickListener { action() }
         }
     }
+
+    fun toggle(title: String, enabled: Boolean, change: (Boolean) -> Unit) =
+        SwitchCompat(context).apply {
+            text = title
+            textSize = 15f
+            setTextColor(colors.foreground)
+            minimumHeight = dp(52)
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            switchMinWidth = dp(48)
+            isChecked = enabled
+            setOnCheckedChangeListener { _, value -> change(value) }
+        }
+
+    fun search(label: String) = EditText(context).apply {
+        hint = label
+        textSize = 16f
+        setTextColor(colors.foreground)
+        setHintTextColor(secondary)
+        setPadding(dp(16), 0, dp(16), 0)
+        minimumHeight = dp(46)
+        isSingleLine = true
+        background = context.rounded(colors.surface, 24)
+        setCompoundDrawablesRelativeWithIntrinsicBounds(searchIcon(), null, null, null)
+        compoundDrawablePadding = dp(8)
+    }
+
+    fun searchButton(label: String, action: () -> Unit) = colors.text(label, 16f, secondary).apply {
+        gravity = Gravity.CENTER_VERTICAL
+        minimumHeight = dp(46)
+        setPadding(dp(16), 0, dp(16), 0)
+        background = ripple(24, colors.surface)
+        setCompoundDrawablesRelativeWithIntrinsicBounds(searchIcon(), null, null, null)
+        compoundDrawablePadding = dp(8)
+        isFocusable = true
+        setOnClickListener { action() }
+    }
+
+    private fun searchIcon() = AppCompatResources.getDrawable(context, R.drawable.ic_settings_search)
+        ?.mutate()?.apply { setTint(secondary) }
 
     private fun column() = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     private fun dp(value: Int) = context.dp(value)

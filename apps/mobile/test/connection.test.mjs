@@ -36,7 +36,7 @@ function mountHome() {
 test('restores the previous home history and opens a scanned link through the native bridge', async () => {
   const { elements, history, reply, requests } = mountHome()
   await import('../android/app/src/main/assets/launch/connection.js')
-  reply('restore', { value: { count: 1, language: 'en-US', messages: {} } }, { recent: [origin] })
+  reply('restore', { value: { count: 1, autoConnect: true, language: 'en-US', messages: {} } }, { recent: [origin] })
   await setImmediate()
   assert.equal(history.has(historyKey), false)
   assert.equal(document.documentElement.lang, 'en-US')
@@ -61,7 +61,8 @@ test('restores the previous home history and opens a scanned link through the na
 test('shows the local entry before automatically connecting to any remembered host', async () => {
   const { elements, reply, requests } = mountHome()
   await import('../android/app/src/main/assets/launch/connection.js?local')
-  reply('restore', { value: { localAgent: true, count: 1, language: 'en-US', messages: {} } }, { recent: [origin] })
+  reply('restore', { value: { localAgent: true, count: 1, autoConnect: false, language: 'en-US', messages: {} } },
+    { recent: [origin] })
   await setImmediate()
   assert.deepEqual(requests, [])
   const entry = elements.get('#local-agent')
@@ -69,4 +70,14 @@ test('shows the local entry before automatically connecting to any remembered ho
   const opened = entry.onclick()
   reply('localAgent', {})
   await opened
+})
+
+test('honors the startup preference independently of the APK and updates home labels without restoring again', async () => {
+  const { reply, requests } = mountHome()
+  await import('../android/app/src/main/assets/launch/connection.js?manual')
+  reply('restore', { value: { autoConnect: false, count: 1, language: 'en-US', messages: {} } }, { recent: [origin] })
+  await setImmediate()
+  window.applyWingmateLabels('zh-CN', {})
+  assert.equal(document.documentElement.lang, 'zh-CN')
+  assert.deepEqual(requests, [])
 })

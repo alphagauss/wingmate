@@ -69,8 +69,9 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        appSettings = AppSettings(this, webView, connections, openLocalAgent = localAgent)
-        bridge = ConnectionBridge(this, webView, connections, appSettings::openRemote, localAgent)
+        appSettings = AppSettings(this, webView, connections, openLocalAgent = localAgent,
+            languageChanged = { bridge.updateLabels() })
+        bridge = ConnectionBridge(this, webView, connections, appSettings::open, appSettings::openRemote, localAgent)
         webView.addJavascriptInterface(bridge, CONNECTION_BRIDGE)
         setContentView(FrameLayout(this).apply {
             addView(appSettings.view, FrameLayout.LayoutParams(-1, -1))
@@ -92,11 +93,17 @@ class MainActivity : AppCompatActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         appSettings.onConfigurationChanged()
+        bridge.updateLabels()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         openLocalFromNotification(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        appSettings.refresh()
     }
 
     private fun openLocalFromNotification(intent: Intent) {

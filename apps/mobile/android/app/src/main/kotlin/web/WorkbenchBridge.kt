@@ -19,6 +19,8 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import dev.wingmate.mobile.R
 import dev.wingmate.mobile.i18n.ConnectionStrings
+import dev.wingmate.mobile.settings.AppPreferences
+import dev.wingmate.mobile.settings.DshSettings
 import java.util.UUID
 import org.json.JSONObject
 
@@ -27,10 +29,12 @@ internal class WorkbenchBridge(
     private val view: WebView,
     private val origin: String,
     private val onReady: () -> Unit,
+    private val onSettingsOpened: (Boolean) -> Unit,
     private val onTheme: (String) -> Unit
 ) {
     private val nonce = UUID.randomUUID().toString()
     private val labels = ConnectionStrings(activity)
+    private val preferences = AppPreferences(activity)
     private val listener = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
     private val documentStart = listener && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
     private var ready = false
@@ -67,6 +71,9 @@ internal class WorkbenchBridge(
         send(JSONObject().put("type", "dsh://focus-session")
             .put("requestId", UUID.randomUUID().toString()).put("sessionId", session).put("tag", tag))
 
+    fun openSettings(section: DshSettings): Boolean =
+        send(JSONObject().put("type", "dsh://open-settings").put("section", section.name.lowercase()))
+
     private fun send(message: JSONObject): Boolean {
         if (!ready) return false
         message.put("nonce", nonce)
@@ -94,11 +101,13 @@ internal class WorkbenchBridge(
                 if (ready && theme in listOf("light", "dark", "system")) onTheme(theme)
             }
             "dsh://native-notification" -> if (ready) notify(payload)
+            "dsh://settings-opened" -> if (ready) onSettingsOpened(payload.optBoolean("ok"))
         }
     }
 
     @SuppressLint("MissingPermission")
     private fun notify(payload: JSONObject) {
+        if (!preferences.taskNotifications) return
         if (ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(
                 activity, Manifest.permission.POST_NOTIFICATIONS

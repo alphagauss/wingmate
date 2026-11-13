@@ -48,6 +48,8 @@ internal class SettingsOverlay(
 
     fun close() {
         if (closing) return
+        context.getSystemService(InputMethodManager::class.java)
+            .hideSoftInputFromWindow(windowToken, 0)
         closing = true
         slideTo(1f)
     }

@@ -176,6 +176,7 @@
   }
   window.__dshBridgeReceive = function (data) {
     if (!active || window.__dshBridgeNonce !== nonce || !data || data.nonce !== nonce) return;
+    if (data.type === 'dsh://open-settings') openSettings(data.section);
     if (data.type === 'dsh://visibility-state') {
       if (hidden !== !!data.hidden) {
         hidden = !!data.hidden;
@@ -273,6 +274,47 @@
   var readySent = false;
   var lastTheme = null;
   var themeObserver = null;
+
+  // DSH renders its settings through the sidebar launcher and the existing dialog.
+  // Keep permission checks and writes in that UI.
+  function openSettings(section) {
+    var panel = '[data-shortcut-modal="settings"]';
+    var titles = {
+      general: ['General', '通用设置', '一般', 'Général', 'Allgemein', 'Общие', 'Geral'],
+      models: ['Models', '模型', 'モデル', 'Modelos', 'Modèles', 'Modelle', 'Модели'],
+      plugins: ['Built-in plugins', '内置插件', '組み込みプラグイン', 'Complementos integrados',
+        'Plugins intégrés', 'Integrierte Plugins', 'Встроенные плагины', 'Plug-ins integrados']
+    }[section];
+    var settingsNames = ['Settings', '设置', '設定', 'Configuración', 'Paramètres', 'Einstellungen',
+      'Настройки', 'Configurações'];
+    function find(selector, names) {
+      return Array.from(document.querySelectorAll(selector)).find(function (button) {
+        return names.includes(button.getAttribute('aria-label') || button.textContent.trim());
+      });
+    }
+    function report(ok) { send({ type: 'dsh://settings-opened', ok: ok }); }
+    function select() {
+      var tab = find(panel + ' nav button', titles);
+      if (tab) tab.click();
+      report(!!tab);
+    }
+    if (!titles) return report(false);
+    if (document.querySelector(panel)) return select();
+    var launcher = find('button[aria-haspopup="dialog"]', settingsNames);
+    if (launcher) {
+      launcher.click();
+      return requestAnimationFrame(select);
+    }
+    var account = document.querySelector('button[data-signed-out][aria-haspopup="menu"]');
+    if (!account) return report(false);
+    if (account.getAttribute('aria-expanded') !== 'true') account.click();
+    requestAnimationFrame(function () {
+      var entry = find('button[role="menuitem"]', settingsNames);
+      if (!entry) return report(false);
+      entry.click();
+      requestAnimationFrame(select);
+    });
+  }
   function syncTheme() {
     if (!readySent || window.__dshBridgeNonce !== nonce || !window.WingmateWorkbench) return;
     var root = document.documentElement;

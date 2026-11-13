@@ -10,15 +10,18 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import dev.wingmate.mobile.R
 import dev.wingmate.mobile.i18n.ConnectionStrings
+import dev.wingmate.mobile.settings.AppPreferences
 import dev.wingmate.mobile.settings.SettingsUi
 import java.util.concurrent.Executors
 
 internal class RemoteHostSettings(
     private val activity: AppCompatActivity,
     private val flow: ConnectionFlow,
-    private val current: String?
+    private val current: String?,
+    private val autoConnectDefault: Boolean
 ) {
     private val labels = ConnectionStrings(activity)
+    private val preferences = AppPreferences(activity)
     private var content: LinearLayout? = null
     private lateinit var ui: SettingsUi
     private var health = emptyMap<String, Boolean>()
@@ -78,6 +81,10 @@ internal class RemoteHostSettings(
                 addView(row(labels["scan.enterAddress"], icon = R.drawable.ic_settings_host,
                     action = { flow.scan(::showNotice, manual = true) }))
             }
+            body.section {
+                addView(toggle(labels["settings.autoConnect"], preferences.autoConnect(autoConnectDefault),
+                    preferences::setAutoConnect))
+            }
         }
     }
 
@@ -93,7 +100,7 @@ internal class RemoteHostSettings(
             action = { flow.connect(entry.origin, ::showNotice) }
         ).apply {
             setOnLongClickListener { edit(entry); true }
-            tooltipText = labels["connection.editHint"]
+            androidx.core.view.ViewCompat.setTooltipText(this, labels["connection.editHint"])
         }
     }
 

@@ -29,12 +29,14 @@ import dev.wingmate.mobile.i18n.ConnectionStrings
 import dev.wingmate.mobile.localAgentAction
 import dev.wingmate.mobile.remote.ConnectionFlow
 import dev.wingmate.mobile.remote.addManagementButton
+import dev.wingmate.mobile.settings.AppPreferences
 import dev.wingmate.mobile.settings.AppSettings
 import dev.wingmate.mobile.theme.ConnectionUi
 import dev.wingmate.mobile.theme.applyWindowInsets
 
 class WorkbenchActivity : AppCompatActivity() {
     private val labels by lazy { ConnectionStrings(this) }
+    private val preferences by lazy { AppPreferences(this) }
     private lateinit var webView: WebView
     private lateinit var bridge: WorkbenchBridge
     private lateinit var loading: WorkbenchLoading
@@ -92,11 +94,13 @@ class WorkbenchActivity : AppCompatActivity() {
         workbench.addView(webView, FrameLayout.LayoutParams(-1, -1))
 
         appSettings = AppSettings(this, workbench, connections, activeOrigin,
-            intent.getBooleanExtra("localAgent", false), localAgentAction(this))
+            intent.getBooleanExtra("localAgent", false), localAgentAction(this),
+            openDshSettings = { bridge.openSettings(it) })
         loading = WorkbenchLoading(this, ::retry, appSettings::open)
         workbench.addView(loading, FrameLayout.LayoutParams(-1, -1))
-        bridge = WorkbenchBridge(this, webView, activeOrigin, ::ready) { theme ->
+        bridge = WorkbenchBridge(this, webView, activeOrigin, ::ready, appSettings::dshSettingsOpened) { theme ->
             appSettings.applyTheme(theme)
+            appSettings.setDshReady(true)
             loading.applyTheme(theme)
         }
         root.addView(appSettings.view, FrameLayout.LayoutParams(-1, -1))
@@ -129,8 +133,8 @@ class WorkbenchActivity : AppCompatActivity() {
         bridge.visible(!paused)
         if (paused) return
         applyNotificationFocus()
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
+        if (preferences.taskNotifications && Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             val preferences = getSharedPreferences("connection", MODE_PRIVATE)
             if (!preferences.getBoolean("notifications_requested", false)) {
@@ -205,6 +209,7 @@ class WorkbenchActivity : AppCompatActivity() {
             }
             loadFailed = false
             bridge.started()
+            appSettings.setDshReady(false)
             loading.start()
         }
 
@@ -240,6 +245,7 @@ class WorkbenchActivity : AppCompatActivity() {
         paused = false
         if (::bridge.isInitialized) {
             bridge.visible(true)
+            appSettings.refresh()
             applyNotificationFocus()
         }
     }
