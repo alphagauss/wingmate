@@ -42,9 +42,6 @@ declare -A PIN=(
   [Python-3.12.15.tar.xz]=c2c4321961fab0fb999d66e0cecf521c2ab3994c7992873ea99e306c1094fd5a
   [sharp-libvips-ebb95f8add54eee8bed840e3fb587e4cbec857d7.tar.gz]=65fdb633c2d97626352a3771b7a0ce30b6a89af03d2a1238491c8b068e6b8dad
   [cairo-1.18.6.tar.xz]=1c767308174337a74694da0f3ec069c271452163a1ef4540964c50c301f157d4
-  [gpl-3.0.txt]=3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986
-  [lgpl-3.0.txt]=e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118
-  [mpl-1.1.txt]=f849fc26a7a99981611a3a370e83078deb617d12a45776d6c4cada4d338be469
 )
 
 
@@ -247,14 +244,9 @@ PYEOF
   cp "$debx/data/data/com.termux/files/usr/share/doc/libandroid-shmem/copyright" "$assets/licenses/libandroid-shmem-copyright.txt"
   sed -n '1,/\*\//p' "$tprefix/include/talloc.h" > "$assets/licenses/libtalloc-notice.txt"
   tar -xOzf "$talloc_src" "talloc-$TALLOC_VERSION/LICENSE" > "$assets/licenses/libtalloc-LICENSE.txt"
-  local license
-  for license in gpl-3.0.txt lgpl-3.0.txt; do
-    fetch "$CACHE/licenses/$license" "${PIN[$license]}" "https://www.gnu.org/licenses/$license"
-    cp "$CACHE/licenses/$license" "$assets/licenses/"
-  done
-  fetch "$CACHE/licenses/mpl-1.1.txt" "${PIN[mpl-1.1.txt]}" \
-    "https://www.mozilla.org/media/MPL/1.1/index.0c5913925d40.txt"
-  cp "$CACHE/licenses/mpl-1.1.txt" "$assets/licenses/"
+  tar -xOzf "$base" usr/share/common-licenses/GPL-3 > "$assets/licenses/gpl-3.0.txt"
+  tar -xOzf "$base" usr/share/common-licenses/LGPL-3 > "$assets/licenses/lgpl-3.0.txt"
+  tar -xOzf "$base" usr/share/common-licenses/MPL-1.1 > "$assets/licenses/mpl-1.1.txt"
   cp "$HERE/SOURCES.md" "$assets/licenses/runtime-sources.md"
 
 
