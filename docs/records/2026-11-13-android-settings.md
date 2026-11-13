@@ -39,3 +39,11 @@ Android 12、WebView 96 的 Redmi Note 10 Pro 通过 USB 验证。远程 Debug �
 | --- | ---: | --- |
 | `outputs/android/wingmate-remote.apk` | 1,506,551 | `7816942eda5a1fa6615c98343776b22364e917e3971d729e8f07bfe63f6d59a4` |
 | `outputs/android/wingmate-local-arm64-v8a.apk` | 133,328,719 | `be68dc07f07eb1ee85eda0f76f2095649e9bb36816543cd651fb97a748559ead` |
+
+## 本机工作台离线连接
+
+真机无默认网络时，旧版 DSH 工作台可加载，侧栏显示「连接异常，刷新重试」。点击后在同一网络条件下连接成功。DSH 的浏览器连接控制器会按 `navigator.onLine` 暂停自动连接，手动重连会立即发起连接。Android 载荷中的补丁复用 DSH 的回环地址判断，让本机工作台直接按实际连接结果更新状态。
+
+覆盖安装后，在无默认网络的 Android 12、WebView 96 上验证冷启动及退出后自动进入。两次均直接加载默认工作区，重新进入复用了同一个 Node 进程，侧栏无连接异常。检查了补丁原始文件的版本与哈希，并验证非回环地址继续处理浏览器网络事件。
+
+本地 APK 为 133,328,719 字节，SHA-256 为 `a0c7e326e530373be6dc13ee10941c8328ab1982bcd210294019a0e91b79a7a8`。

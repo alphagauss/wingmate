@@ -8,6 +8,8 @@ DSH 使用 Wingmate 的 npm 锁安装 Linux ARM64 glibc 依赖，复用 [Office 
 
 本机工作台的 HTML 在 DSH 启动脚本前加载 WebView 兼容代码，补齐旧版 WebView 缺少的会话连接和工作区配置接口。升级 DSH 时，核对 HTML 注入位置和上游 API 用法。旧版 WebView 退出支持范围后可移除此补丁。
 
+本机工作台通过回环地址连接 DSH。Android 没有默认网络时，WebView 会报告离线，回环地址仍然可用。Android 载荷对回环页面使用实际的连接状态。升级 DSH 时，复验手机离线下的自动连接；上游能独立处理回环连接后可移除此补丁。
+
 DSH 在 Android 来宾的 `/root/Documents` 下创建默认工作区。来宾没有桌面环境的 XDG 目录查询工具，因此通过 DSH 的 Documents 路径配置指定位置。该目录随来宾用户数据保留。
 
 资源包的安装、启停与构建入口见 [Wingmate Android](../../apps/mobile/README.md)。

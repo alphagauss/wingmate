@@ -7,5 +7,14 @@
     "sha256": "d3581179edd3dde7208abdd098fa8a95387f84ec3076bea0d2b53e4e91f2d4ec",
     "before": "    <meta charset=\"utf-8\" />",
     "after": "    <meta charset=\"utf-8\" />\n    <script src=\"./assets/wingmate-webview-compat.js\"></script>"
+  },
+  {
+    "id": "allow-offline-loopback-workbench",
+    "package": "@deepseek-ai/dsh-client-connection",
+    "version": "0.2.2-rc.1",
+    "file": "lib/client.browser.js",
+    "sha256": "dfc3544eb894c74b340a4c4c63a8c125fd2e983df9efed5885712574af994e62",
+    "before": "if (browser === void 0 || initiallyAvailable === void 0) return () => {};",
+    "after": "if (browser === void 0 || initiallyAvailable === void 0 || isLoopbackHostname(browser.location.hostname)) return () => {};"
   }
 ]
