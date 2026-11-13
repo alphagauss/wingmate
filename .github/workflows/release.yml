@@ -54,7 +54,7 @@ jobs:
 
   android:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash
@@ -70,11 +70,26 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: actions/cache@v5
+        with:
+          path: work/cache/android
+          key: android-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('runtime/android/build-runtime.sh', 'runtime/android/release-sources.py', 'runtime/android/locks/**', 'runtime/package-lock.json', 'pnpm-lock.yaml') }}
       - run: node --test apps/mobile/test/*.test.mjs
-      - name: Build remote APK
+      - name: Prepare local runtime and corresponding sources
+        run: |
+          if ! command -v zstd >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y zstd
+          fi
+          mkdir release
+          bash runtime/android/build-runtime.sh "$RUNNER_TEMP/android-runtime-sources"
+          tar -cf release/wingmate-android-runtime-sources.tar -C "$RUNNER_TEMP" android-runtime-sources
+      - name: Build both APKs
         working-directory: apps/mobile/android
-        run: ./gradlew :app:testRemoteDebugUnitTest :app:assembleRemoteRelease --no-daemon
-      - name: Sign and verify remote APK
+        run: |
+          ./gradlew :app:testRemoteDebugUnitTest :app:testLocalDebugUnitTest :local-agent:testDebugUnitTest \
+            :app:assembleRemoteRelease :app:assembleLocalRelease --no-daemon
+      - name: Sign and verify both APKs
         env:
           KEYSTORE_BASE64: ${{ github.event_name == 'push' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
           KEYSTORE_PASSWORD: ${{ github.event_name == 'push' && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
@@ -98,31 +113,48 @@ jobs:
 
           tools="$ANDROID_HOME/build-tools/36.0.0"
           version="$(node -p "require('./package.json').version")"
-          mkdir release
-          source="apps/mobile/android/app/build/outputs/apk/remote/release/app-remote-release-unsigned.apk"
-          apk="release/wingmate-android-remote.apk"
-          "$tools/apksigner" sign --v4-signing-enabled false --ks "$keystore" --ks-key-alias "$KEY_ALIAS" \
-            --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD --out "$apk" "$source"
-          "$tools/apksigner" verify "$apk"
-          "$tools/zipalign" -c -P 16 4 "$apk"
-          "$tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/apk-badging"
-          "$tools/aapt" list "$apk" > "$RUNNER_TEMP/apk-files"
-          if grep -Eq '^(assets/runtime/|lib/)' "$RUNNER_TEMP/apk-files"; then
+          remote_code=
+          for flavor in remote local; do
+            source="apps/mobile/android/app/build/outputs/apk/$flavor/release/app-$flavor-release-unsigned.apk"
+            apk="release/wingmate-android-$flavor.apk"
+            "$tools/apksigner" sign --v4-signing-enabled false --ks "$keystore" --ks-key-alias "$KEY_ALIAS" \
+              --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD --out "$apk" "$source"
+            "$tools/apksigner" verify "$apk"
+            "$tools/zipalign" -c -P 16 4 "$apk"
+            "$tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/$flavor-badging"
+            "$tools/aapt" list "$apk" > "$RUNNER_TEMP/$flavor-files"
+            grep -F "versionName='$version'" "$RUNNER_TEMP/$flavor-badging"
+            code="$(sed -n "s/^package: .*versionCode='\([0-9][0-9]*\)'.*/\1/p" "$RUNNER_TEMP/$flavor-badging")"
+            [[ -n "$code" && "$code" == "${remote_code:-$code}" ]]
+            remote_code="$code"
+            if grep -q '^assets/launch/' "$RUNNER_TEMP/$flavor-files"; then
+              echo "::error::$flavor APK contains the retired WebView home"
+              exit 1
+            fi
+          done
+
+          grep -F "package: name='dev.wingmate.mobile' " "$RUNNER_TEMP/remote-badging"
+          if grep -Eq '^(assets/runtime/|lib/)' "$RUNNER_TEMP/remote-files"; then
             echo "::error::Remote APK contains local runtime files"
             exit 1
           fi
-          if grep -q '^assets/launch/' "$RUNNER_TEMP/apk-files"; then
-            echo "::error::Remote APK contains the retired WebView home"
-            exit 1
-          fi
-          grep -F "package: name='dev.wingmate.mobile' " "$RUNNER_TEMP/apk-badging"
-          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
-            grep -F "versionName='$version'" "$RUNNER_TEMP/apk-badging"
-          fi
+
+          grep -F "package: name='dev.wingmate.mobile.local' " "$RUNNER_TEMP/local-badging"
+          grep -Fx "sdkVersion:'26'" "$RUNNER_TEMP/local-badging"
+          grep -Fx "native-code: 'arm64-v8a'" "$RUNNER_TEMP/local-badging"
+          for entry in assets/runtime/{manifest.json,rootfs-arm64-v8a.tar.xz} \
+                       assets/runtime/licenses/{dsh-go-AGPL-3.0.txt,runtime-sources.md} \
+                       lib/arm64-v8a/{libproot.so,libproot-loader.so,libtalloc.so,libandroid-shmem.so}; do
+            grep -Fx "$entry" "$RUNNER_TEMP/local-files"
+          done
       - uses: actions/upload-artifact@v7
         with:
           name: wingmate-android
-          path: release/wingmate-android-remote.apk
+          compression-level: 0
+          path: |
+            release/wingmate-android-remote.apk
+            release/wingmate-android-local.apk
+            release/wingmate-android-runtime-sources.tar
           if-no-files-found: error
           overwrite: true
 
@@ -148,7 +180,8 @@ jobs:
         run: |
           tag="$GITHUB_REF_NAME"
           [[ "$(gh api "repos/$GH_REPO/commits/tags/$tag" --jq .sha)" == "$GITHUB_SHA" ]]
-          files=(wingmate-windows-x64.exe wingmate-android-remote.apk)
+          files=(wingmate-windows-x64.exe wingmate-android-remote.apk wingmate-android-local.apk
+                 wingmate-android-runtime-sources.tar)
           sha256sum "${files[@]}" > SHA256SUMS.txt
           files+=(SHA256SUMS.txt)
 
@@ -160,7 +193,14 @@ jobs:
           else
             flags=()
             if [[ "$tag" == *-* ]]; then flags+=(--prerelease); fi
-            gh release create "$tag" --verify-tag --draft --generate-notes "${flags[@]}"
+            cat > "$RUNNER_TEMP/release-notes.md" <<EOF
+          - \`wingmate-windows-x64.exe\` · Windows x64，需要 Node.js。
+          - \`wingmate-android-remote.apk\` · Android 远程版，连接已有 Wingmate 主机。
+          - \`wingmate-android-local.apk\` · Android 本地版，可在 Android 8.0 及以上的 ARM64 手机上运行 DSH。
+
+          本地 APK 按 AGPLv3 分发。[对应 Wingmate 源码和构建说明](https://github.com/$GH_REPO/tree/$GITHUB_SHA/apps/mobile)、[随包组件源码说明](https://github.com/$GH_REPO/blob/$GITHUB_SHA/runtime/android/SOURCES.md)及下方的 \`wingmate-android-runtime-sources.tar\` 随此版本提供。
+          EOF
+            gh release create "$tag" --verify-tag --draft --generate-notes --notes-file "$RUNNER_TEMP/release-notes.md" "${flags[@]}"
           fi
           gh release upload "$tag" "${files[@]}" --clobber
           gh release edit "$tag" --draft=false

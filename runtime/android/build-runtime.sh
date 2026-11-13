@@ -10,14 +10,19 @@ CACHE="$ROOT/work/cache/android"
 OUT="$ROOT/work/build/android"
 LOCKS="$HERE/locks"
 PY=(python3 -I "$HERE/lib/rtbuild.py")
+RELEASE_SOURCES="${1:-}"
+[[ $# -le 1 ]] || { echo "Usage: $0 [release-sources-dir]" >&2; exit 2; }
 NODE_VERSION=24.22.1
 PNPM_VERSION=11.28.5
 UBUNTU_VERSION=24.04.5
 PROOT_VERSION=5.1.107.102
 TALLOC_VERSION=2.5.0
 SHMEM_VERSION=0.7
+TERMUX_RECIPE=b734bc49dc0eedb2c454e1c5d3c48d35d81d4bc9
 PYTHON_VERSION=3.12.15
 PBS_RELEASE=20261021
+PBS_RECIPE=0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e
+SHARP_RECIPE=ebb95f8add54eee8bed840e3fb587e4cbec857d7
 NPM_REGISTRY="${npm_config_registry:-https://registry.npmmirror.com}"
 
 declare -A PIN=(
@@ -30,6 +35,16 @@ declare -A PIN=(
   [cpython-3.12.15+20261021-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz]=b4567aa5a11f51b540c4dfd9e082ebf23e554f8ac17b85caa6cea23e83693394
   # GPL-2.0 source of the proot binary (same archive Termux's build recipe pins); used for COPYING.
   [proot-v5.1.107.102.zip]=30d12a6e2cc4147123756ff58edea262d3083bbc238c12d0ab9b39e3d1c40852
+  [talloc-2.5.0.tar.gz]=912afa237510ae542a7733998eb18a12bcda35ab6729c8e2ddb43e8d0ebab007
+  [libandroid-shmem-0.7.tar.gz]=1e5ff8459bc0a8c229dd8a94b27d119987e09ef3414331c2b5ebfff20b98e867
+  [termux-packages-b734bc49dc0eedb2c454e1c5d3c48d35d81d4bc9.tar.gz]=71a87144a42f47c3e5951e1cd4cdf5364730746127b1fccf9066c1b12d69f511
+  [python-build-standalone-0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e.tar.gz]=11307e854a65298fbb986f5d758e1c60fc1f5da77f187b5329c4dd45a3b870f2
+  [Python-3.12.15.tar.xz]=c2c4321961fab0fb999d66e0cecf521c2ab3994c7992873ea99e306c1094fd5a
+  [sharp-libvips-ebb95f8add54eee8bed840e3fb587e4cbec857d7.tar.gz]=65fdb633c2d97626352a3771b7a0ce30b6a89af03d2a1238491c8b068e6b8dad
+  [cairo-1.18.6.tar.xz]=1c767308174337a74694da0f3ec069c271452163a1ef4540964c50c301f157d4
+  [gpl-3.0.txt]=3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986
+  [lgpl-3.0.txt]=e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118
+  [mpl-1.1.txt]=f849fc26a7a99981611a3a370e83078deb617d12a45776d6c4cada4d338be469
 )
 
 
@@ -145,6 +160,37 @@ build_runtime() {
   local proot_name="proot-v$PROOT_VERSION.zip"
   proot_src="$CACHE/termux/$proot_name"
   fetch "$proot_src" "${PIN[$proot_name]}" "https://codeload.github.com/termux/proot/zip/refs/tags/v$PROOT_VERSION"
+  local talloc_name="talloc-$TALLOC_VERSION.tar.gz" talloc_src="$CACHE/termux/talloc-$TALLOC_VERSION.tar.gz"
+  fetch "$talloc_src" "${PIN[$talloc_name]}" "https://www.samba.org/ftp/talloc/$talloc_name"
+
+  if [[ -n "$RELEASE_SOURCES" ]]; then
+    local shmem_name="libandroid-shmem-$SHMEM_VERSION.tar.gz" recipes="termux-packages-$TERMUX_RECIPE.tar.gz"
+    local shmem_src="$CACHE/termux/$shmem_name"
+    fetch "$shmem_src" "${PIN[$shmem_name]}" \
+      "https://codeload.github.com/termux/libandroid-shmem/tar.gz/refs/tags/v$SHMEM_VERSION"
+    mkdir -p "$RELEASE_SOURCES/termux"
+    cp "$proot_src" "$talloc_src" "$shmem_src" "$RELEASE_SOURCES/termux/"
+    fetch "$CACHE/termux/$recipes" "${PIN[$recipes]}" \
+      "https://codeload.github.com/termux/termux-packages/tar.gz/$TERMUX_RECIPE"
+    cp "$CACHE/termux/$recipes" "$RELEASE_SOURCES/termux/"
+    local pbs_recipes="python-build-standalone-$PBS_RECIPE.tar.gz" cpython="Python-$PYTHON_VERSION.tar.xz"
+    fetch "$CACHE/python/$pbs_recipes" "${PIN[$pbs_recipes]}" \
+      "https://codeload.github.com/astral-sh/python-build-standalone/tar.gz/$PBS_RECIPE"
+    fetch "$CACHE/python/$cpython" "${PIN[$cpython]}" \
+      "https://www.python.org/ftp/python/$PYTHON_VERSION/$cpython"
+    mkdir -p "$RELEASE_SOURCES/python"
+    cp "$CACHE/python/"{"$pbs_recipes","$cpython"} "$RELEASE_SOURCES/python/"
+
+    local sharp_recipes="sharp-libvips-$SHARP_RECIPE.tar.gz" cairo="cairo-1.18.6.tar.xz"
+    fetch "$CACHE/sharp/$sharp_recipes" "${PIN[$sharp_recipes]}" \
+      "https://codeload.github.com/lovell/sharp-libvips/tar.gz/$SHARP_RECIPE"
+    fetch "$CACHE/sharp/$cairo" "${PIN[$cairo]}" "https://cairographics.org/releases/$cairo"
+    mkdir -p "$RELEASE_SOURCES/sharp-libvips"
+    cp "$CACHE/sharp/"{"$sharp_recipes","$cairo"} "$RELEASE_SOURCES/sharp-libvips/"
+
+    python3 -B "$HERE/release-sources.py" --base "$base" "${extra_debs[@]/#/--deb=}" \
+      --cache "$CACHE/sources/ubuntu" --out "$RELEASE_SOURCES/ubuntu"
+  fi
 
   # -- jniLibs: Termux binaries, renamed lib*.so so the package manager extracts them --
   local debx="$work/debs"
@@ -198,6 +244,16 @@ open(sys.argv[2], "wb").write(z.read(name))
 PYEOF
   cp "$debx/data/data/com.termux/files/usr/share/doc/libandroid-shmem/copyright" "$assets/licenses/libandroid-shmem-copyright.txt"
   sed -n '1,/\*\//p' "$tprefix/include/talloc.h" > "$assets/licenses/libtalloc-notice.txt"
+  tar -xOzf "$talloc_src" "talloc-$TALLOC_VERSION/LICENSE" > "$assets/licenses/libtalloc-LICENSE.txt"
+  local license
+  for license in gpl-3.0.txt lgpl-3.0.txt; do
+    fetch "$CACHE/licenses/$license" "${PIN[$license]}" "https://www.gnu.org/licenses/$license"
+    cp "$CACHE/licenses/$license" "$assets/licenses/"
+  done
+  fetch "$CACHE/licenses/mpl-1.1.txt" "${PIN[mpl-1.1.txt]}" \
+    "https://www.mozilla.org/media/MPL/1.1/index.0c5913925d40.txt"
+  cp "$CACHE/licenses/mpl-1.1.txt" "$assets/licenses/"
+  cp "$HERE/SOURCES.md" "$assets/licenses/runtime-sources.md"
 
 
   cp "$HERE/LICENSE.dsh-go" "$assets/licenses/dsh-go-AGPL-3.0.txt"
@@ -243,7 +299,7 @@ YAML
         awk '{print $1}'
       sha256sum "$HERE/build-runtime.sh" "$HERE/lib/rtbuild.py" "$HERE/prepare-dsh.mjs" "$HERE/guest/"*.mjs \
         "$HERE/patches/dsh-$dsh_version.json" "$HERE/webview-compat.js" \
-        "$HERE/LICENSE.dsh-go" "$ROOT/runtime/package.json" "$ROOT/runtime/package-lock.json" \
+        "$HERE/LICENSE.dsh-go" "$HERE/SOURCES.md" "$ROOT/runtime/package.json" "$ROOT/runtime/package-lock.json" \
         "$LOCKS/pnpm-$PNPM_VERSION/package.json" "$LOCKS/pnpm-$PNPM_VERSION/package-lock.json" \
         "$ROOT/scripts/runtime-files.mjs" "$ROOT/scripts/runtime-patches.mjs" \
         "$ROOT/runtime/patches/dsh-$dsh_version.json" "$patch" | awk '{print $1}'

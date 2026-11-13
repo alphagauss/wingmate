@@ -4,6 +4,8 @@
 
 Linux 基础包、Node、Python 和 PRoot 按 [dsh-Go 的 288234ae](https://github.com/ccch1mneyyy/dsh-Go/tree/288234ae52fdfcfc2b0a0388763c371d0b09ea7d) 移植。保留 Ubuntu 的 apt/dpkg、Git、时区和证书，保留 Node 的 npm、pnpm 与 Python 的 pip、venv。文档、缓存、Python 测试和 GUI 组件按上游规则裁剪。Ubuntu deb 锁从该基础包信任的签名索引生成。PRoot 二进制采用 Termux 包及其构建配方，重命名为 Android APK 可携带的原生库并修正 talloc 动态库名。
 
+新安装的 Python 裁掉静态链接 Berkeley DB 的 `_dbm` 扩展。新建 `dbm` 数据库可使用 `dbm.dumb`，已有 `dbm.ndbm` 数据库需在带原扩展的环境中读取。Ubuntu 的 PAM、Perl 和 SASL 模块仍依赖系统 `libdb5.3`，该库继续随包提供。
+
 从 dsh-Go 移植的构建脚本及辅助代码沿用 AGPLv3，包括 [`build-runtime.sh`](build-runtime.sh) 和 [`lib/rtbuild.py`](lib/rtbuild.py)。载荷中各第三方软件包适用各自的许可证。[dsh-Go 许可文本](LICENSE.dsh-go)
 
 DSH 使用 Wingmate 的 npm 锁安装 Linux ARM64 glibc 依赖，复用 [Office 裁剪与预览替换](../../plugins/wingmate-file-viewer/README.md#上游适配)。手机本地管理由 Kotlin 模块提供。生成目录、参考仓库和开发机器上的 npm 安装树均独立于载荷输入。
@@ -15,3 +17,5 @@ DSH 使用 Wingmate 的 npm 锁安装 Linux ARM64 glibc 依赖，复用 [Office 
 DSH 在 Android 来宾的 `/root/Documents` 下创建默认工作区。来宾没有桌面环境的 XDG 目录查询工具，因此通过 DSH 的 Documents 路径配置指定位置。该目录随来宾用户数据保留。
 
 资源包的安装、启停与构建入口见 [Wingmate Android](../../apps/mobile/README.md)。
+
+发行流程用 `bash runtime/android/build-runtime.sh <源码输出目录>` 同时准备 Gradle 载荷和源码归档的输入。Ubuntu 源码从实际选入的二进制包版本解析，归档包括其 `.dsc`、源码和补丁。其余来源见 [随包组件源码说明](SOURCES.md)。

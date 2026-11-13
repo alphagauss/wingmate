@@ -55,4 +55,4 @@ Debug 构建的工作台可通过 ADB 转发 WebView DevTools 端口，检查前
 
 连接首页、配对和发现、移动端文案与样式、工作台桥接采用 Wingmate 的实现。早期 APK 的移植范围和来源见[远程版历史记录](../../docs/records/2026-11-12-android-remote.md)。
 
-本地版将 `local-agent` 与应用代码作为一个 AGPLv3 组合程序分发。发布 APK 时应提供对应版本的源码、构建脚本和补丁，并保留适用的许可与版权声明。载荷中独立软件包按各自的许可证提供声明和对应源码。[AGPLv3 第 5、6 条](https://opensource.org/license/agpl-3-0) · [本地运行载荷](../../runtime/android/README.md)
+本地版将 `local-agent` 与应用代码作为一个 AGPLv3 组合程序分发。[GitHub Releases](https://github.com/alphagauss/wingmate/releases) 随本地 APK 提供对应版本的源码、构建脚本和补丁。载荷中独立软件包按各自的许可证提供声明和对应源码。[AGPLv3 第 5、6 条](https://www.gnu.org/licenses/agpl-3.0.html) · [随包组件源码说明](../../runtime/android/SOURCES.md)
