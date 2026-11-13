@@ -38,7 +38,7 @@ internal class WorkbenchLoading(
         visibility = GONE
     }
 
-    fun start() {
+    fun start(engineStatus: String? = null) {
         removeCallbacks(timeout)
         show()
         body.addView(ImageView(context).apply {
@@ -53,12 +53,18 @@ internal class WorkbenchLoading(
             includeFontPadding = false
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = context.dp(6) })
         body.addView(BreathingDots(context, ui.foreground).apply {
-            contentDescription = labels["connection.loading"]
-            importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
+            contentDescription = labels["connection.loading"].takeIf { engineStatus == null }
+            importantForAccessibility = if (engineStatus == null) IMPORTANT_FOR_ACCESSIBILITY_YES
+                else IMPORTANT_FOR_ACCESSIBILITY_NO
         }, LinearLayout.LayoutParams(
             context.dp(44), context.dp(24)
         ).apply { topMargin = context.dp(18) })
-        postDelayed(timeout, 20_000)
+        if (engineStatus == null) {
+            postDelayed(timeout, 20_000)
+        } else {
+            body.addView(ui.text(engineStatus, 14f).apply { gravity = Gravity.CENTER },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = context.dp(8) })
+        }
     }
 
     fun stop() {

@@ -27,16 +27,21 @@ private class EngineSettings(
     private val preferences = activity.getSharedPreferences("local_engine", AppCompatActivity.MODE_PRIVATE)
     private val status get() = requireNotNull(LocalRuntime.status.value)
     private val installed get() = LocalRuntime.isInstalled(activity)
+    private var statusBeforeStart: RuntimeStatus? = null
 
     override val openWorkbench: (() -> Unit)?
         get() = if (status is RuntimeStatus.Ready) ::openCurrentWorkbench else null
     private val autoStartOnLaunch: Boolean
         get() = preferences.getBoolean("auto_start", false)
 
+    override val launchPending: Boolean
+        get() = status === statusBeforeStart || status is RuntimeStatus.Installing || status == RuntimeStatus.Starting
+
     override fun startOnLaunch(): Boolean {
         val state = status
         if (!autoStartOnLaunch || !installed || state == RuntimeStatus.Stopping) return false
         if (state == RuntimeStatus.Stopped || state is RuntimeStatus.Failed) {
+            statusBeforeStart = state
             LocalRuntime.start(activity)
         }
         return true
@@ -58,7 +63,10 @@ private class EngineSettings(
         }]
 
     override fun observe(changed: () -> Unit) {
-        LocalRuntime.status.observe(activity) { changed() }
+        LocalRuntime.status.observe(activity) {
+            if (it !== statusBeforeStart) statusBeforeStart = null
+            changed()
+        }
     }
 
     override fun render(ui: SettingsUi, body: LinearLayout) = with(ui) {

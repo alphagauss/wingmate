@@ -199,7 +199,9 @@ internal class RemoteHostSettings(
     }
 
     private fun disconnect() {
-        activity.startActivity(Intent(activity, MainActivity::class.java).putExtra(OPEN_HOST_SELECTION, true))
+        activity.startActivity(Intent(activity, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra(OPEN_HOST_SELECTION, true))
         activity.finish()
     }
 }

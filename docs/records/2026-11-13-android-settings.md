@@ -21,3 +21,12 @@ Android 12、WebView 96 的 Redmi Note 10 Pro 通过 USB 验证。远程 Debug �
 | --- | ---: | --- |
 | `outputs/android/wingmate-remote.apk` | 1,506,551 | `c7fe0cc8c8875fd86732796d2f7084cdec0e1025eedc7f6744bf2583890427d5` |
 | `outputs/android/wingmate-local-arm64-v8a.apk` | 133,328,719 | `be31239f98a7d5160e55d60450c674e6829a6ebec09a207a30fd63fc6e71020f` |
+
+## 从桌面重新打开与本机启动页
+
+在同一台手机上通过桌面图标验证。两个启动开关开启时，冷启动先显示「正在启动 DSH」，引擎就绪后进入本机工作台。按 Home 再点图标恢复同一个工作台页面。按系统返回依次回到连接首页和桌面，再点图标自动打开本机工作台，Node PID 保持一致。手动断开继续显示主机列表，可再次选择本机工作台。
+
+| 最新产物 | 字节 | SHA-256 |
+| --- | ---: | --- |
+| `outputs/android/wingmate-remote.apk` | 1,506,551 | `a78fd8ce8e37a3ccf9494a65de09ca81badf8fd46e1d6dda88b176cdb3ccd8a1` |
+| `outputs/android/wingmate-local-arm64-v8a.apk` | 133,328,719 | `4be9204c6c17e4365e74935f80b2a898c4cb7be3fbc377f3cabd4313149e3b36` |

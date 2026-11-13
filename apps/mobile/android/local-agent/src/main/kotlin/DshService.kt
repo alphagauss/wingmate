@@ -70,7 +70,9 @@ class DshService : Service() {
     }
 
     private fun notification(status: RuntimeStatus): Notification {
-        val launch = packageManager.getLaunchIntentForPackage(packageName)?.putExtra("openLocalAgent", true)
+        val launch = packageManager.getLaunchIntentForPackage(packageName)
+            ?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            ?.putExtra("openLocalAgent", true)
         val builder = Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_menu_manage)
             .setContentTitle(getString(R.string.local_runtime_title))

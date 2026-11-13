@@ -4,22 +4,26 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.res.Configuration
 import android.os.Bundle
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.webkit.WebViewAssetLoader
+import dev.wingmate.mobile.i18n.ConnectionStrings
 import dev.wingmate.mobile.launch.ConnectionBridge
 import dev.wingmate.mobile.remote.ConnectionFlow
 import dev.wingmate.mobile.settings.AppPreferences
 import dev.wingmate.mobile.settings.AppSettings
 import dev.wingmate.mobile.theme.applyWindowInsets
 import dev.wingmate.mobile.web.WorkbenchActivity
+import dev.wingmate.mobile.web.WorkbenchLoading
 import java.io.ByteArrayInputStream
 
 // Keep the previous local WebView origin to import saved connections from older APKs.
@@ -32,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var bridge: ConnectionBridge
     private lateinit var appSettings: AppSettings
+    private lateinit var startupLoading: WorkbenchLoading
     private var openLocalOnLaunch = false
     private val connections = ConnectionFlow(this, onConnectionRequested = { bridge.cancelDiscovery() })
 
@@ -77,28 +82,38 @@ class MainActivity : AppCompatActivity() {
         val startLocal = openOnLaunch && localAgent?.startOnLaunch() == true
         val autoConnect = openOnLaunch && AppPreferences(this).autoConnect
         openLocalOnLaunch = autoConnect && (startLocal || localAgent?.openWorkbench != null)
+        startupLoading = WorkbenchLoading(this, ::cancelLocalOpen, appSettings::openLocal)
         bridge = ConnectionBridge(this, webView, connections, appSettings::open, appSettings::openRemote,
-            localAgent, appSettings::openLocal, autoConnect && !openLocalOnLaunch) { openLocalOnLaunch = false }
+            localAgent, appSettings::openLocal, autoConnect && !openLocalOnLaunch, ::cancelLocalOpen)
         webView.addJavascriptInterface(bridge, CONNECTION_BRIDGE)
         setContentView(FrameLayout(this).apply {
             addView(appSettings.view, FrameLayout.LayoutParams(-1, -1))
+            addView(startupLoading, FrameLayout.LayoutParams(-1, -1))
             applyWindowInsets()
         })
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (!appSettings.back()) {
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
-                    isEnabled = true
+                when {
+                    openLocalOnLaunch -> cancelLocalOpen()
+                    !appSettings.back() -> finish()
                 }
             }
         })
         webView.loadUrl("http://$LAUNCH_HOST${LAUNCH_PATH}index.html")
+        if (openLocalOnLaunch) {
+            appSettings.view.visibility = View.INVISIBLE
+            startupLoading.start(ConnectionStrings(this)["localAgent.starting"])
+        }
         localAgent?.observe {
             bridge.updateLocalEntry()
-            if (openLocalOnLaunch) localAgent.openWorkbench?.let { open ->
+            if (!openLocalOnLaunch) return@observe
+            val open = localAgent.openWorkbench
+            if (open != null) {
                 openLocalOnLaunch = false
                 open()
+            } else if (!localAgent.launchPending) {
+                cancelLocalOpen()
+                Toast.makeText(this, localAgent.summary, Toast.LENGTH_LONG).show()
             }
         }
         openRequestedSettings(intent)
@@ -116,7 +131,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
-        openLocalOnLaunch = false
+        cancelLocalOpen()
         bridge.cancelStartupConnection()
         super.onStop()
     }
@@ -129,18 +144,24 @@ class MainActivity : AppCompatActivity() {
     private fun openRequestedSettings(intent: Intent) {
         when {
             intent.getBooleanExtra(OPEN_HOST_SELECTION, false) -> {
-                openLocalOnLaunch = false
+                cancelLocalOpen()
                 bridge.cancelStartupConnection()
                 intent.removeExtra(OPEN_HOST_SELECTION)
                 appSettings.showHostSelection()
             }
             intent.getBooleanExtra("openLocalAgent", false) -> {
-                openLocalOnLaunch = false
+                cancelLocalOpen()
                 bridge.cancelStartupConnection()
                 intent.removeExtra("openLocalAgent")
                 appSettings.openLocal()
             }
         }
+    }
+
+    private fun cancelLocalOpen() {
+        openLocalOnLaunch = false
+        startupLoading.stop()
+        appSettings.view.visibility = View.VISIBLE
     }
 
     override fun onDestroy() {
