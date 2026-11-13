@@ -22,7 +22,7 @@
 
 ## Git 提交约定
 
-Git 提交消息统一使用中文，包括标题和正文。
+Git 提交标题沿用 DeepSeek Harness 的 `type(scope): 中文摘要` 格式。`type` 是英文提交类别，`scope` 是英文模块名。正文使用中文。例如 `fix(android): 恢复工作台自动连接`、`docs(repo): 更新提交约定`。
 
 ## 文档维护约定
 
