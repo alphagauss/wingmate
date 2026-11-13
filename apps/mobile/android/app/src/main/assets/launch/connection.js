@@ -44,14 +44,14 @@ function setScanning(active, text = '', cancellable = true) {
   document.querySelector('#cancel-scan').hidden = !cancellable
 }
 
-async function discover({ historyOnly = false, skip } = {}) {
+async function discover({ historyOnly = false } = {}) {
   const request = ++generation
   message()
   setScanning(true, historyOnly
     ? label('connection.checkingHistory', '寻找可用连接')
     : label('connection.scanning', '扫描局域网端口中...'))
   try {
-    await action('discover', { historyOnly, skip })
+    await action('discover', { historyOnly })
   }
   catch (error) {
     if (request === generation)
@@ -91,7 +91,6 @@ async function scan() {
   }
 }
 
-window.scanAfterDisconnect = skip => { void discover({ skip }) }
 document.querySelector('#discover').onclick = () => discover()
 document.querySelector('#cancel-scan').onclick = cancelScan
 document.querySelector('#scan').onclick = scan

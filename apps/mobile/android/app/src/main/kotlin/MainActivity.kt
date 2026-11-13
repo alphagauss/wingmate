@@ -19,30 +19,25 @@ import dev.wingmate.mobile.remote.ConnectionFlow
 import dev.wingmate.mobile.settings.AppSettings
 import dev.wingmate.mobile.theme.applyWindowInsets
 import dev.wingmate.mobile.web.WorkbenchActivity
-import org.json.JSONObject
 import java.io.ByteArrayInputStream
 
 // Keep the previous local WebView origin to import saved connections from older APKs.
 private const val LAUNCH_HOST = "tauri.localhost"
 private const val LAUNCH_PATH = "/assets/launch/"
 private const val CONNECTION_BRIDGE = "wingmateConnection"
+internal const val OPEN_HOST_SELECTION = "openHostSelection"
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var bridge: ConnectionBridge
     private lateinit var appSettings: AppSettings
-    private val connections = ConnectionFlow(
-        this,
-        onConnectionRequested = { bridge.cancelDiscovery() },
-        onDisconnect = { previous ->
-            webView.evaluateJavascript("window.scanAfterDisconnect?.(${JSONObject.quote(previous)})", null)
-        }
-    )
+    private val connections = ConnectionFlow(this, onConnectionRequested = { bridge.cancelDiscovery() })
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        val openOnLaunch = savedInstanceState == null && !intent.getBooleanExtra(OPEN_HOST_SELECTION, false)
         val localAgent = localEngineSettings(this) { link ->
             appSettings.close()
             startActivity(Intent(this, WorkbenchActivity::class.java)
@@ -77,7 +72,7 @@ class MainActivity : AppCompatActivity() {
         appSettings = AppSettings(this, webView, connections, localEngine = localAgent,
             languageChanged = { bridge.updateLabels() })
         bridge = ConnectionBridge(this, webView, connections, appSettings::open, appSettings::openRemote,
-            (appSettings::openLocal).takeIf { localAgent != null })
+            (appSettings::openLocal).takeIf { localAgent != null }, openOnLaunch)
         webView.addJavascriptInterface(bridge, CONNECTION_BRIDGE)
         setContentView(FrameLayout(this).apply {
             addView(appSettings.view, FrameLayout.LayoutParams(-1, -1))
@@ -93,8 +88,8 @@ class MainActivity : AppCompatActivity() {
             }
         })
         webView.loadUrl("http://$LAUNCH_HOST${LAUNCH_PATH}index.html")
-        if (savedInstanceState == null) autoStartLocalEngine(this)
-        openLocalFromNotification(intent)
+        if (openOnLaunch) autoStartLocalEngine(this)
+        openRequestedSettings(intent)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -105,7 +100,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        openLocalFromNotification(intent)
+        openRequestedSettings(intent)
     }
 
     override fun onResume() {
@@ -113,10 +108,16 @@ class MainActivity : AppCompatActivity() {
         appSettings.refresh()
     }
 
-    private fun openLocalFromNotification(intent: Intent) {
-        if (intent.getBooleanExtra("openLocalAgent", false)) {
-            intent.removeExtra("openLocalAgent")
-            appSettings.openLocal()
+    private fun openRequestedSettings(intent: Intent) {
+        when {
+            intent.getBooleanExtra(OPEN_HOST_SELECTION, false) -> {
+                intent.removeExtra(OPEN_HOST_SELECTION)
+                appSettings.showHostSelection()
+            }
+            intent.getBooleanExtra("openLocalAgent", false) -> {
+                intent.removeExtra("openLocalAgent")
+                appSettings.openLocal()
+            }
         }
     }
 

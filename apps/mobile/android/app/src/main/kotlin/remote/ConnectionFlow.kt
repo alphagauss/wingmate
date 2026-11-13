@@ -9,16 +9,12 @@ import dev.wingmate.mobile.web.WorkbenchActivity
 
 internal class ConnectionFlow(
     private val activity: ComponentActivity,
-    private val onConnectionRequested: () -> Unit = {},
-    onDisconnect: (String) -> Unit = {}
+    private val onConnectionRequested: () -> Unit = {}
 ) {
     val store by lazy { ConnectionStore(activity) }
     private val labels by lazy { ConnectionStrings(activity) }
     private var scanningResult: ((String?) -> Unit)? = null
     private var attempt = 0
-    private val workbench = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        it.data?.getStringExtra("scanAfterDisconnect")?.let(onDisconnect)
-    }
     private val scanner = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         val result = scanningResult
         scanningResult = null
@@ -65,11 +61,7 @@ internal class ConnectionFlow(
     fun launch(target: ConnectionTarget) {
         store.remember(target.origin)
         val intent = Intent(activity, WorkbenchActivity::class.java).putExtra("link", target.link)
-        if (activity is WorkbenchActivity) {
-            activity.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT))
-            activity.finish()
-        } else {
-            workbench.launch(intent)
-        }
+        activity.startActivity(intent)
+        if (activity is WorkbenchActivity) activity.finish()
     }
 }

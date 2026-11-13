@@ -1,7 +1,7 @@
 {
   "app.name": "Wingmate",
   "settings.switchHost": "Switch host",
-  "settings.thisPhone": "This phone",
+  "localAgent.workbench": "Local workbench",
   "localAgent.noLogs": "No runtime logs yet",
   "localAgent.backgroundHint": "Allow Wingmate to run in the background in system battery settings. On MIUI, you can also set the app's battery usage to No restrictions.",
   "localAgent.stopConfirm": "This will interrupt tasks running on this phone.",
@@ -15,7 +15,6 @@
   "localAgent.notInstalled": "Not installed",
   "settings.title": "Settings",
   "settings.back": "Back",
-  "settings.hosts": "Hosts",
   "settings.remoteHosts": "Remote hosts",
   "settings.search": "Search settings",
   "settings.noResults": "No matching settings",

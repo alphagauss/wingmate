@@ -1,7 +1,7 @@
 {
   "app.name": "Wingmate",
   "settings.switchHost": "Сменить хост",
-  "settings.thisPhone": "Этот телефон",
+  "localAgent.workbench": "Локальная рабочая область",
   "localAgent.noLogs": "Журнал пока пуст",
   "localAgent.backgroundHint": "Разрешите Wingmate работать в фоне в настройках батареи. В MIUI также можно выбрать «Без ограничений» для приложения.",
   "localAgent.stopConfirm": "Выполняемые на телефоне задачи будут прерваны.",
@@ -15,7 +15,6 @@
   "localAgent.notInstalled": "Не установлен",
   "settings.title": "Настройки",
   "settings.back": "Назад",
-  "settings.hosts": "Хосты",
   "settings.remoteHosts": "Удалённые хосты",
   "settings.search": "Поиск настроек",
   "settings.noResults": "Настройки не найдены",

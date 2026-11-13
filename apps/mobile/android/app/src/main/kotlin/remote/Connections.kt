@@ -119,13 +119,11 @@ internal class NoLanNetwork : Exception()
 internal fun discoverConnection(
     context: Context,
     history: List<SavedConnection>,
-    historyOnly: Boolean,
-    skip: String?
+    historyOnly: Boolean
 ): String? {
     val workers = Executors.newFixedThreadPool(40)
     try {
-        val previous = history.filterNot { it.origin == skip }
-        val known = workers.invokeAll(previous.map { entry ->
+        val known = workers.invokeAll(history.map { entry ->
             java.util.concurrent.Callable { entry.origin.takeIf { probeConnection(it) } }
         }, 3, TimeUnit.SECONDS)
         known.firstNotNullOfOrNull { if (it.isCancelled) null else it.get() }?.let { return it }
@@ -144,7 +142,7 @@ internal fun discoverConnection(
             listOf(3088, 3080)).filter { it > 0 }.distinct()
         val candidates = ports.flatMap { port ->
             (1..254).map { "$subnet.$it" }.filterNot { it == ip }.map { "http://$it:$port" }
-        }.filterNot { it == skip }
+        }
         val cursor = AtomicInteger()
         val results = ExecutorCompletionService<String?>(workers)
         repeat(minOf(40, candidates.size)) {

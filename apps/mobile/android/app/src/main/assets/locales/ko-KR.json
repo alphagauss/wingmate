@@ -1,7 +1,7 @@
 {
   "app.name": "Wingmate",
   "settings.switchHost": "호스트 전환",
-  "settings.thisPhone": "이 휴대전화",
+  "localAgent.workbench": "로컬 작업대",
   "localAgent.noLogs": "런타임 로그 없음",
   "localAgent.backgroundHint": "시스템 배터리 설정에서 Wingmate의 백그라운드 실행을 허용하세요. MIUI에서는 앱 배터리 설정에서 제한 없음을 선택할 수도 있습니다.",
   "localAgent.stopConfirm": "이 작업은 휴대전화에서 실행 중인 작업을 중단합니다.",
@@ -15,7 +15,6 @@
   "localAgent.notInstalled": "설치되지 않음",
   "settings.title": "설정",
   "settings.back": "뒤로",
-  "settings.hosts": "호스트",
   "settings.remoteHosts": "원격 호스트",
   "settings.search": "설정 검색",
   "settings.noResults": "일치하는 설정 없음",

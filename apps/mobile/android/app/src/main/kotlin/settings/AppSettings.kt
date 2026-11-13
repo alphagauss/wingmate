@@ -51,6 +51,7 @@ internal class AppSettings(
 
     fun open() = open(Page.HOME)
     fun openRemote() = open(Page.REMOTE)
+    fun showHostSelection() = show(Page.REMOTE)
     fun openLocal() {
         if (localEngine == null) return
         if (!overlay.showing) open(Page.LOCAL)
@@ -64,6 +65,10 @@ internal class AppSettings(
 
     private fun open(start: Page) {
         if (overlay.showing) return
+        show(start)
+    }
+
+    private fun show(start: Page) {
         firstPage = start
         fromSearch = false
         searchQuery = ""
@@ -126,8 +131,7 @@ internal class AppSettings(
                 Page.REMOTE -> remote.attach(ui, this, localEngine?.openWorkbench)
                 Page.NOTIFICATIONS -> general.notifications(ui, this)
                 Page.PERMISSIONS -> general.permissions(ui, this)
-                Page.DIAGNOSTICS -> general.diagnostics(ui, this,
-                    if (localCurrent) labels["localAgent.title"] else remote.currentName)
+                Page.DIAGNOSTICS -> general.diagnostics(ui, this, remote.currentName)
                 Page.ABOUT -> general.about(ui, this)
                 Page.LOCAL -> localEngine?.render(ui, this)
             }
@@ -167,7 +171,8 @@ internal class AppSettings(
             setPadding(0, activity.dp(16), 0, 0)
         }
         body.addView(matches)
-        val items = groups().flatMap { it.items }
+        val items = groups().flatMap { it.items } + item(Page.REMOTE, R.drawable.ic_settings_host) +
+            listOfNotNull(localEngine?.let { item(Page.LOCAL, R.drawable.ic_settings_engine) })
         fun update(query: String) {
             matches.removeAllViews()
             val found = items.filter { labels[it.title].contains(query.trim(), ignoreCase = true) }
@@ -189,10 +194,6 @@ internal class AppSettings(
             item(Page.NOTIFICATIONS, R.drawable.ic_settings_bell, general.state(general.notificationsEnabled)),
             item(Page.PERMISSIONS, R.drawable.ic_settings_shield)
         )))
-        add(Group("settings.hosts", SettingsUi.Tone.HOSTS, buildList {
-            localEngine?.let { add(item(Page.LOCAL, R.drawable.ic_settings_engine, it.summary)) }
-            add(item(Page.REMOTE, R.drawable.ic_settings_host, remote.count.takeIf { it > 0 }?.toString()))
-        }))
         add(Group("settings.help", SettingsUi.Tone.HELP, listOf(
             item(Page.DIAGNOSTICS, R.drawable.ic_settings_engine),
             item(Page.ABOUT, R.drawable.ic_settings_info, general.version)

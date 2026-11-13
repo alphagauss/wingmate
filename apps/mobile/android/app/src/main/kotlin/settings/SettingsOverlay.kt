@@ -37,11 +37,12 @@ internal class SettingsOverlay(
     }
 
     fun open() {
-        if (showing) return
+        if (showing && !closing) return
         context.getSystemService(InputMethodManager::class.java)
             .hideSoftInputFromWindow(windowToken, 0)
         workbench.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-        translate(1f)
+        if (!showing) translate(1f)
+        closing = false
         page.visibility = VISIBLE
         page.getChildAt(0).requestFocus()
         slideTo(0f)

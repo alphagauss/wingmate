@@ -1,6 +1,5 @@
 package dev.wingmate.mobile.remote
 
-import android.app.Activity
 import android.content.Intent
 import android.view.View
 import android.webkit.CookieManager
@@ -8,6 +7,8 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import dev.wingmate.mobile.MainActivity
+import dev.wingmate.mobile.OPEN_HOST_SELECTION
 import dev.wingmate.mobile.R
 import dev.wingmate.mobile.i18n.ConnectionStrings
 import dev.wingmate.mobile.settings.AppPreferences
@@ -38,9 +39,8 @@ internal class RemoteHostSettings(
         }
     }
 
-    val count: Int get() = flow.store.entries().size
     val currentName: String?
-        get() = if (localCurrent) labels["settings.thisPhone"] else current?.let { origin ->
+        get() = if (localCurrent) labels["localAgent.workbench"] else current?.let { origin ->
             (flow.store.entries().firstOrNull { it.origin == origin } ?: SavedConnection(origin)).label
         }
 
@@ -68,17 +68,20 @@ internal class RemoteHostSettings(
         with(ui) {
             notice?.let { body.addView(colors.text(it, 14f, colors.danger)) }
             body.section(labels["connection.currentConnection"]) {
-                if (current == null) {
-                    addView(row(currentName ?: labels["connection.noConnection"]))
-                } else {
+                if (current != null) {
                     addView(hostRow(entries.firstOrNull { it.origin == current } ?: SavedConnection(current)))
-                    addView(row(labels["connection.disconnect"], action = { disconnect(scan = true) }))
+                } else {
+                    addView(row(currentName ?: labels["connection.noConnection"],
+                        icon = R.drawable.ic_settings_engine.takeIf { localCurrent }))
+                }
+                if (current != null || localCurrent) {
+                    addView(row(labels["connection.disconnect"], action = ::disconnect))
                 }
             }
             if (!localCurrent) openLocal?.let { open ->
                 body.section {
-                    addView(row(labels["settings.thisPhone"], value = labels["localAgent.running"],
-                        icon = R.drawable.ic_settings_engine, action = open))
+                    addView(row(labels["localAgent.workbench"], value = labels["connection.available"],
+                        icon = R.drawable.ic_settings_engine, valueColor = success, action = open))
                 }
             }
             body.section(labels["connection.recentConnections"]) {
@@ -190,14 +193,13 @@ internal class RemoteHostSettings(
                         cookies.setCookie(entry.origin, "$name=; Path=/; Max-Age=0; HttpOnly$secure")
                 }
                 cookies.flush()
-                if (active) disconnect(scan = false) else render()
+                if (active) activity.finish() else render()
             }
             .show()
     }
 
-    private fun disconnect(scan: Boolean) {
-        if (current == null) return
-        if (scan) activity.setResult(Activity.RESULT_OK, Intent().putExtra("scanAfterDisconnect", current))
+    private fun disconnect() {
+        activity.startActivity(Intent(activity, MainActivity::class.java).putExtra(OPEN_HOST_SELECTION, true))
         activity.finish()
     }
 }

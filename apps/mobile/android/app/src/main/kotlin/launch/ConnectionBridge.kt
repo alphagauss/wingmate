@@ -18,6 +18,7 @@ internal class ConnectionBridge(
     private val openSettings: () -> Unit,
     private val openRemote: () -> Unit,
     private val openLocalAgent: (() -> Unit)?,
+    private val openOnLaunch: Boolean
 ) {
     private val labels by lazy { ConnectionStrings(activity) }
     private val preferences = AppPreferences(activity)
@@ -54,10 +55,10 @@ internal class ConnectionBridge(
                     args.optJSONArray("recent")?.let(connections.store::migrate)
                     reply(JSONObject().put("count", connections.store.entries().size)
                         .put("language", labels.language).put("messages", labels.messages)
-                        .put("autoConnect", preferences.autoConnect(openLocalAgent == null))
+                        .put("autoConnect", openOnLaunch && preferences.autoConnect(openLocalAgent == null))
                         .put("localAgent", openLocalAgent != null))
                 }
-                "discover" -> discover(args.optBoolean("historyOnly"), args.optString("skip").ifEmpty { null }) {
+                "discover" -> discover(args.optBoolean("historyOnly")) {
                     reply(error = it)
                 }
                 "cancel" -> {
@@ -78,12 +79,12 @@ internal class ConnectionBridge(
         discovery = null
     }
 
-    private fun discover(historyOnly: Boolean, skip: String?, reply: (String?) -> Unit) {
+    private fun discover(historyOnly: Boolean, reply: (String?) -> Unit) {
         cancelDiscovery()
         discovery = Thread {
             val worker = Thread.currentThread()
             val result = runCatching {
-                discoverConnection(activity, connections.store.entries(), historyOnly, skip)
+                discoverConnection(activity, connections.store.entries(), historyOnly)
             }
             activity.runOnUiThread {
                 if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread

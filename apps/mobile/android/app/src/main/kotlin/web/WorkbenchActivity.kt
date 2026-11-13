@@ -139,7 +139,7 @@ class WorkbenchActivity : AppCompatActivity() {
             }
             return
         }
-        startActivity(Intent(this, WorkbenchActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT)
+        startActivity(Intent(this, WorkbenchActivity::class.java)
             .putExtra("link", link.toString()).putExtra("localAgent", true))
         finish()
     }
@@ -174,8 +174,7 @@ class WorkbenchActivity : AppCompatActivity() {
         val link = Uri.parse(intent.getStringExtra("link") ?: return)
         val next = link.workbenchOrigin() ?: return
         if (next != activeOrigin) {
-            startActivity(Intent(this, WorkbenchActivity::class.java).putExtras(intent)
-                .addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT))
+            startActivity(Intent(this, WorkbenchActivity::class.java).putExtras(intent))
             finish()
         } else {
             setIntent(intent)
