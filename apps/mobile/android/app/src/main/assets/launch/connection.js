@@ -94,9 +94,21 @@ async function scan() {
 document.querySelector('#discover').onclick = () => discover()
 document.querySelector('#cancel-scan').onclick = cancelScan
 document.querySelector('#scan').onclick = scan
-document.querySelector('#history').onclick = () => action('drawer')
-document.querySelector('#settings').onclick = () => action('settings')
-document.querySelector('#local-agent').onclick = () => action('localAgent')
+for (const [selector, command] of [['#history', 'drawer'], ['#settings', 'settings'], ['#local-agent', 'localAgent']]) {
+  document.querySelector(selector).onclick = () => {
+    ++generation
+    return action(command)
+  }
+}
+
+window.updateLocalEntry = key => {
+  const entry = document.querySelector('#local-agent')
+  entry.hidden = !key
+  if (key) {
+    entry.dataset.i18n = key
+    entry.textContent = label(key, key)
+  }
+}
 
 window.applyWingmateLabels = (language, nextMessages) => {
   messages = nextMessages
@@ -112,8 +124,8 @@ async function restore() {
     const settings = await action('restore', { recent: Array.isArray(recent) ? recent : [] })
     window.applyWingmateLabels(settings.language, settings.messages)
     localStorage.removeItem(historyKey)
-    document.querySelector('#local-agent').hidden = !settings.localAgent
-    if (settings.autoConnect && settings.count && startingGeneration === generation && !scanning)
+    window.updateLocalEntry(settings.localEntry)
+    if (settings.autoConnect && startingGeneration === generation && !scanning)
       void discover({ historyOnly: true })
   }
   catch {

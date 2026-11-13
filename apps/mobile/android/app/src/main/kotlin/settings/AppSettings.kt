@@ -26,7 +26,7 @@ internal class AppSettings(
     private var ui = SettingsUi(activity, theme)
     private val overlay: SettingsOverlay = SettingsOverlay(activity, workbench, ::back)
     val view: View get() = overlay
-    private val remote = RemoteHostSettings(activity, flow, current, localCurrent, localEngine == null)
+    private val remote = RemoteHostSettings(activity, flow, current, localCurrent, localEngine != null)
     private val general = GeneralSettings(activity) {
         languageChanged()
         render()

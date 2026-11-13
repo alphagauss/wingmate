@@ -13,9 +13,7 @@ internal class AppPreferences(context: Context) {
         get() = values.getBoolean("task_notifications", true)
         set(value) { values.edit().putBoolean("task_notifications", value).apply() }
 
-    fun autoConnect(default: Boolean) = values.getBoolean("auto_connect", default)
-
-    fun setAutoConnect(value: Boolean) {
-        values.edit().putBoolean("auto_connect", value).apply()
-    }
+    var autoConnect: Boolean
+        get() = values.getBoolean("auto_connect", false)
+        set(value) { values.edit().putBoolean("auto_connect", value).apply() }
 }

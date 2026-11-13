@@ -19,26 +19,28 @@ import dev.wingmate.mobile.theme.dp
 internal fun localEngineSettings(activity: AppCompatActivity, open: (Uri) -> Unit): LocalEngineSettings? =
     EngineSettings(activity, open)
 
-internal fun autoStartLocalEngine(activity: AppCompatActivity) {
-    if (enginePreferences(activity).getBoolean("auto_start", false) && LocalRuntime.isInstalled(activity)) {
-        LocalRuntime.start(activity)
-    }
-}
-
-private fun enginePreferences(activity: AppCompatActivity) =
-    activity.getSharedPreferences("local_engine", AppCompatActivity.MODE_PRIVATE)
-
 private class EngineSettings(
     private val activity: AppCompatActivity,
     private val open: (Uri) -> Unit
 ) : LocalEngineSettings {
     private val labels = ConnectionStrings(activity)
-    private val preferences = enginePreferences(activity)
+    private val preferences = activity.getSharedPreferences("local_engine", AppCompatActivity.MODE_PRIVATE)
     private val status get() = requireNotNull(LocalRuntime.status.value)
     private val installed get() = LocalRuntime.isInstalled(activity)
 
     override val openWorkbench: (() -> Unit)?
         get() = if (status is RuntimeStatus.Ready) ::openCurrentWorkbench else null
+    private val autoStartOnLaunch: Boolean
+        get() = preferences.getBoolean("auto_start", false)
+
+    override fun startOnLaunch(): Boolean {
+        val state = status
+        if (!autoStartOnLaunch || !installed || state == RuntimeStatus.Stopping) return false
+        if (state == RuntimeStatus.Stopped || state is RuntimeStatus.Failed) {
+            LocalRuntime.start(activity)
+        }
+        return true
+    }
 
     private fun openCurrentWorkbench() {
         val ready = status as? RuntimeStatus.Ready ?: return
@@ -97,7 +99,7 @@ private class EngineSettings(
             }
         }
         body.section {
-            addView(toggle(labels["localAgent.autoStart"], preferences.getBoolean("auto_start", false)) {
+            addView(toggle(labels["localAgent.autoStart"], autoStartOnLaunch) {
                 preferences.edit().putBoolean("auto_start", it).apply()
             })
             val exempt = activity.getSystemService(PowerManager::class.java)

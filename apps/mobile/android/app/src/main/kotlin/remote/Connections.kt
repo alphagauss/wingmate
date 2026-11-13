@@ -121,14 +121,15 @@ internal fun discoverConnection(
     history: List<SavedConnection>,
     historyOnly: Boolean
 ): String? {
+    if (historyOnly) {
+        return history.firstOrNull()?.origin?.takeIf { probeConnection(it) }
+    }
     val workers = Executors.newFixedThreadPool(40)
     try {
         val known = workers.invokeAll(history.map { entry ->
             java.util.concurrent.Callable { entry.origin.takeIf { probeConnection(it) } }
         }, 3, TimeUnit.SECONDS)
         known.firstNotNullOfOrNull { if (it.isCancelled) null else it.get() }?.let { return it }
-        if (historyOnly) return null
-
         val network = context.getSystemService(ConnectivityManager::class.java)
         val active = network.activeNetwork ?: throw NoLanNetwork()
         val capabilities = network.getNetworkCapabilities(active) ?: throw NoLanNetwork()

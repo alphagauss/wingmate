@@ -8,7 +8,7 @@ import dev.wingmate.mobile.remote.ConnectionFlow
 import dev.wingmate.mobile.remote.ConnectionTarget
 import dev.wingmate.mobile.remote.NoLanNetwork
 import dev.wingmate.mobile.remote.discoverConnection
-import dev.wingmate.mobile.settings.AppPreferences
+import dev.wingmate.mobile.settings.LocalEngineSettings
 import org.json.JSONObject
 
 internal class ConnectionBridge(
@@ -17,11 +17,12 @@ internal class ConnectionBridge(
     private val connections: ConnectionFlow,
     private val openSettings: () -> Unit,
     private val openRemote: () -> Unit,
-    private val openLocalAgent: (() -> Unit)?,
-    private val openOnLaunch: Boolean
+    private val localEngine: LocalEngineSettings?,
+    private val openLocalAgent: () -> Unit,
+    private var autoConnectOnLaunch: Boolean,
+    private val cancelLocalAutoOpen: () -> Unit
 ) {
     private val labels by lazy { ConnectionStrings(activity) }
-    private val preferences = AppPreferences(activity)
     private var discovery: Thread? = null
 
     @JavascriptInterface
@@ -36,7 +37,12 @@ internal class ConnectionBridge(
                 webView.evaluateJavascript("window.receiveConnectionResult?.($id, $result)", null)
             }
 
-            when (request.optString("action")) {
+            val action = request.optString("action")
+            if (action != "restore") {
+                autoConnectOnLaunch = false
+                cancelLocalAutoOpen()
+            }
+            when (action) {
                 "scan" -> connections.readPairingLink { link -> reply(JSONObject().put("text", link)) }
                 "open" -> connections.connect(args.optString("link")) { notice -> reply(error = notice) }
                 "drawer" -> {
@@ -48,15 +54,17 @@ internal class ConnectionBridge(
                     reply()
                 }
                 "localAgent" -> {
-                    openLocalAgent?.invoke()
+                    (localEngine?.openWorkbench ?: openLocalAgent).invoke()
                     reply()
                 }
                 "restore" -> {
                     args.optJSONArray("recent")?.let(connections.store::migrate)
-                    reply(JSONObject().put("count", connections.store.entries().size)
+                    val autoConnect = autoConnectOnLaunch && connections.store.entries().isNotEmpty()
+                    autoConnectOnLaunch = false
+                    reply(JSONObject()
                         .put("language", labels.language).put("messages", labels.messages)
-                        .put("autoConnect", openOnLaunch && preferences.autoConnect(openLocalAgent == null))
-                        .put("localAgent", openLocalAgent != null))
+                        .put("autoConnect", autoConnect)
+                        .put("localEntry", localEntry))
                 }
                 "discover" -> discover(args.optBoolean("historyOnly")) {
                     reply(error = it)
@@ -70,6 +78,15 @@ internal class ConnectionBridge(
         }
     }
 
+    private val localEntry: String?
+        get() = localEngine?.let {
+            if (it.openWorkbench != null) "localAgent.workbench" else "localAgent.title"
+        }
+
+    fun updateLocalEntry() {
+        webView.evaluateJavascript("window.updateLocalEntry?.(${JSONObject.quote(localEntry)})", null)
+    }
+
     fun updateLabels() {
         webView.evaluateJavascript("window.applyWingmateLabels?.(${JSONObject.quote(labels.language)}, ${labels.messages})", null)
     }
@@ -77,6 +94,11 @@ internal class ConnectionBridge(
     fun cancelDiscovery() {
         discovery?.interrupt()
         discovery = null
+    }
+
+    fun cancelStartupConnection() {
+        autoConnectOnLaunch = false
+        cancelDiscovery()
     }
 
     private fun discover(historyOnly: Boolean, reply: (String?) -> Unit) {

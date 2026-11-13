@@ -20,7 +20,7 @@ internal class RemoteHostSettings(
     private val flow: ConnectionFlow,
     currentOrigin: String?,
     private val localCurrent: Boolean,
-    private val autoConnectDefault: Boolean
+    private val hasLocalEngine: Boolean
 ) {
     private val current = currentOrigin.takeUnless { localCurrent }
     private val labels = ConnectionStrings(activity)
@@ -96,8 +96,8 @@ internal class RemoteHostSettings(
                     action = { flow.scan(::showNotice, manual = true) }))
             }
             body.section {
-                addView(toggle(labels["settings.autoConnect"], preferences.autoConnect(autoConnectDefault),
-                    preferences::setAutoConnect))
+                val title = if (hasLocalEngine) "settings.autoConnectLocalFirst" else "settings.autoConnect"
+                addView(toggle(labels[title], preferences.autoConnect) { preferences.autoConnect = it })
             }
         }
     }

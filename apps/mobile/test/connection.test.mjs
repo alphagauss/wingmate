@@ -12,7 +12,7 @@ function mountHome() {
   globalThis.document = {
     documentElement: {},
     querySelector(selector) {
-      if (!elements.has(selector)) elements.set(selector, {})
+      if (!elements.has(selector)) elements.set(selector, { dataset: {} })
       return elements.get(selector)
     },
     querySelectorAll: () => [],
@@ -36,7 +36,7 @@ function mountHome() {
 test('restores the previous home history and opens a scanned link through the native bridge', async () => {
   const { elements, history, reply, requests } = mountHome()
   await import('../android/app/src/main/assets/launch/connection.js')
-  reply('restore', { value: { count: 1, autoConnect: true, language: 'en-US', messages: {} } }, { recent: [origin] })
+  reply('restore', { value: { autoConnect: true, language: 'en-US', messages: {} } }, { recent: [origin] })
   await setImmediate()
   assert.equal(history.has(historyKey), false)
   assert.equal(document.documentElement.lang, 'en-US')
@@ -58,15 +58,22 @@ test('restores the previous home history and opens a scanned link through the na
   assert.deepEqual(requests, [])
 })
 
-test('shows the local entry before automatically connecting to any remembered host', async () => {
+test('switches the home entry from engine settings to the local workbench when ready', async () => {
   const { elements, reply, requests } = mountHome()
   await import('../android/app/src/main/assets/launch/connection.js?local')
-  reply('restore', { value: { localAgent: true, count: 1, autoConnect: false, language: 'en-US', messages: {} } },
+  reply('restore', { value: {
+    localEntry: 'localAgent.title', autoConnect: false, language: 'en-US',
+    messages: { 'localAgent.title': 'Local engine', 'localAgent.workbench': 'Local workbench' },
+  } },
     { recent: [origin] })
   await setImmediate()
   assert.deepEqual(requests, [])
   const entry = elements.get('#local-agent')
   assert.equal(entry.hidden, false)
+  assert.equal(entry.textContent, 'Local engine')
+  window.updateLocalEntry('localAgent.workbench')
+  assert.equal(entry.dataset.i18n, 'localAgent.workbench')
+  assert.equal(entry.textContent, 'Local workbench')
   const opened = entry.onclick()
   reply('localAgent', {})
   await opened
@@ -75,9 +82,19 @@ test('shows the local entry before automatically connecting to any remembered ho
 test('honors the startup preference independently of the APK and updates home labels without restoring again', async () => {
   const { reply, requests } = mountHome()
   await import('../android/app/src/main/assets/launch/connection.js?manual')
-  reply('restore', { value: { autoConnect: false, count: 1, language: 'en-US', messages: {} } }, { recent: [origin] })
+  reply('restore', { value: { autoConnect: false, language: 'en-US', messages: {} } }, { recent: [origin] })
   await setImmediate()
   window.applyWingmateLabels('zh-CN', {})
   assert.equal(document.documentElement.lang, 'zh-CN')
+  assert.deepEqual(requests, [])
+})
+
+test('skips the startup connection when the user has opened host selection', async () => {
+  const { elements, reply, requests } = mountHome()
+  await import('../android/app/src/main/assets/launch/connection.js?host-selection')
+  reply('restore', { value: { autoConnect: true, language: 'en-US', messages: {} } }, { recent: [origin] })
+  const opened = elements.get('#history').onclick()
+  reply('drawer', {})
+  await opened
   assert.deepEqual(requests, [])
 })
