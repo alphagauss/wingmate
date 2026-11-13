@@ -27,6 +27,8 @@ Kotlin 构建报告确认仅重新编译了改动的 `ManagementButton.kt`。恢
 
 ## 上游界面与交互对齐包
 
+早期 APK 的首页、配色、四语文案、连接和通知桥接参考或移植自 [deepseek-harness-desktop 的移动端](https://github.com/dsh-tauri/deepseek-harness-desktop/tree/ff5e4815a7d7a7920d4b4dc02af18fdf0ac9e937/apps/native)，适用该提交的 [MIT 文本](https://github.com/dsh-tauri/deepseek-harness-desktop/blob/ff5e4815a7d7a7920d4b4dc02af18fdf0ac9e937/LICENSE)及[附加条款](https://github.com/dsh-tauri/deepseek-harness-desktop/blob/ff5e4815a7d7a7920d4b4dc02af18fdf0ac9e937/LICENSE.details)。
+
 `outputs/android/wingmate-android-arm64-v8a-drawer.apk` 的签名后大小为 8,633,374 字节（8.23 MiB），本机增量构建至签名用时 22.4 秒。与首包使用相同的测试签名。已核验 ARM64、APK 对齐、新版启动图标资源、四种语言资源和工作台脚本，前端和 Android 配对地址解析检查均通过。
 
 | 上游区域 | 本次实现 |

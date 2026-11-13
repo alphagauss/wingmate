@@ -86,5 +86,5 @@ Wingmate 是独立维护的社区发行版。Wingmate 自有代码默认采用 [
 
 - **DeepSeek Harness** 提供 Agent、Web 工作台和插件生态，所用版本采用 MIT 许可。[项目](https://github.com/deepseek-ai/deepseek-harness) · [版本许可](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.1/LICENSE)
 - **dsh-Go** 是 Android 本地运行时的移植来源。采用的载荷构建脚本及本机引擎代码涉及 AGPLv3。[项目](https://github.com/ccch1mneyyy/dsh-Go) · [本地运行载荷](runtime/android/README.md) · [上游许可](https://github.com/ccch1mneyyy/dsh-Go/blob/288234ae52fdfcfc2b0a0388763c371d0b09ea7d/LICENSE)
-- **deepseek-harness-desktop** 是 Android 连接界面、工作台通知脚本和公网隧道下载逻辑的移植来源。上游许可由 MIT 文本和限制商业二次开发的附加条款组成。[项目](https://github.com/dsh-tauri/deepseek-harness-desktop) · [Android 采用记录](apps/mobile/README.md#上游来源) · [隧道采用记录](crates/wingmate-service/README.md#公网隧道)
+- **deepseek-harness-desktop** 是公网隧道下载逻辑的移植来源。上游许可由 MIT 文本和限制商业二次开发的附加条款组成。[项目](https://github.com/dsh-tauri/deepseek-harness-desktop) · [隧道采用记录](crates/wingmate-service/README.md#公网隧道)
 - **ds-harness-remote** 是外部 Agent 工作区与会话投影的参考，相关代码保留 MIT 声明。[项目](https://github.com/liguobao/ds-harness-remote) · [执行后端插件](plugins/wingmate-backends/README.md)

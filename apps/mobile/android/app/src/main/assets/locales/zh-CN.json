@@ -76,15 +76,12 @@
   "connection.connectionFailed": "无法打开工作台。请检查主机是否在线，以及连接地址是否有效。",
   "connection.focusFailed": "无法打开这条通知对应的会话。请在工作台中选择。",
   "scan.scanQr": "扫码连接",
-  "scan.closeScanner": "退出扫码",
   "scan.cameraTitle": "扫描配对二维码",
   "scan.cameraHint": "把主机上显示的配对码对准取景框。",
   "scan.cameraPermission": "请授予相机权限以使用扫码连接。",
   "scan.allowCamera": "授予相机权限",
   "scan.openSettings": "前往系统设置",
-  "scan.cameraError": "相机启动失败。请确认权限后再次打开扫码页。",
   "scan.invalidQr": "此二维码不是有效的 Wingmate 配对链接。",
-  "scan.qrRetry": "继续扫码",
   "scan.enterAddress": "输入连接地址",
   "scan.addressTitle": "按地址连接",
   "scan.addressHint": "粘贴配对链接，或输入主机地址（如 192.168.1.10:3088）。",
@@ -93,6 +90,5 @@
   "scan.scanInstead": "切换到扫码",
   "scan.invalidAddress": "请检查主机地址或配对链接的格式。",
   "notification.channel": "工作台消息",
-  "notification.channelSilent": "工作台静音消息",
   "notification.completed": "本轮任务已结束"
 }

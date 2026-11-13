@@ -76,15 +76,12 @@
   "connection.connectionFailed": "작업 공간을 열지 못했습니다. 호스트의 상태와 링크를 확인하세요.",
   "connection.focusFailed": "알림의 세션을 열지 못했습니다. 작업 공간에서 선택하세요.",
   "scan.scanQr": "QR 코드로 연결",
-  "scan.closeScanner": "스캐너 닫기",
   "scan.cameraTitle": "페어링 코드 스캔",
   "scan.cameraHint": "호스트에 표시된 페어링 코드를 프레임에 맞추세요.",
   "scan.cameraPermission": "페어링 코드를 스캔하려면 카메라 접근을 허용하세요.",
   "scan.allowCamera": "카메라 접근 허용",
   "scan.openSettings": "Android 설정으로 이동",
-  "scan.cameraError": "카메라를 시작할 수 없습니다. 권한을 확인하고 스캐너를 다시 여세요.",
   "scan.invalidQr": "이 코드에 유효한 Wingmate 링크가 없습니다.",
-  "scan.qrRetry": "스캔 계속",
   "scan.enterAddress": "호스트 주소 입력",
   "scan.addressTitle": "호스트에 연결",
   "scan.addressHint": "페어링 링크를 붙여넣거나 192.168.1.10:3088 같은 호스트 주소를 입력하세요.",
@@ -93,6 +90,5 @@
   "scan.scanInstead": "QR 스캐너 사용",
   "scan.invalidAddress": "호스트 주소 또는 페어링 링크의 형식을 확인하세요.",
   "notification.channel": "작업 공간 알림",
-  "notification.channelSilent": "무음 작업 공간 알림",
   "notification.completed": "세션 응답 완료"
 }

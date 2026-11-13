@@ -111,6 +111,10 @@ jobs:
             echo "::error::Remote APK contains local runtime files"
             exit 1
           fi
+          if grep -q '^assets/launch/' "$RUNNER_TEMP/apk-files"; then
+            echo "::error::Remote APK contains the retired WebView home"
+            exit 1
+          fi
           grep -F "package: name='dev.wingmate.mobile' " "$RUNNER_TEMP/apk-badging"
           if [[ "$GITHUB_EVENT_NAME" == push ]]; then
             grep -F "versionName='$version'" "$RUNNER_TEMP/apk-badging"

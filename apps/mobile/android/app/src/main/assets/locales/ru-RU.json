@@ -76,15 +76,12 @@
   "connection.connectionFailed": "Не удалось открыть рабочую область. Проверьте, доступен ли узел и верна ли ссылка.",
   "connection.focusFailed": "Не удалось открыть сеанс из уведомления. Выберите его в рабочей области.",
   "scan.scanQr": "Подключение по QR-коду",
-  "scan.closeScanner": "Закрыть сканер",
   "scan.cameraTitle": "Сканирование кода сопряжения",
   "scan.cameraHint": "Поместите код сопряжения с экрана узла в рамку.",
   "scan.cameraPermission": "Разрешите Wingmate доступ к камере для сканирования кода.",
   "scan.allowCamera": "Разрешить доступ к камере",
   "scan.openSettings": "Перейти в настройки Android",
-  "scan.cameraError": "Не удалось запустить камеру. Проверьте разрешение и откройте сканер снова.",
   "scan.invalidQr": "В коде нет действительной ссылки Wingmate.",
-  "scan.qrRetry": "Продолжить сканирование",
   "scan.enterAddress": "Ввести адрес узла",
   "scan.addressTitle": "Подключение к узлу",
   "scan.addressHint": "Вставьте ссылку сопряжения или введите адрес узла, например 192.168.1.10:3088.",
@@ -93,6 +90,5 @@
   "scan.scanInstead": "Открыть сканер QR-кодов",
   "scan.invalidAddress": "Проверьте формат адреса узла или ссылки сопряжения.",
   "notification.channel": "Уведомления рабочей области",
-  "notification.channelSilent": "Беззвучные уведомления рабочей области",
   "notification.completed": "Ответ в сеансе завершён"
 }

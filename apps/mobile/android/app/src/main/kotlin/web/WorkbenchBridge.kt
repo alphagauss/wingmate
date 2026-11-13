@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.webkit.WebView
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -20,7 +21,6 @@ import androidx.webkit.WebViewFeature
 import dev.wingmate.mobile.R
 import dev.wingmate.mobile.i18n.ConnectionStrings
 import dev.wingmate.mobile.settings.AppPreferences
-import java.util.UUID
 import org.json.JSONObject
 
 internal class WorkbenchBridge(
@@ -30,7 +30,6 @@ internal class WorkbenchBridge(
     private val onReady: () -> Unit,
     private val onTheme: (String) -> Unit
 ) {
-    private val nonce = UUID.randomUUID().toString()
     private val labels = ConnectionStrings(activity)
     private val preferences = AppPreferences(activity)
     private val listener = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
@@ -39,7 +38,6 @@ internal class WorkbenchBridge(
     private val script by lazy {
         activity.assets.open("web/workbench-bridge.js").bufferedReader().use { it.readText() }
             .replace("__WINGMATE_ORIGIN__", JSONObject.quote(origin))
-            .replace("__WINGMATE_NONCE__", JSONObject.quote(nonce))
     }
 
     init {
@@ -56,46 +54,39 @@ internal class WorkbenchBridge(
     fun started() { ready = false }
 
     fun finished() {
-        if (!listener) onReady()
-        else if (!documentStart) view.evaluateJavascript(script, null)
-        else if (!ready) view.evaluateJavascript("window.__dshBridgeReady?.();", null)
+        if (documentStart || !listener) {
+            ready = documentStart
+            onReady()
+            return
+        }
+        view.evaluateJavascript(script) {
+            if (view.url?.let { it == origin || it.startsWith("$origin/") } != true) return@evaluateJavascript
+            ready = true
+            onReady()
+        }
     }
 
-    fun visible(visible: Boolean) {
-        send(JSONObject().put("type", "dsh://visibility-state").put("hidden", !visible))
-    }
-
-    fun focus(session: String, tag: String): Boolean =
-        send(JSONObject().put("type", "dsh://focus-session")
-            .put("requestId", UUID.randomUUID().toString()).put("sessionId", session).put("tag", tag))
-
-    private fun send(message: JSONObject): Boolean {
+    fun focus(session: String): Boolean {
         if (!ready) return false
-        message.put("nonce", nonce)
         view.evaluateJavascript(
-            "if (location.origin === ${JSONObject.quote(origin)}) window.__dshBridgeReceive?.($message);",
+            "if (location.origin === ${JSONObject.quote(origin)}) window.wingmateOpenSession?.(${JSONObject.quote(session)});",
             null
         )
         return true
     }
 
     private fun receive(raw: String?) {
-        if (raw == null || raw.length > 16384) return
+        if (raw == null || raw.length > 4096) return
         val message = runCatching { JSONObject(raw) }.getOrNull() ?: return
-        if (message.optString("channel") != "dsh-bridge" || message.optString("origin") != origin ||
-            message.optString("nonce") != nonce
-        ) return
-        val payload = message.optJSONObject("payload") ?: return
-        when (payload.optString("type")) {
-            "dsh://bridge-ready" -> {
-                ready = true
-                onReady()
+        when (message.optString("event")) {
+            "theme" -> {
+                val theme = message.optString("theme")
+                if (theme in listOf("light", "dark", "system")) onTheme(theme)
             }
-            "dsh://theme-state" -> {
-                val theme = payload.optString("theme")
-                if (ready && theme in listOf("light", "dark", "system")) onTheme(theme)
+            "completed" -> if (ready) notify(message)
+            "session-unavailable" -> if (ready) {
+                Toast.makeText(activity, labels["connection.focusFailed"], Toast.LENGTH_SHORT).show()
             }
-            "dsh://native-notification" -> if (ready) notify(payload)
         }
     }
 
@@ -107,34 +98,29 @@ internal class WorkbenchBridge(
                 activity, Manifest.permission.POST_NOTIFICATIONS
             ) != PackageManager.PERMISSION_GRANTED
         ) return
-        val title = payload.opt("title") as? String ?: return
-        val body = payload.opt("body") as? String ?: return
-        val tag = payload.optString("tag")
-        val session = payload.optString("sessionId")
-        if (title.isBlank() || title.length > 256 || body.length > 4096 || tag.length > 256 ||
-            session.length > 256
-        ) return
+        val session = payload.opt("sessionId") as? String ?: return
+        if (session.length !in 1..256) return
+        val title = (payload.opt("title") as? String).orEmpty().trim().take(256)
+            .ifBlank { labels["notification.channel"] }
+        val body = labels["notification.completed"]
 
-        val silent = payload.optBoolean("silent")
-        val channel = if (silent) "dsh-bridge-silent" else "dsh-bridge"
+        val channel = "wingmate-tasks"
         if (Build.VERSION.SDK_INT >= 26) {
             val manager = activity.getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(NotificationChannel(
-                channel, if (silent) labels["notification.channelSilent"] else labels["notification.channel"],
-                if (silent) NotificationManager.IMPORTANCE_LOW else NotificationManager.IMPORTANCE_DEFAULT
+                channel, labels["notification.channel"], NotificationManager.IMPORTANCE_DEFAULT
             ))
         }
-        val id = "$origin/$tag".hashCode()
+        val id = "$origin/$session".hashCode()
         val click = Intent(activity, WorkbenchActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             .putExtra("link", "$origin/").putExtra("notificationSession", session)
             .putExtra("localAgent", activity.intent.getBooleanExtra("localAgent", false))
-            .putExtra("notificationTag", tag)
         val notification = NotificationCompat.Builder(activity, channel)
             .setSmallIcon(R.drawable.ic_manage)
             .setContentTitle(title).setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setSilent(silent).setAutoCancel(true)
+            .setAutoCancel(true)
             .setContentIntent(PendingIntent.getActivity(
                 activity, id, click, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             ))

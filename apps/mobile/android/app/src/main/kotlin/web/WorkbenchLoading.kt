@@ -1,20 +1,17 @@
 package dev.wingmate.mobile.web
 
 import android.content.Context
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.os.SystemClock
+import android.content.res.ColorStateList
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import dev.wingmate.mobile.R
 import dev.wingmate.mobile.i18n.ConnectionStrings
 import dev.wingmate.mobile.theme.ConnectionUi
 import dev.wingmate.mobile.theme.dp
-import kotlin.math.PI
-import kotlin.math.cos
 
 internal class WorkbenchLoading(
     context: Context,
@@ -55,12 +52,13 @@ internal class WorkbenchLoading(
             gravity = Gravity.CENTER
             includeFontPadding = false
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = context.dp(6) })
-        body.addView(BreathingDots(context, ui.foreground).apply {
+        body.addView(ProgressBar(context).apply {
+            indeterminateTintList = ColorStateList.valueOf(ui.accent)
             contentDescription = labels["connection.loading"].takeIf { engineStatus == null }
             importantForAccessibility = if (engineStatus == null) IMPORTANT_FOR_ACCESSIBILITY_YES
                 else IMPORTANT_FOR_ACCESSIBILITY_NO
         }, LinearLayout.LayoutParams(
-            context.dp(44), context.dp(24)
+            context.dp(30), context.dp(30)
         ).apply { topMargin = context.dp(18) })
         if (engineStatus == null) {
             postDelayed(timeout, 20_000)
@@ -110,22 +108,5 @@ internal class WorkbenchLoading(
     override fun onDetachedFromWindow() {
         removeCallbacks(timeout)
         super.onDetachedFromWindow()
-    }
-}
-
-private class BreathingDots(context: Context, color: Int) : View(context) {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
-    private val start = SystemClock.uptimeMillis()
-
-    override fun onDraw(canvas: Canvas) {
-        val elapsed = SystemClock.uptimeMillis() - start
-        repeat(3) { index ->
-            val phase = ((elapsed - index * 150).coerceAtLeast(0) % 900) / 900.0
-            val pulse = ((1 - cos(2 * PI * phase)) * .5).toFloat()
-            paint.alpha = (255 * (.25f + .75f * pulse)).toInt()
-            canvas.drawCircle(context.dp(4 + index * 18).toFloat(),
-                height / 2f - context.dp(5) * pulse, context.dp(4).toFloat(), paint)
-        }
-        postInvalidateOnAnimation()
     }
 }

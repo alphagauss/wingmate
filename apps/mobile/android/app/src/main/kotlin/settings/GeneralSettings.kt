@@ -95,7 +95,7 @@ internal class GeneralSettings(
     }
 
     private fun showLicenses() {
-        val paths = listOf("launch/UPSTREAM-LICENSE.txt", "launch/UPSTREAM-LICENSE.details.txt") +
+        val paths = listOf("licenses/LICENSE.wingmate") +
             activity.assets.list("runtime/licenses").orEmpty().sorted().map { "runtime/licenses/$it" }
         val text = paths.joinToString("\n\n") { path ->
             activity.assets.open(path).bufferedReader().use { it.readText() }

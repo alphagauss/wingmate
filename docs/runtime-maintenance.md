@@ -40,7 +40,7 @@
 
 [Build and release Wingmate](../.github/workflows/release.yml) 在 Windows x64 上构建并冒烟测试单文件 EXE，在 Ubuntu 上构建、签名并检查 Android 远程 APK。手动运行可在 Actions 的 Artifacts 下载试用包。每次手动运行使用新生成的测试证书，覆盖安装需要与设备上已有 APK 的签名相同。
 
-Android 本地版可[在本机编译](../apps/mobile/README.md#开发与构建)。公开分发前需解决[本地版组合程序的授权与源码分发](../apps/mobile/README.md#上游来源)。
+Android 本地版可[在本机编译](../apps/mobile/README.md#开发与构建)。公开分发时需随 APK 提供[本地版组合程序及随包组件的对应源码](../apps/mobile/README.md#上游来源)。
 
 在仓库的 **Settings → Secrets and variables → Actions** 配置以下签名密钥，远程 APK 的后续版本沿用同一密钥。
 

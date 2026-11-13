@@ -1,8 +1,8 @@
 # Wingmate Android
 
-连接页由 Kotlin 加载 APK 内的 HTML、CSS 和 JavaScript。扫码与粘贴都从扫码页进入，连接前检查 Wingmate 网关标识。配对和工作台在独立的 Android WebView 打开。配对会话由网关 Cookie 保存，最近连接保存主机地址和用户命名。
+连接首页、扫码、地址输入、应用设置和本机引擎管理使用 Android 原生控件。连接前检查 Wingmate 网关标识，配对和 DSH 工作台在 Android WebView 打开。配对会话由网关 Cookie 保存，最近连接使用应用原生存储保存主机地址和用户命名。
 
-首页沿用上游的「自动扫描局域网」「扫码连接」「最近连接」。自动扫描先检查历史主机，再探测上游默认端口和历史局域网端口。第一次连接使用随机端口的 Wingmate 主机可扫码或粘贴配对链接。
+首页提供「搜索局域网」「扫码连接」「最近连接」。搜索先检查历史主机，再探测常用端口和历史局域网端口。第一次连接使用随机端口的 Wingmate 主机可扫码或粘贴配对链接。
 
 点按工作台的可拖动浮动按钮，从右侧滑入全屏应用设置。点顶部返回、按系统返回键或右滑，从子页回到设置首页，再退回原工作台。设置首页的「当前连接」显示远程主机名或「本机工作台」，点按可切换到已保存的远程主机、扫码或手输新地址，或打开已就绪的本机工作台。右上角可直接扫码。启动页的「最近连接」也进入主机列表，支持刷新、长按重命名或删除。本机和远程都可断开。断开后停在「切换主机」页，由用户选择下一次连接，返回时显示启动页。断开保留配对与连接记录，主机上的服务和任务继续运行。验收范围见 [D2](../../ARCHITECTURE_PLAN.md#d2-android-全屏应用设置)和 [C2](../../ARCHITECTURE_PLAN.md#c2-android-远程版)。
 
@@ -30,9 +30,10 @@ Android 工程沿用 Gradle 默认源码集，应用 Kotlin 源码在 `android/a
 .\apps\mobile\android\gradlew.bat -p apps/mobile/android :app:assembleRemoteRelease
 .\apps\mobile\android\gradlew.bat -p apps/mobile/android :app:assembleLocalRelease
 node --test apps/mobile/test/*.test.mjs
+.\apps\mobile\android\gradlew.bat -p apps/mobile/android :app:testRemoteDebugUnitTest :app:testLocalDebugUnitTest :local-agent:testDebugUnitTest
 ```
 
-Release 产物分别在 `android/app/build/outputs/apk/remote/release/` 和 `android/app/build/outputs/apk/local/release/`，用 Android SDK 的 `apksigner` 签名后可安装。远程版延用 `dev.wingmate.mobile`、`targetSdk 36`，APK 只包含 DEX 和资源。本地版使用 `dev.wingmate.mobile.local`、`targetSdk 28` 和 ARM64 原生库，可与远程版并装。连接历史、Cookie 与本机运行数据归各自包名所有。同一应用覆盖安装需要沿用签名，远程版首页继续读入早期 APK 的连接历史。
+Release 产物分别在 `android/app/build/outputs/apk/remote/release/` 和 `android/app/build/outputs/apk/local/release/`，用 Android SDK 的 `apksigner` 签名后可安装。远程版延用 `dev.wingmate.mobile`、`targetSdk 36`，APK 只包含 DEX 和资源。本地版使用 `dev.wingmate.mobile.local`、`targetSdk 28` 和 ARM64 原生库，可与远程版并装。连接历史、Cookie 与本机运行数据归各自包名所有。同一应用覆盖安装需要沿用签名。
 
 本地 APK 的安装门槛是 Android 8.0（`minSdk 26`）和 ARM64。
 
@@ -44,7 +45,7 @@ $apkSigner = Join-Path $env:ANDROID_HOME 'build-tools/36.0.0/apksigner.bat'
 & $apkSigner sign --v4-signing-enabled false --ks "$env:USERPROFILE/.android/debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --out "$releaseDir/wingmate-android.apk" "$releaseDir/app-remote-release-unsigned.apk"
 ```
 
-Android Gradle 复用配置和任务输出，Kotlin 使用增量编译。网页直接随资源打包。Android 本地模块的 JVM 测试入口为 `:local-agent:testDebugUnitTest`。
+Android Gradle 复用配置和任务输出，Kotlin 使用增量编译。工作台桥接脚本随 APK 打包，在已连接来源的主页面读取主题和 DSH 会话状态事件，并在打开通知时定位会话。升级 DSH 时检查主题属性、会话事件、侧栏定位和移动端设置样式。
 
 Debug 构建的工作台可通过 ADB 转发 WebView DevTools 端口，检查前端异常和 WebSocket 状态。
 
@@ -52,8 +53,6 @@ Debug 构建的工作台可通过 ADB 转发 WebView DevTools 端口，检查前
 
 本地版的 [`local-agent`](android/local-agent/) 从 dsh-Go 移植了部分运行时安装、升级、解压和进程管理代码。移植代码沿用 AGPLv3，许可文本随本地版 APK 分发。纯远程版不编入这个模块。[上游提交](https://github.com/ccch1mneyyy/dsh-Go/tree/288234ae52fdfcfc2b0a0388763c371d0b09ea7d/app/android/app/src/main/kotlin/io/github/ccch1mneyyy/dsh_app/runtime) · [许可文本](../../runtime/android/LICENSE.dsh-go)
 
-从 deepseek-harness-desktop [`ff5e4815` 的移动端](https://github.com/dsh-tauri/deepseek-harness-desktop/tree/ff5e4815a7d7a7920d4b4dc02af18fdf0ac9e937/apps/native)移植了首页、主题配色、四种语言、发现与连接交互，以及工作台通知脚本。连接首页使用 HTML/CSS，扫码和远程主机管理由 Android 控件实现。工作台脚本只接收已连接来源的主页面事件。主机身份与配对沿用 Wingmate 网关协议。构建输入均来自本仓库和声明的依赖。
+连接首页、配对和发现、移动端文案与样式、工作台桥接采用 Wingmate 的实现。早期 APK 的移植范围和来源见[远程版历史记录](../../docs/records/2026-11-12-android-remote.md)。
 
-两个 APK 共用上述移植代码和资源。上游的 MIT 文本与禁止商业二次开发的附加条款随应用资源一并打包。[MIT 文本](android/app/src/main/assets/launch/UPSTREAM-LICENSE.txt) · [附加条款](android/app/src/main/assets/launch/UPSTREAM-LICENSE.details.txt)
-
-本地版将 `local-agent` 编入同一个 APK。若它与应用代码构成 AGPLv3 覆盖的组合程序，分发时须按 AGPLv3 为该组合程序提供对应源码和构建脚本。要按 AGPLv3 分发这一组合，需为其中受商业二次开发限制的代码取得兼容授权，或替换相关实现。[AGPLv3 第 5、6、10 条](https://opensource.org/license/agpl-3.0)
+本地版将 `local-agent` 与应用代码作为一个 AGPLv3 组合程序分发。发布 APK 时应提供对应版本的源码、构建脚本和补丁，并保留适用的许可与版权声明。载荷中独立软件包按各自的许可证提供声明和对应源码。[AGPLv3 第 5、6 条](https://opensource.org/license/agpl-3-0) · [本地运行载荷](../../runtime/android/README.md)

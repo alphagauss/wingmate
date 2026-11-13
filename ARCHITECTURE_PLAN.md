@@ -141,7 +141,7 @@ Android 两种构建组合共用界面与连接逻辑：远程版不包含本地
 | [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI/tree/de73c6f3e5fa) | `D:/opensource/dsh-TUI` | `docs/agent-backend-design.md`、`src/agent/`、`src/backends/` 的后端契约与驱动，及终端界面。原版会在自身进程装配后端，移植时要改成共享后台客户端。 |
 | [dsh-Go](https://github.com/ccch1mneyyy/dsh-Go/tree/8f31b2ed8c3f) | `D:/opensource/dsh-Go` | `docs/architecture.md`、`runtime/`、Android Kotlin 运行时层的安装升级、PRoot、进程和前台服务。只选择需要的能力，不引入 Flutter 聊天和手机操控等额外产品范围。 |
 
-前三个项目根许可证使用 MIT 文本。deepseek-harness-desktop 另有禁止商业二次开发的附加条款，Android 采用记录见[移动端文档](apps/mobile/README.md#上游来源)。dsh-Go 根许可证为 AGPLv3，D1 应核对实际采用文件及所带依赖的许可与发行要求。参考目录缺失时可按上述仓库和提交重新获取；正式构建不得依赖这些本机绝对路径。
+前三个项目根许可证使用 MIT 文本。deepseek-harness-desktop 另有禁止商业二次开发的附加条款，当前采用范围见[项目许可](README.md#上游项目与许可)。dsh-Go 根许可证为 AGPLv3，D1 应核对实际采用文件及所带依赖的许可与发行要求。参考目录缺失时可按上述仓库和提交重新获取；正式构建不得依赖这些本机绝对路径。
 
 外部 Agent 优先使用现成 ACP 适配器。A1 复用 ds-harness-remote 的网关与工作台投影逻辑，并按锁定的 DSH 发布版调整事件格式。Claude 暂缓，后续按需验证其 ACP 适配器。采用来源、许可与实际验证保存在所属模块及验证记录。
 
@@ -224,7 +224,7 @@ SSH 留待局域网交付后单独定案。候选方式是在服务器执行 `wi
 
 ### C2 Android 远程版
 
-已交付独立的 [Kotlin + WebView Android 应用](apps/mobile/README.md)，沿用 deepseek-harness-desktop 移动端的首页、扫码与手动输入、连接管理和工作台交互。用户已实测远程连接，首包和 Kotlin 迁移证据见[远程版记录](docs/records/2026-11-12-android-remote.md)。局域网与临时隧道的完整逐项验证沿用下述边界。SSH 另行安排，本地 Agent 见 D1。
+已交付独立的 [Android 应用](apps/mobile/README.md)，原生实现首页、扫码与手动输入及连接管理，配对和工作台使用 WebView。用户已实测远程连接，首包和 Kotlin 迁移证据见[远程版记录](docs/records/2026-11-12-android-remote.md)。局域网与临时隧道的完整逐项验证沿用下述边界。SSH 另行安排，本地 Agent 见 D1。
 
 完成条件：APK 在实际 Android 设备访问局域网与临时公网隧道，内核切换、项目、会话、审批等直接复用主机 Web；验证键盘、返回、文件选择及前后台切换。业务停机后能回到同一个主机的启动页并恢复。该构建不携带本地 Node、rootfs、PRoot 或后端二进制。
 

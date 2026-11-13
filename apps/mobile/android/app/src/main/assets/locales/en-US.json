@@ -76,15 +76,12 @@
   "connection.connectionFailed": "The workbench could not open. Check that the host is online and the link is valid.",
   "connection.focusFailed": "Could not open the session from this notification. Select it in the workbench.",
   "scan.scanQr": "Connect by QR code",
-  "scan.closeScanner": "Exit scanner",
   "scan.cameraTitle": "Scan a pairing code",
   "scan.cameraHint": "Center the host's pairing code in the frame.",
   "scan.cameraPermission": "Give Wingmate camera access to scan a pairing code.",
   "scan.allowCamera": "Grant camera access",
   "scan.openSettings": "Go to Android settings",
-  "scan.cameraError": "The camera failed to start. Check camera access and reopen the scanner.",
   "scan.invalidQr": "This code does not contain a valid Wingmate link.",
-  "scan.qrRetry": "Resume scanning",
   "scan.enterAddress": "Enter a host address",
   "scan.addressTitle": "Connect to a host",
   "scan.addressHint": "Paste the pairing link or enter a host address, such as 192.168.1.10:3088.",
@@ -93,6 +90,5 @@
   "scan.scanInstead": "Use the QR scanner",
   "scan.invalidAddress": "Check the format of the host address or pairing link.",
   "notification.channel": "Workbench updates",
-  "notification.channelSilent": "Quiet workbench updates",
   "notification.completed": "Session turn complete"
 }

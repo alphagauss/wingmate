@@ -190,7 +190,6 @@ class WorkbenchActivity : AppCompatActivity() {
     private fun ready() {
         if (loadFailed) return
         loading.stop()
-        bridge.visible(!paused)
         if (paused) return
         applyNotificationFocus()
         if (preferences.taskNotifications && Build.VERSION.SDK_INT >= 33 &&
@@ -206,9 +205,8 @@ class WorkbenchActivity : AppCompatActivity() {
 
     private fun applyNotificationFocus() {
         val session = intent.getStringExtra("notificationSession") ?: return
-        if (bridge.focus(session, intent.getStringExtra("notificationTag").orEmpty())) {
+        if (bridge.focus(session)) {
             intent.removeExtra("notificationSession")
-            intent.removeExtra("notificationTag")
         }
     }
 
@@ -302,7 +300,6 @@ class WorkbenchActivity : AppCompatActivity() {
         super.onResume()
         paused = false
         if (::bridge.isInitialized) {
-            bridge.visible(true)
             appSettings.refresh()
             applyNotificationFocus()
         }
@@ -310,7 +307,6 @@ class WorkbenchActivity : AppCompatActivity() {
 
     override fun onPause() {
         paused = true
-        if (::bridge.isInitialized) bridge.visible(false)
         super.onPause()
     }
 
