@@ -82,6 +82,10 @@ private class EngineSettings(
                     setMargins(activity.dp(16), 0, activity.dp(16), activity.dp(12))
                 })
             }
+            val controls = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(activity.dp(16), activity.dp(12), activity.dp(16), 0)
+            }
             when (state) {
                 RuntimeStatus.Stopped, is RuntimeStatus.Failed -> {
                     val action = when {
@@ -89,22 +93,27 @@ private class EngineSettings(
                         installed -> "localAgent.start"
                         else -> "localAgent.install"
                     }
-                    addView(row(labels[action], action = { LocalRuntime.start(activity) }))
+                    controls.addView(actionButton(labels[action], R.drawable.ic_settings_start, primary = true) {
+                        LocalRuntime.start(activity)
+                    }, -1, -2)
                 }
                 is RuntimeStatus.Ready -> {
-                    addView(row(labels["localAgent.open"], action = openWorkbench))
-                    addView(row(labels["localAgent.restart"], action = {
-                        confirm("localAgent.restart") { LocalRuntime.restart(activity) }
-                    }))
-                    addView(row(labels["localAgent.stop"], action = {
-                        confirm("localAgent.stop") { LocalRuntime.stop(activity) }
-                    }))
+                    controls.addView(actionButton(labels["localAgent.open"], R.drawable.ic_settings_host,
+                        primary = true, action = ::openCurrentWorkbench), -1, -2)
+                    controls.addView(LinearLayout(activity).apply {
+                        val restart = actionButton(labels["localAgent.restart"], R.drawable.ic_refresh) {
+                            confirm("localAgent.restart") { LocalRuntime.restart(activity) }
+                        }
+                        addView(restart, LinearLayout.LayoutParams(0, -2, 1f).apply {
+                            marginEnd = activity.dp(8)
+                        })
+                        addView(stopButton(ui), LinearLayout.LayoutParams(0, -2, 1f))
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = activity.dp(8) })
                 }
-                RuntimeStatus.Starting -> addView(row(labels["localAgent.stop"], action = {
-                    confirm("localAgent.stop") { LocalRuntime.stop(activity) }
-                }))
+                RuntimeStatus.Starting -> controls.addView(stopButton(ui), -1, -2)
                 is RuntimeStatus.Installing, RuntimeStatus.Stopping -> Unit
             }
+            if (controls.childCount > 0) addView(controls, -1, -2)
         }
         body.section {
             addView(toggle(labels["localAgent.autoStart"], autoStartOnLaunch) {
@@ -117,6 +126,10 @@ private class EngineSettings(
             ], action = ::background))
             addView(row(labels["localAgent.logs"], action = { logs(ui) }))
         }
+    }
+
+    private fun stopButton(ui: SettingsUi) = ui.actionButton(labels["localAgent.stop"], R.drawable.ic_settings_stop) {
+        confirm("localAgent.stop") { LocalRuntime.stop(activity) }
     }
 
     private fun confirm(key: String, action: () -> Unit) {
@@ -136,7 +149,7 @@ private class EngineSettings(
     }
 
     private fun logs(ui: SettingsUi) {
-        val content = ui.colors.text(LocalRuntime.logs().ifBlank { labels["localAgent.noLogs"] }, 13f).apply {
+        val content = ui.text(LocalRuntime.logs().ifBlank { labels["localAgent.noLogs"] }, 13f).apply {
             setPadding(activity.dp(20), activity.dp(10), activity.dp(20), activity.dp(10))
             setTextIsSelectable(true)
         }

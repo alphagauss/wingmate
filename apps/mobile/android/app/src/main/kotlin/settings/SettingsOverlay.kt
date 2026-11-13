@@ -8,21 +8,26 @@ import android.view.ViewConfiguration
 import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
+import androidx.core.animation.doOnEnd
 import kotlin.math.abs
 import kotlin.math.roundToLong
 
 internal class SettingsOverlay(
     context: Context,
     private val workbench: View,
+    private val visibilityChanged: (Boolean) -> Unit,
+    private val hasParentPage: () -> Boolean,
     private val back: () -> Unit
 ) : FrameLayout(context) {
-    val page = FrameLayout(context).apply {
+    private val page = FrameLayout(context).apply {
         visibility = GONE
         isClickable = true
     }
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
     private var progress = 1f
     private var animator: ValueAnimator? = null
+    private var pageAnimator: ValueAnimator? = null
+    private var currentPage: View? = null
     private var downX = 0f
     private var downY = 0f
     private var dragging = false
@@ -36,6 +41,31 @@ internal class SettingsOverlay(
         addView(page, LayoutParams(-1, -1))
     }
 
+    fun setPage(next: View, direction: Int = 0) {
+        if (direction != 0) pageAnimator?.end()
+        val previous = currentPage
+        currentPage = next
+        next.translationX = previous?.translationX ?: 0f
+        page.addView(next, LayoutParams(-1, -1))
+        if (direction == 0 || previous == null || !showing) {
+            if (previous != null) page.removeView(previous)
+            return
+        }
+        previous.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+        next.translationX = width.toFloat() * direction
+        pageAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 270
+            interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                val fraction = it.animatedValue as Float
+                previous.translationX = -width * fraction * direction
+                currentPage?.translationX = width * (1f - fraction) * direction
+            }
+            doOnEnd { page.removeView(previous) }
+            start()
+        }
+    }
+
     fun open() {
         if (showing && !closing) return
         context.getSystemService(InputMethodManager::class.java)
@@ -44,19 +74,21 @@ internal class SettingsOverlay(
         if (!showing) translate(1f)
         closing = false
         page.visibility = VISIBLE
-        page.getChildAt(0).requestFocus()
+        visibilityChanged(true)
+        currentPage?.requestFocus()
         slideTo(0f)
     }
 
     fun close() {
         if (closing || !showing) return
+        pageAnimator?.end()
         context.getSystemService(InputMethodManager::class.java)
             .hideSoftInputFromWindow(windowToken, 0)
         closing = true
         slideTo(1f)
     }
 
-    fun resetSwipe() {
+    private fun resetSwipe() {
         if (progress != 0f) slideTo(0f)
     }
 
@@ -71,6 +103,7 @@ internal class SettingsOverlay(
                     page.visibility = GONE
                     workbench.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_AUTO
                     closing = false
+                    visibilityChanged(false)
                 }
             }
             start()
@@ -92,7 +125,7 @@ internal class SettingsOverlay(
         if (!showing) return false
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                if (animator?.isRunning == true) return true
+                if (animator?.isRunning == true || pageAnimator?.isRunning == true) return true
                 downX = event.x
                 downY = event.y
                 dragging = false
@@ -103,7 +136,7 @@ internal class SettingsOverlay(
                 val dy = abs(event.y - downY)
                 if (dy > slop && dy >= abs(dx)) scrolling = true
                 dragging = !scrolling && dx > slop && dx > dy
-                if (dragging) translate((dx / width).coerceIn(0f, 1f))
+                if (dragging && !hasParentPage()) translate((dx / width).coerceIn(0f, 1f))
             }
         }
         return dragging
@@ -112,10 +145,12 @@ internal class SettingsOverlay(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (!dragging) return showing
         when (event.actionMasked) {
-            MotionEvent.ACTION_MOVE -> translate(((event.x - downX) / width).coerceIn(0f, 1f))
+            MotionEvent.ACTION_MOVE -> if (!hasParentPage()) {
+                translate(((event.x - downX) / width).coerceIn(0f, 1f))
+            }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 dragging = false
-                if (event.actionMasked == MotionEvent.ACTION_UP && progress >= .25f) back()
+                if (event.actionMasked == MotionEvent.ACTION_UP && event.x - downX >= width * .25f) back()
                 else resetSwipe()
             }
         }
@@ -124,6 +159,7 @@ internal class SettingsOverlay(
 
     override fun onDetachedFromWindow() {
         animator?.cancel()
+        pageAnimator?.end()
         super.onDetachedFromWindow()
     }
 }

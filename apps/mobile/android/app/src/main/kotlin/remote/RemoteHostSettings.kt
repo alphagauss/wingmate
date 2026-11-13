@@ -13,6 +13,7 @@ import dev.wingmate.mobile.R
 import dev.wingmate.mobile.i18n.ConnectionStrings
 import dev.wingmate.mobile.settings.AppPreferences
 import dev.wingmate.mobile.settings.SettingsUi
+import dev.wingmate.mobile.theme.dp
 import java.util.concurrent.Executors
 
 internal class RemoteHostSettings(
@@ -20,7 +21,8 @@ internal class RemoteHostSettings(
     private val flow: ConnectionFlow,
     currentOrigin: String?,
     private val localCurrent: Boolean,
-    private val hasLocalEngine: Boolean
+    private val hasLocalEngine: Boolean,
+    private val returnToWorkbench: () -> Unit
 ) {
     private val current = currentOrigin.takeUnless { localCurrent }
     private val labels = ConnectionStrings(activity)
@@ -66,16 +68,17 @@ internal class RemoteHostSettings(
         val recent = entries.filterNot { it.origin == current }
         body.removeAllViews()
         with(ui) {
-            notice?.let { body.addView(colors.text(it, 14f, colors.danger)) }
+            notice?.let { body.addView(text(it, 14f, danger)) }
             body.section(labels["connection.currentConnection"]) {
                 if (current != null) {
                     addView(hostRow(entries.firstOrNull { it.origin == current } ?: SavedConnection(current)))
                 } else {
                     addView(row(currentName ?: labels["connection.noConnection"],
-                        icon = R.drawable.ic_settings_engine.takeIf { localCurrent }))
-                }
-                if (current != null || localCurrent) {
-                    addView(row(labels["connection.disconnect"], action = ::disconnect))
+                        subtitle = labels["connection.connected"].takeIf { localCurrent },
+                        icon = R.drawable.ic_settings_engine.takeIf { localCurrent },
+                        subtitleColor = success,
+                        trailing = if (localCurrent) disconnectButton() else null,
+                        action = returnToWorkbench.takeIf { localCurrent }))
                 }
             }
             if (!localCurrent) openLocal?.let { open ->
@@ -87,7 +90,10 @@ internal class RemoteHostSettings(
             body.section(labels["connection.recentConnections"]) {
                 recent.forEach { addView(hostRow(it)) }
                 if (recent.isEmpty()) addView(row(labels["connection.noHistory"]))
-                addView(row(labels["connection.refreshConnections"], icon = R.drawable.ic_refresh, action = ::refresh))
+                addView(actionButton(labels["connection.refreshConnections"], R.drawable.ic_refresh, action = ::refresh),
+                    LinearLayout.LayoutParams(-1, -2).apply {
+                        setMargins(activity.dp(16), activity.dp(8), activity.dp(16), 0)
+                    })
             }
             body.section {
                 addView(row(labels["scan.scanQr"], icon = R.drawable.ic_scan,
@@ -103,20 +109,35 @@ internal class RemoteHostSettings(
     }
 
     private fun hostRow(entry: SavedConnection): View {
+        val active = entry.origin == current
         val status = health[entry.origin]
-        val state = labels[when (status) {
-            true -> "connection.available"
-            false -> "connection.unavailable"
-            null -> "connection.checking"
+        val connected = active && status != false
+        val state = labels[when {
+            connected -> "connection.connected"
+            status == true -> "connection.available"
+            status == false -> "connection.unavailable"
+            else -> "connection.checking"
         }]
-        return ui.row(entry.label, value = state, icon = R.drawable.ic_settings_host,
-            valueColor = if (status == true) ui.success else ui.colors.foreground,
-            action = if (entry.origin == current) null else ({ flow.connect(entry.origin, ::showNotice) })
+        return ui.row(entry.label, subtitle = state.takeIf { active }, value = state.takeUnless { active },
+            icon = R.drawable.ic_settings_host,
+            valueColor = if (status == true) ui.success else ui.primaryText,
+            subtitleColor = if (connected) ui.success else ui.primaryText,
+            trailing = if (active) disconnectButton() else null,
+            action = if (active) returnToWorkbench else ({ flow.connect(entry.origin, ::showNotice) })
         ).apply {
             setOnLongClickListener { edit(entry); true }
             androidx.core.view.ViewCompat.setTooltipText(this, labels["connection.editHint"])
         }
     }
+
+    private fun disconnectButton() =
+        ui.actionButton(labels["connection.disconnect"], action = ::disconnect).apply {
+            insetTop = activity.dp(7)
+            insetBottom = activity.dp(7)
+            minWidth = 0
+            minimumWidth = 0
+            setPaddingRelative(activity.dp(10), activity.dp(8), activity.dp(10), activity.dp(8))
+        }
 
     private fun showNotice(message: String?) {
         notice = message

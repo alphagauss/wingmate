@@ -37,15 +37,16 @@ class MainActivity : AppCompatActivity() {
 
         home = ConnectionHome(this, connections, localAgent, { appSettings.openLocal() },
             { appSettings.openRemote() }, { appSettings.open() })
-        appSettings = AppSettings(this, home.view, connections, localEngine = localAgent,
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(ConnectionUi(this@MainActivity).background)
+            applyWindowInsets()
+        }
+        appSettings = AppSettings(this, root, home.view, connections, localEngine = localAgent,
             languageChanged = home::render)
         val autoConnect = openOnLaunch && AppPreferences(this).autoConnect
         val openLocal = autoConnect && (localAgent?.openWorkbench != null || localAgent?.shouldStartOnLaunch == true)
-        setContentView(FrameLayout(this).apply {
-            setBackgroundColor(ConnectionUi(this@MainActivity).background)
-            addView(appSettings.view, FrameLayout.LayoutParams(-1, -1))
-            applyWindowInsets()
-        })
+        root.addView(appSettings.view, FrameLayout.LayoutParams(-1, -1))
+        setContentView(root)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (!appSettings.back()) finish()

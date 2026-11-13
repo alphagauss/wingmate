@@ -68,6 +68,7 @@
   "connection.disconnect": "Отключиться",
   "connection.hostOffline": "Узел не отвечает",
   "connection.available": "В сети",
+  "connection.connected": "Подключено",
   "connection.unavailable": "Недоступен",
   "connection.checking": "Проверка узла…",
   "connection.noNetwork": "В локальной сети нет доступного IPv4-адреса. Отсканируйте код или введите адрес.",

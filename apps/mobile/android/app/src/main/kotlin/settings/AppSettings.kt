@@ -5,15 +5,18 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat
 import androidx.core.widget.doAfterTextChanged
 import dev.wingmate.mobile.R
 import dev.wingmate.mobile.i18n.ConnectionStrings
 import dev.wingmate.mobile.remote.ConnectionFlow
 import dev.wingmate.mobile.remote.RemoteHostSettings
+import dev.wingmate.mobile.theme.ConnectionUi
 import dev.wingmate.mobile.theme.dp
 
 internal class AppSettings(
     private val activity: AppCompatActivity,
+    private val root: View,
     workbench: View,
     private val flow: ConnectionFlow,
     current: String? = null,
@@ -24,9 +27,9 @@ internal class AppSettings(
     private val labels = ConnectionStrings(activity)
     private var theme = "system"
     private var ui = SettingsUi(activity, theme)
-    private val overlay: SettingsOverlay = SettingsOverlay(activity, workbench, ::back)
+    private val overlay = SettingsOverlay(activity, workbench, ::updateSystemBars, { page != firstPage }, ::back)
     val view: View get() = overlay
-    private val remote = RemoteHostSettings(activity, flow, current, localCurrent, localEngine != null)
+    private val remote = RemoteHostSettings(activity, flow, current, localCurrent, localEngine != null, ::close)
     private val general = GeneralSettings(activity) {
         languageChanged()
         render()
@@ -59,6 +62,7 @@ internal class AppSettings(
     }
 
     fun close() {
+        flow.cancelConnection()
         remote.stop()
         overlay.close()
     }
@@ -79,11 +83,11 @@ internal class AppSettings(
 
     fun back(): Boolean {
         if (!overlay.showing) return false
+        if (overlay.closing) return true
         if (page != firstPage) {
             val parent = if (fromSearch) Page.SEARCH else firstPage
             fromSearch = false
-            navigate(parent)
-            overlay.resetSwipe()
+            navigate(parent, returning = true)
         } else {
             close()
         }
@@ -101,30 +105,42 @@ internal class AppSettings(
     }
 
     fun onConfigurationChanged() {
-        if (theme == "system") updateColors() else refresh()
-    }
-
-    private fun updateColors() {
-        ui = SettingsUi(view.context, theme)
+        if (theme == "system") ui = SettingsUi(activity, theme)
+        updateSystemBars(overlay.showing)
         refresh()
     }
 
-    private fun navigate(next: Page) {
+    private fun updateColors() {
+        ui = SettingsUi(activity, theme)
+        if (overlay.showing) updateSystemBars(true)
+        refresh()
+    }
+
+    private fun updateSystemBars(showing: Boolean) {
+        val homeColors = ConnectionUi(activity)
+        root.setBackgroundColor(if (showing) ui.panelBackground else homeColors.background)
+        val dark = if (showing) ui.dark else homeColors.dark
+        WindowCompat.getInsetsController(activity.window, root).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
+    }
+
+    private fun navigate(next: Page, returning: Boolean = false) {
+        if (page == Page.REMOTE) flow.cancelConnection()
         if (page == Page.SEARCH && next != Page.SEARCH) {
             fromSearch = next != firstPage
             activity.getSystemService(InputMethodManager::class.java)
                 .hideSoftInputFromWindow(view.windowToken, 0)
         }
         page = next
-        render()
+        render(if (returning) -1 else 1)
     }
 
-    private fun render() {
+    private fun render(direction: Int = 0) {
         remote.stop()
-        val panel = overlay.page
-        panel.removeAllViews()
         val scan = if (page == Page.HOME) ui.scanButton(labels["scan.scanQr"], ::scan) else null
-        panel.addView(ui.page(labels[page.title], labels["settings.back"], { back() }, scan) {
+        overlay.setPage(ui.page(labels[page.title], labels["settings.back"], { back() }, scan) {
             when (page) {
                 Page.HOME -> home(this)
                 Page.SEARCH -> search(this)
@@ -135,7 +151,7 @@ internal class AppSettings(
                 Page.ABOUT -> general.about(ui, this)
                 Page.LOCAL -> localEngine?.render(ui, this)
             }
-        })
+        }, direction)
     }
 
     private fun scan() {
@@ -152,7 +168,7 @@ internal class AppSettings(
                 remote.currentName ?: labels["connection.noConnection"], value = labels["settings.switchHost"],
                 icon = R.drawable.ic_settings_host, action = { navigate(Page.REMOTE) }))
             localEngine?.let { addView(row(labels["localAgent.title"], it.summary,
-                icon = R.drawable.ic_settings_engine, tone = SettingsUi.Tone.HOSTS, action = ::openLocal)) }
+                icon = R.drawable.ic_settings_engine, action = ::openLocal)) }
         }
         for ((group, tone, entries) in groups()) {
             body.section(labels[group]) {

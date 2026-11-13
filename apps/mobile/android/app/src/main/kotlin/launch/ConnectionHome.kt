@@ -89,21 +89,19 @@ internal class ConnectionHome(
                 accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
             })
         }
-        fun action(key: String, icon: Int, primary: Boolean = false, run: () -> Unit) {
-            val fill = if (primary) monochrome else ui.surface
-            val ink = if (primary) ui.background else ui.foreground
-            val button = ui.button(labels[key], primary, run).apply {
+        fun action(key: String, icon: Int, run: () -> Unit) {
+            val button = ui.button(labels[key], action = run).apply {
                 stateListAnimator = null
                 minHeight = activity.dp(54)
                 minimumHeight = activity.dp(54)
-                val ripple = (ink and 0x00FFFFFF) or 0x24000000
+                val ripple = (ui.foreground and 0x00FFFFFF) or 0x24000000
                 background = RippleDrawable(ColorStateList.valueOf(ripple),
-                    activity.rounded(fill, 14), null)
+                    activity.rounded(ui.surface, 14), null)
                 gravity = Gravity.CENTER_VERTICAL or Gravity.START
                 setPaddingRelative(activity.dp(18), 0, activity.dp(18), 0)
                 setCompoundDrawablesRelativeWithIntrinsicBounds(icon, 0, 0, 0)
                 compoundDrawablePadding = activity.dp(12)
-                compoundDrawableTintList = ColorStateList.valueOf(ink)
+                compoundDrawableTintList = ColorStateList.valueOf(ui.foreground)
             }
             body.addView(button, LinearLayout.LayoutParams(-1, -2).apply { topMargin = activity.dp(8) })
         }
@@ -112,7 +110,7 @@ internal class ConnectionHome(
             action(if (openWorkbench == null) "localAgent.title" else "localAgent.workbench",
                 R.drawable.ic_settings_engine, run = openWorkbench ?: openLocalSettings)
         }
-        action("connection.autoScan", R.drawable.ic_settings_search, primary = true) { discover(false) }
+        action("connection.autoScan", R.drawable.ic_settings_search) { discover(false) }
         action("scan.scanQr", R.drawable.ic_scan, run = ::scan)
         action("connection.recentConnections", R.drawable.ic_settings_host, run = openHosts)
         body.addView(ui.button(labels["settings.title"], action = openSettings).apply {

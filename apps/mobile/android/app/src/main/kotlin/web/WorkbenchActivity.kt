@@ -150,7 +150,7 @@ class WorkbenchActivity : AppCompatActivity() {
         workbench.addView(webView, 0, FrameLayout.LayoutParams(-1, -1))
 
         root.removeView(workbench)
-        appSettings = AppSettings(this, workbench, connections, activeOrigin,
+        appSettings = AppSettings(this, root, workbench, connections, activeOrigin,
             localCurrent, localEngineSettings(this, ::openLocalWorkbench))
         bridge = WorkbenchBridge(this, webView, activeOrigin, ::ready) { theme ->
             appSettings.applyTheme(theme)

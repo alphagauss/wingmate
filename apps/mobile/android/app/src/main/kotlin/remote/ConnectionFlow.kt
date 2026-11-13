@@ -27,9 +27,13 @@ internal class ConnectionFlow(
 
     fun readPairingLink(manual: Boolean = false, onResult: (String?) -> Unit) {
         onConnectionRequested()
-        attempt++
+        cancelConnection()
         scanningResult = onResult
         scanner.launch(Intent(activity, ScannerActivity::class.java).putExtra("manual", manual))
+    }
+
+    fun cancelConnection() {
+        attempt++
     }
 
     fun connect(raw: String, onNotice: (String?) -> Unit) {
@@ -43,11 +47,7 @@ internal class ConnectionFlow(
         Thread {
             val available = probeConnection(target.origin, 5000)
             activity.runOnUiThread {
-                if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
-                if (generation != attempt) {
-                    onNotice(labels["common.cancel"])
-                    return@runOnUiThread
-                }
+                if (generation != attempt || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                 if (!available) {
                     onNotice(labels["connection.connectionFailed"])
                     return@runOnUiThread

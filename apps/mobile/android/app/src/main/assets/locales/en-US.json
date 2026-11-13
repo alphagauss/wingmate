@@ -68,6 +68,7 @@
   "connection.disconnect": "Disconnect",
   "connection.hostOffline": "The host is not responding",
   "connection.available": "Online",
+  "connection.connected": "Connected",
   "connection.unavailable": "Unreachable",
   "connection.checking": "Checking host…",
   "connection.noNetwork": "No LAN IPv4 address is available. Scan a code or enter an address.",
