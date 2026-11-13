@@ -38,9 +38,11 @@
 
 ## 自动打包与发布
 
-[Build and release Wingmate](../.github/workflows/release.yml) 在 Windows x64 上构建并冒烟测试单文件 EXE，在 Ubuntu 上准备 ARM64 本地载荷，再构建、签名并检查两个 APK。手动运行可在 Actions 的 Artifacts 下载试用包。每次手动运行使用新生成的测试证书，覆盖安装需要与设备上已有 APK 的签名相同。
+[Build and release Wingmate](../.github/workflows/release.yml) 在 Windows x64 上构建并冒烟测试单文件 EXE，在 Ubuntu 上构建、签名并检查 Android 远程 APK。手动运行可在 Actions 的 Artifacts 下载试用包。每次手动运行使用新生成的测试证书，覆盖安装需要与设备上已有 APK 的签名相同。
 
-正式发版前，按 [Android 上游来源](../apps/mobile/README.md#上游来源)处理本地版组合程序的授权与源码分发。仓库的 **Settings → Secrets and variables → Actions** 配置以下签名密钥，两种 APK 的后续版本沿用同一密钥：
+Android 本地版可[在本机编译](../apps/mobile/README.md#开发与构建)。公开分发前需解决[本地版组合程序的授权与源码分发](../apps/mobile/README.md#上游来源)。
+
+在仓库的 **Settings → Secrets and variables → Actions** 配置以下签名密钥，远程 APK 的后续版本沿用同一密钥。
 
 - `ANDROID_KEYSTORE_BASE64` 保存密钥库文件的 Base64 内容。
 - `ANDROID_KEYSTORE_PASSWORD` 保存密钥库密码。
@@ -49,7 +51,7 @@
 
 将根 `package.json`、Rust 工作区、Tauri 配置和 Android 的 `versionName` 更新为同一版本。发布新版 APK 时递增 Android 的 `versionCode`。在包含这些更新的提交上创建并推送对应 tag，例如 `git tag v0.1.0` 和 `git push origin v0.1.0`。
 
-三个产物都通过检查后，发布任务将 `wingmate-windows-x64.exe`、`wingmate-android-remote.apk`、`wingmate-android-local.apk` 和 `SHA256SUMS.txt` 上传到同一个 Release 草稿，上传成功后发布。带预发布后缀的版本标为预发布。上传失败可重跑，草稿继续使用，已发布的 Release 保留原有资产。发布任务使用工作流自带的 `GITHUB_TOKEN`。
+两个产物都通过检查后，发布任务将 `wingmate-windows-x64.exe`、`wingmate-android-remote.apk` 和 `SHA256SUMS.txt` 上传到同一个 Release 草稿，上传成功后发布。带预发布后缀的版本标为预发布。上传失败可重跑，草稿继续使用，已发布的 Release 保留原有资产。发布任务使用工作流自带的 `GITHUB_TOKEN`。
 
 ## 去重与精简取舍
 

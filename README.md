@@ -59,7 +59,7 @@ pnpm test:smoke
 
 验证范围见[验证约定](scripts/README.md)。测试专用目录按[收尾步骤](docs/runtime-debugging.md#收尾)清理。
 
-在 GitHub Actions 构建试用包或发布 Windows x64 单文件和两个 Android APK，见[自动打包与发布](docs/runtime-maintenance.md#自动打包与发布)。
+在 GitHub Actions 构建试用包或发布 Windows x64 单文件和 Android 远程 APK，见[自动打包与发布](docs/runtime-maintenance.md#自动打包与发布)。
 
 ## 文档与模块
 
