@@ -42,6 +42,7 @@
   "localAgent.stopped": "Остановлен",
   "localAgent.installing": "Подготовка среды Linux",
   "localAgent.starting": "Запуск DSH",
+  "localAgent.entering": "Открытие DSH",
   "localAgent.running": "Запущен",
   "localAgent.stopping": "Остановка DSH",
   "common.cancel": "Отмена",

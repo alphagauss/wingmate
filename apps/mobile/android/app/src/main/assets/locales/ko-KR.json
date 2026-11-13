@@ -42,6 +42,7 @@
   "localAgent.stopped": "중지됨",
   "localAgent.installing": "Linux 런타임 준비 중",
   "localAgent.starting": "DSH 시작 중",
+  "localAgent.entering": "DSH 여는 중",
   "localAgent.running": "실행 중",
   "localAgent.stopping": "DSH 중지 중",
   "common.cancel": "취소",

@@ -42,6 +42,7 @@
   "localAgent.stopped": "已停止",
   "localAgent.installing": "正在准备 Linux 运行时",
   "localAgent.starting": "正在启动 DSH",
+  "localAgent.entering": "正在进入 DSH",
   "localAgent.running": "运行中",
   "localAgent.stopping": "正在停止 DSH",
   "common.cancel": "取消",

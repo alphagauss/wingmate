@@ -19,8 +19,7 @@ internal class ConnectionBridge(
     private val openRemote: () -> Unit,
     private val localEngine: LocalEngineSettings?,
     private val openLocalAgent: () -> Unit,
-    private var autoConnectOnLaunch: Boolean,
-    private val cancelLocalAutoOpen: () -> Unit
+    private var autoConnectOnLaunch: Boolean
 ) {
     private val labels by lazy { ConnectionStrings(activity) }
     private var discovery: Thread? = null
@@ -38,10 +37,7 @@ internal class ConnectionBridge(
             }
 
             val action = request.optString("action")
-            if (action != "restore") {
-                autoConnectOnLaunch = false
-                cancelLocalAutoOpen()
-            }
+            if (action != "restore") autoConnectOnLaunch = false
             when (action) {
                 "scan" -> connections.readPairingLink { link -> reply(JSONObject().put("text", link)) }
                 "open" -> connections.connect(args.optString("link")) { notice -> reply(error = notice) }

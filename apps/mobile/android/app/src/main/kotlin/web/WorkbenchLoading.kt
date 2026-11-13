@@ -23,6 +23,7 @@ internal class WorkbenchLoading(
 ) : FrameLayout(context) {
     private var ui = ConnectionUi(context)
     private val labels = ConnectionStrings(context)
+    private val activityStatus = ui.text("", 14f).apply { gravity = Gravity.CENTER }
     private val body = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
@@ -31,6 +32,8 @@ internal class WorkbenchLoading(
     private val timeout = Runnable {
         error(labels["connection.loadingSlow"])
     }
+    var entering = false
+        private set
 
     init {
         addView(body, LayoutParams(-1, -2, Gravity.CENTER))
@@ -62,13 +65,23 @@ internal class WorkbenchLoading(
         if (engineStatus == null) {
             postDelayed(timeout, 20_000)
         } else {
-            body.addView(ui.text(engineStatus, 14f).apply { gravity = Gravity.CENTER },
+            activityStatus.text = engineStatus
+            activityStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE)
+            body.addView(activityStatus,
                 LinearLayout.LayoutParams(-1, -2).apply { topMargin = context.dp(8) })
         }
     }
 
+    fun enter() {
+        val text = labels["localAgent.entering"]
+        if (activityStatus.parent == null) start(text) else activityStatus.text = text
+        entering = true
+        postDelayed(timeout, 20_000)
+    }
+
     fun stop() {
         removeCallbacks(timeout)
+        entering = false
         visibility = GONE
     }
 
@@ -88,6 +101,7 @@ internal class WorkbenchLoading(
     }
 
     private fun show() {
+        entering = false
         setBackgroundColor(ui.background)
         body.removeAllViews()
         visibility = VISIBLE

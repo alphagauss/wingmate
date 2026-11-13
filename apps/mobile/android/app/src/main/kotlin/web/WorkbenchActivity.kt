@@ -34,6 +34,8 @@ import dev.wingmate.mobile.settings.AppSettings
 import dev.wingmate.mobile.theme.ConnectionUi
 import dev.wingmate.mobile.theme.applyWindowInsets
 
+internal const val START_LOCAL_WORKBENCH = "startLocalWorkbench"
+
 class WorkbenchActivity : AppCompatActivity() {
     private val labels by lazy { ConnectionStrings(this) }
     private val preferences by lazy { AppPreferences(this) }
@@ -42,6 +44,8 @@ class WorkbenchActivity : AppCompatActivity() {
     private lateinit var loading: WorkbenchLoading
     private lateinit var appSettings: AppSettings
     private lateinit var activeOrigin: String
+    private lateinit var workbench: FrameLayout
+    private lateinit var root: FrameLayout
     private var loadFailed = false
     private var paused = true
     private var localToken: String? = null
@@ -53,21 +57,70 @@ class WorkbenchActivity : AppCompatActivity() {
         fileResult = null
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        val link = intent.getStringExtra("link") ?: return finish()
+        workbench = FrameLayout(this)
+        root = FrameLayout(this).apply {
+            setBackgroundColor(ConnectionUi(this@WorkbenchActivity).background)
+            addView(workbench, FrameLayout.LayoutParams(-1, -1))
+            applyWindowInsets()
+        }
+        loading = WorkbenchLoading(this, ::retry) { appSettings.open() }
+        workbench.addView(loading, FrameLayout.LayoutParams(-1, -1))
+        setContentView(root)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                when {
+                    !::appSettings.isInitialized -> finish()
+                    appSettings.back() -> Unit
+                    webView.canGoBack() -> webView.goBack()
+                    else -> finish()
+                }
+            }
+        })
+        val link = intent.getStringExtra("link")
+        if (link != null) {
+            showWorkbench(link)
+        } else if (intent.getBooleanExtra(START_LOCAL_WORKBENCH, false)) {
+            startLocalWorkbench()
+        } else {
+            finish()
+        }
+    }
+
+    private fun startLocalWorkbench() {
+        val engine = localEngineSettings(this) { link ->
+            intent.removeExtra(START_LOCAL_WORKBENCH)
+            intent.putExtra("link", link.toString())
+            showWorkbench(link.toString(), fromStartup = true)
+        } ?: return finish()
+        engine.openWorkbench?.let { open ->
+            open()
+            return
+        }
+        if (!engine.shouldStartOnLaunch) return finish()
+        loading.start(labels["localAgent.starting"])
+        engine.startOnLaunch()
+        engine.observe {
+            if (!intent.getBooleanExtra(START_LOCAL_WORKBENCH, false) || isFinishing) return@observe
+            val open = engine.openWorkbench
+            if (open != null) {
+                open()
+            } else if (!engine.launchPending) {
+                Toast.makeText(this, engine.summary, Toast.LENGTH_LONG).show()
+                finish()
+            }
+        }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun showWorkbench(link: String, fromStartup: Boolean = false) {
         val origin = Uri.parse(link)
         activeOrigin = origin.workbenchOrigin() ?: return finish()
         val localCurrent = intent.getBooleanExtra("localAgent", false)
         if (localCurrent) localToken = origin.getQueryParameter("token")
         val ui = ConnectionUi(this)
-        val workbench = FrameLayout(this)
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(ui.background)
-            applyWindowInsets()
-        }
         // Workbench events are scoped to the connected origin.
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             WebView.setWebContentsDebuggingEnabled(true)
@@ -94,28 +147,18 @@ class WorkbenchActivity : AppCompatActivity() {
                 }
             }
         }
-        workbench.addView(webView, FrameLayout.LayoutParams(-1, -1))
+        workbench.addView(webView, 0, FrameLayout.LayoutParams(-1, -1))
 
+        root.removeView(workbench)
         appSettings = AppSettings(this, workbench, connections, activeOrigin,
             localCurrent, localEngineSettings(this, ::openLocalWorkbench))
-        loading = WorkbenchLoading(this, ::retry, appSettings::open)
-        workbench.addView(loading, FrameLayout.LayoutParams(-1, -1))
         bridge = WorkbenchBridge(this, webView, activeOrigin, ::ready) { theme ->
             appSettings.applyTheme(theme)
             loading.applyTheme(theme)
         }
         root.addView(appSettings.view, FrameLayout.LayoutParams(-1, -1))
         workbench.addManagementButton(getSharedPreferences("connection", MODE_PRIVATE), appSettings::open)
-        setContentView(root)
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                when {
-                    appSettings.back() -> Unit
-                    webView.canGoBack() -> webView.goBack()
-                    else -> finish()
-                }
-            }
-        })
+        if (fromStartup) loading.enter()
         webView.loadUrl(link)
     }
 
@@ -173,7 +216,7 @@ class WorkbenchActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         val link = Uri.parse(intent.getStringExtra("link") ?: return)
         val next = link.workbenchOrigin() ?: return
-        if (next != activeOrigin) {
+        if (!::activeOrigin.isInitialized || next != activeOrigin) {
             startActivity(Intent(this, WorkbenchActivity::class.java).putExtras(intent))
             finish()
         } else {
@@ -225,7 +268,7 @@ class WorkbenchActivity : AppCompatActivity() {
             }
             loadFailed = false
             bridge.started()
-            loading.start()
+            if (!loading.entering) loading.start()
         }
 
         override fun onPageFinished(view: WebView, url: String) {

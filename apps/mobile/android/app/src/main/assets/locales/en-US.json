@@ -42,6 +42,7 @@
   "localAgent.stopped": "Stopped",
   "localAgent.installing": "Preparing the Linux runtime",
   "localAgent.starting": "Starting DSH",
+  "localAgent.entering": "Opening DSH",
   "localAgent.running": "Running",
   "localAgent.stopping": "Stopping DSH",
   "common.cancel": "Cancel",

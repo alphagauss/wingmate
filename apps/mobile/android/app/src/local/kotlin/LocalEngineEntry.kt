@@ -33,18 +33,18 @@ private class EngineSettings(
         get() = if (status is RuntimeStatus.Ready) ::openCurrentWorkbench else null
     private val autoStartOnLaunch: Boolean
         get() = preferences.getBoolean("auto_start", false)
+    override val shouldStartOnLaunch: Boolean
+        get() = autoStartOnLaunch && installed && status != RuntimeStatus.Stopping
 
     override val launchPending: Boolean
         get() = status === statusBeforeStart || status is RuntimeStatus.Installing || status == RuntimeStatus.Starting
 
-    override fun startOnLaunch(): Boolean {
+    override fun startOnLaunch() {
         val state = status
-        if (!autoStartOnLaunch || !installed || state == RuntimeStatus.Stopping) return false
         if (state == RuntimeStatus.Stopped || state is RuntimeStatus.Failed) {
             statusBeforeStart = state
             LocalRuntime.start(activity)
         }
-        return true
     }
 
     private fun openCurrentWorkbench() {
