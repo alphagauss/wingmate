@@ -4,7 +4,7 @@ Wingmate 是一个面向个人使用的 DeepSeek Harness（DSH）发行版。可
 
 ## 亮点
 
-- **轻量单文件**。桌面组件和 DSH 运行时装在一个可执行文件里，使用系统安装的 Node.js。Windows x64 的一次构建约 73 MiB，其中压缩的 DSH 基础运行时约 54 MiB。[体积记录](docs/records/2026-11-13-windows-package-size.md)
+- **轻量单文件**。桌面组件和 DSH 运行时装在一个可执行文件里，使用系统安装的 Node.js。Windows x64 桌面版的一次构建约 63 MiB，其中压缩的 DSH 基础运行时约 54 MiB。[体积记录](docs/records/2026-11-13-windows-package-size.md)
 - **自带远程访问**。可以用桌面端连接别的 Wingmate 主机，也可以把这台电脑的 DSH 工作台分享给自己的其他设备。支持局域网配对和 Cloudflare 公网隧道。[连接方式](crates/wingmate-service/README.md#web-入口)
 - **关窗口，任务照跑**。后台独立运行，可以在界面或命令行查看状态、启动、停止和重启 DSH。服务器可直接使用无界面版本。
 - **Android 有两种版本**。纯远程版用来连接已有的 Wingmate 主机。本地版既能远程连接，也能在 ARM64 手机上直接运行 DSH Agent。[Android 使用与构建](apps/mobile/README.md)

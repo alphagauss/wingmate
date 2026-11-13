@@ -2,8 +2,11 @@
 use sha2::{Digest, Sha256};
 use std::{env, fmt::Write, fs, io::BufReader, path::PathBuf};
 
+const RELEASE_COMPRESSION_LEVEL: i32 = 9;
+
 fn main() {
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let checkout = root.parent().unwrap().parent().unwrap();
     let runtime = checkout.join("runtime");
     let manifest = runtime.join("package.json");
@@ -32,8 +35,8 @@ fn main() {
         bin_directory.to_str().unwrap()
     );
     for (name, constant) in [
-        ("wingmate-service", "SERVICE_BYTES"),
-        ("wingmate-desktop", "DESKTOP_BYTES"),
+        ("wingmate-service", "SERVICE_ARCHIVE"),
+        ("wingmate-desktop", "DESKTOP_ARCHIVE"),
     ] {
         let binary = bin_directory.join(format!(
             "{name}{}",
@@ -46,29 +49,26 @@ fn main() {
         println!("cargo:rerun-if-changed={}", binary.display());
         let enabled = name == "wingmate-service" || env::var_os("CARGO_FEATURE_DESKTOP").is_some();
         if bundled && enabled {
-            assert!(
-                binary.is_file(),
-                "缺少 {}，请先准备发行组件",
-                binary.display()
-            );
+            let bytes = fs::read(&binary).unwrap_or_else(|error| {
+                panic!("无法读取 {}，请先准备发行组件: {error}", binary.display())
+            });
+            let hash = format!("{:x}", Sha256::digest(&bytes));
+            let compressed = zstd::bulk::compress(&bytes, RELEASE_COMPRESSION_LEVEL).unwrap();
+            let archive = out.join(format!("{name}.zst"));
+            fs::write(&archive, compressed).unwrap();
             writeln!(
                 binaries,
-                "const {constant}: &[u8] = include_bytes!({:?});",
-                binary.to_str().unwrap()
+                "const {constant}: Option<(&[u8], &str)> = Some((include_bytes!({archive:?}), {hash:?}));"
             )
             .unwrap();
         } else {
-            writeln!(binaries, "const {constant}: &[u8] = &[];").unwrap();
+            writeln!(binaries, "const {constant}: Option<(&[u8], &str)> = None;").unwrap();
         }
     }
-    fs::write(
-        PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("binaries.rs"),
-        binaries,
-    )
-    .unwrap();
+    fs::write(out.join("binaries.rs"), binaries).unwrap();
     let manifest = directory.join("manifest.json");
     println!("cargo:rerun-if-changed={}", manifest.display());
-    let generated = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("components.rs");
+    let generated = out.join("components.rs");
     let mut source = String::from("static ARCHIVES: &[(&str, Archive)] = &[\n");
     match fs::read(&manifest) {
         Ok(bytes) => {

@@ -21,8 +21,6 @@ if (args[1]) {
   await mkdir(work);
 }
 const executable = join(work, process.platform === 'win32' ? 'wingmate.exe' : 'wingmate');
-let activeExecutable = executable;
-const upgradedExecutable = join(work, 'wingmate-upgraded.exe');
 const env = { ...process.env, WINGMATE_HOME: join(work, 'wingmate'), DSH_HOME: join(work, 'dsh'), DSH_AGENTS_HOME: join(work, 'agents') };
 delete env.WINGMATE_CODEX_ACP;
 for (const key of Object.keys(env)) if (/API_KEY|ACCESS_TOKEN|AUTH_TOKEN/.test(key)) delete env[key];
@@ -30,11 +28,12 @@ const endpointFile = join(env.WINGMATE_HOME, 'endpoint.json');
 const checks = [];
 let expectedRevision;
 let mayHaveStarted = false;
+let previousService;
 let failure, cleanupError;
 function cli(action, success = true, ...parameters) {
   if (action === 'start' || action === 'restart') mayHaveStarted = true;
   return new Promise((resolve, reject) => {
-    const child = spawn(activeExecutable, [action, ...parameters], { cwd: work, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(executable, [action, ...parameters], { cwd: work, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '', error = '';
     child.stdout.on('data', chunk => output += chunk);
     child.stderr.on('data', chunk => error += chunk);
@@ -96,6 +95,8 @@ try {
   assert.ok(alive(host.pid));
   const serviceBinary = await readFile(join(env.WINGMATE_HOME, 'services', host.revision.slice(0, 6),
     `wingmate-service${process.platform === 'win32' ? '.exe' : ''}`));
+  assert.equal(createHash('sha256').update(serviceBinary).digest('hex'), host.revision);
+  assert.equal((await readFile(executable)).indexOf(serviceBinary), -1, '成品仍内嵌未压缩的管理服务');
   const componentsDirectory = fileURLToPath(new URL('../work/build/runtime/', import.meta.url));
   const componentsManifest = JSON.parse(await readFile(join(componentsDirectory, 'manifest.json'), 'utf8'));
   for (const [name, { sha256 }] of Object.entries(componentsManifest.components)) {
@@ -322,24 +323,35 @@ try {
     assert.notEqual((await cli('service-status')).instance, beforeCrash.instance);
     await cli('stop');
     checks.push('管理服务异常退出不终止业务，重新引导后恢复同一业务实例');
-    // 只改 PE 的 DOS 提示文字，模拟新服务指纹，不额外编译另一份程序。
-    const packageBytes = await readFile(executable);
-    const serviceOffset = packageBytes.indexOf(serviceBinary);
-    assert.notEqual(serviceOffset, -1, '发行入口没有内嵌服务组件');
-    assert.equal(packageBytes.indexOf(serviceBinary, serviceOffset + serviceBinary.length), -1);
-    const textOffset = serviceBinary.indexOf(Buffer.from('This program cannot be run in DOS mode'));
+    // 改动已释放服务的 DOS 提示文字，模拟一个已有的旧版服务。
+    await cli('service-stop');
+    const oldBinary = Buffer.from(serviceBinary);
+    const textOffset = oldBinary.indexOf(Buffer.from('This program cannot be run in DOS mode'));
     assert.notEqual(textOffset, -1);
-    packageBytes[serviceOffset + textOffset] = 't'.charCodeAt(0);
-    await writeFile(upgradedExecutable, packageBytes);
+    oldBinary[textOffset] = 't'.charCodeAt(0);
+    const oldServiceHash = createHash('sha256').update(oldBinary).digest('hex');
+    const oldServiceDir = join(env.WINGMATE_HOME, 'services', oldServiceHash.slice(0, 6));
+    const oldServicePath = join(oldServiceDir, 'wingmate-service.exe');
+    await mkdir(oldServiceDir);
+    await writeFile(join(oldServiceDir, '.wingmate-component'), 'wingmate-service');
+    await writeFile(oldServicePath, oldBinary);
+    previousService = spawn(oldServicePath, ['--home', env.WINGMATE_HOME], { cwd: work, env, windowsHide: true, stdio: 'ignore' });
+    await once(previousService, 'spawn');
+    const readyDeadline = Date.now() + 10_000;
+    let oldHost;
+    do {
+      oldHost = await cli('service-status');
+      if (oldHost.revision === oldServiceHash) break;
+      assert.ok(previousService.exitCode === null && Date.now() < readyDeadline, '旧管理服务未就绪');
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } while (true);
+    assert.equal(oldHost.pid, previousService.pid);
     const oldBusiness = await cli('start');
-    const oldHost = await cli('service-status');
-    activeExecutable = upgradedExecutable;
-    assert.equal((await cli('start')).instance, oldBusiness.instance);
     assert.equal((await cli('service-status')).instance, oldHost.instance);
     assert.notEqual((await cli('service-restart', false)).code, 0);
     const newBusiness = await cli('restart');
     const newHost = await cli('service-status');
-    assert.notEqual(newHost.revision, oldHost.revision);
+    assert.equal(newHost.revision, host.revision);
     assert.notEqual(newHost.instance, oldHost.instance);
     assert.notEqual(newBusiness.instance, oldBusiness.instance);
     for (const target of [
@@ -352,7 +364,6 @@ try {
     await assert.rejects(access(join(env.WINGMATE_HOME, 'services', oldHost.revision.slice(0, 6))), { code: 'ENOENT' });
     assert.equal(newBusiness.runtime_revision, oldBusiness.runtime_revision);
     assert.equal(await readFile(reuseProbe, 'utf8'), 'keep');
-    activeExecutable = executable;
     assert.equal((await cli('start')).instance, newBusiness.instance);
     assert.equal((await cli('service-status')).revision, newHost.revision);
     await cli('stop');
@@ -369,6 +380,13 @@ try {
       assert.equal((await cli('service-status')).phase, 'stopped', '管理服务未退出，保留测试目录');
     }
   } catch (error) { cleanupError = error; }
+  try {
+    if (previousService?.pid && previousService.exitCode === null && previousService.signalCode === null) {
+      const exit = once(previousService, 'exit', { signal: AbortSignal.timeout(10_000) });
+      previousService.kill();
+      await exit;
+    }
+  } catch (error) { cleanupError ??= error; }
   // Save diagnostics before deletion too: cleanup itself can fail partway through.
   for (const name of ['service.log', 'host.log']) {
     try { await copyFile(join(env.WINGMATE_HOME, name), join(work, name)); }
@@ -376,7 +394,7 @@ try {
   }
   if (!keepWork && !cleanupError) {
     try {
-      for (const path of [env.WINGMATE_HOME, env.DSH_HOME, env.DSH_AGENTS_HOME, executable, upgradedExecutable]) {
+      for (const path of [env.WINGMATE_HOME, env.DSH_HOME, env.DSH_AGENTS_HOME, executable]) {
         await rm(path, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
       }
       if (!failure) for (const name of ['service.log', 'host.log']) await rm(join(work, name), { force: true });

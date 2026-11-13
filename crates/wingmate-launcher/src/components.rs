@@ -11,31 +11,33 @@ include!(concat!(env!("OUT_DIR"), "/binaries.rs"));
 const SHORT_HASH: usize = 6;
 
 pub fn service_revision() -> Result<String> {
-    if SERVICE_BYTES.is_empty() {
+    if let Some((_, hash)) = SERVICE_ARCHIVE {
+        Ok(hash.to_owned())
+    } else {
         wingmate_service::host::revision(
             &Path::new(BINARY_DIRECTORY)
                 .join(format!("wingmate-service{}", std::env::consts::EXE_SUFFIX)),
         )
         .context("管理服务尚未构建，请重新准备 Wingmate")
-    } else {
-        Ok(format!("{:x}", Sha256::digest(SERVICE_BYTES)))
     }
 }
 
 pub fn install(home: &Path, desktop: bool) -> Result<PathBuf> {
     let (name, embedded, parent) = if desktop {
-        ("wingmate-desktop", DESKTOP_BYTES, "desktops")
+        ("wingmate-desktop", DESKTOP_ARCHIVE, "desktops")
     } else {
-        ("wingmate-service", SERVICE_BYTES, "services")
+        ("wingmate-service", SERVICE_ARCHIVE, "services")
     };
     let filename = format!("{name}{}", std::env::consts::EXE_SUFFIX);
-    let bytes = if embedded.is_empty() {
-        fs::read(Path::new(BINARY_DIRECTORY).join(&filename))
-            .context("组件尚未构建，请重新准备 Wingmate")?
+    let local_bytes;
+    let (bytes, hash) = if let Some((compressed, hash)) = embedded {
+        (compressed, hash.to_owned())
     } else {
-        embedded.to_vec()
+        local_bytes = fs::read(Path::new(BINARY_DIRECTORY).join(&filename))
+            .context("组件尚未构建，请重新准备 Wingmate")?;
+        let hash = format!("{:x}", Sha256::digest(&local_bytes));
+        (local_bytes.as_slice(), hash)
     };
-    let hash = format!("{:x}", Sha256::digest(&bytes));
     let parent = home.join(parent);
     fs::create_dir_all(&parent)?;
     anyhow::ensure!(
@@ -58,14 +60,25 @@ pub fn install(home: &Path, desktop: bool) -> Result<PathBuf> {
         return Ok(binary);
     }
     let stage = tempfile::tempdir_in(&parent)?;
-    let mut file = fs::File::create(stage.path().join(&filename))?;
-    file.write_all(&bytes)?;
+    let staged_binary = stage.path().join(&filename);
+    let mut file = fs::File::create(&staged_binary)?;
+    if embedded.is_some() {
+        zstd::stream::copy_decode(bytes, &mut file).with_context(|| format!("解压 {name} 失败"))?;
+    } else {
+        file.write_all(bytes)?;
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         file.set_permissions(fs::Permissions::from_mode(0o755))?;
     }
     drop(file);
+    if embedded.is_some() {
+        anyhow::ensure!(
+            wingmate_service::host::revision(&staged_binary)? == hash,
+            "解压后的 {name} 指纹不匹配"
+        );
+    }
     fs::write(stage.path().join(".wingmate-component"), name)?;
     fs::rename(stage.path(), directory)?;
     Ok(binary)

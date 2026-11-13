@@ -12,6 +12,7 @@ release-client = []
 [build-dependencies]
 serde_json = "1"
 sha2 = "0.10"
+zstd = { version = "0.13", default-features = false }
 
 [dependencies]
 anyhow = "1"
