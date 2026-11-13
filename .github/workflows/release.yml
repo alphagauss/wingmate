@@ -73,7 +73,7 @@ jobs:
       - run: node --test apps/mobile/test/*.test.mjs
       - name: Build remote APK
         working-directory: apps/mobile/android
-        run: ./gradlew :app:assembleRemoteRelease --no-daemon
+        run: ./gradlew :app:testRemoteDebugUnitTest :app:assembleRemoteRelease --no-daemon
       - name: Sign and verify remote APK
         env:
           KEYSTORE_BASE64: ${{ github.event_name == 'push' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}

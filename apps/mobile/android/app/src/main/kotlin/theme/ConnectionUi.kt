@@ -36,12 +36,13 @@ internal fun Context.rounded(color: Int, radius: Int, stroke: Int? = null) = Gra
 internal class ConnectionUi(private val context: Context, darkOverride: Boolean? = null) {
     private val dark = darkOverride ?: (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
         Configuration.UI_MODE_NIGHT_YES)
-    val background = Color.parseColor(if (dark) "#151517" else "#ffffff")
-    val foreground = Color.parseColor(if (dark) "#f9fafb" else "#0f1115")
-    val muted = Color.parseColor(if (dark) "#adb2b8" else "#81858c")
-    val surface = Color.parseColor(if (dark) "#1b1b1c" else "#f9fafb")
-    val border = Color.parseColor(if (dark) "#1fffffff" else "#1a000000")
-    val danger = Color.parseColor(if (dark) "#f87171" else "#dc2626")
+    val background = Color.parseColor(if (dark) "#111821" else "#FCFDFF")
+    val foreground = Color.parseColor(if (dark) "#EAF1FB" else "#172235")
+    val muted = Color.parseColor(if (dark) "#AAB9CB" else "#526174")
+    val surface = Color.parseColor(if (dark) "#1A2532" else "#F0F5FB")
+    val border = Color.parseColor(if (dark) "#394A61" else "#CFDBE9")
+    val danger = Color.parseColor(if (dark) "#FFA8A0" else "#A52B2B")
+    val accent = Color.parseColor(if (dark) "#A9C9FF" else "#234E90")
 
     fun text(value: String, size: Float, color: Int = foreground, bold: Boolean = false) =
         TextView(context).apply {
@@ -60,7 +61,7 @@ internal class ConnectionUi(private val context: Context, darkOverride: Boolean?
             gravity = Gravity.CENTER
             backgroundTintList = null
             val palette = this@ConnectionUi
-            background = context.rounded(if (primary) palette.foreground else Color.TRANSPARENT, 16)
+            background = context.rounded(if (primary) palette.accent else Color.TRANSPARENT, 16)
             setTextColor(if (primary) palette.background else palette.foreground)
             setOnClickListener { action() }
         }

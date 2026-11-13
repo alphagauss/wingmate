@@ -1,21 +1,14 @@
 package dev.wingmate.mobile
 
-import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.res.Configuration
 import android.os.Bundle
 import android.view.View
-import android.view.ViewGroup
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
-import androidx.webkit.WebViewAssetLoader
-import dev.wingmate.mobile.launch.ConnectionBridge
+import dev.wingmate.mobile.launch.ConnectionHome
 import dev.wingmate.mobile.remote.ConnectionFlow
 import dev.wingmate.mobile.settings.AppPreferences
 import dev.wingmate.mobile.settings.AppSettings
@@ -23,21 +16,14 @@ import dev.wingmate.mobile.theme.ConnectionUi
 import dev.wingmate.mobile.theme.applyWindowInsets
 import dev.wingmate.mobile.web.START_LOCAL_WORKBENCH
 import dev.wingmate.mobile.web.WorkbenchActivity
-import java.io.ByteArrayInputStream
 
-// Keep the previous local WebView origin to import saved connections from older APKs.
-private const val LAUNCH_HOST = "tauri.localhost"
-private const val LAUNCH_PATH = "/assets/launch/"
-private const val CONNECTION_BRIDGE = "wingmateConnection"
 internal const val OPEN_HOST_SELECTION = "openHostSelection"
 
 class MainActivity : AppCompatActivity() {
-    private lateinit var webView: WebView
-    private lateinit var bridge: ConnectionBridge
+    private lateinit var home: ConnectionHome
     private lateinit var appSettings: AppSettings
-    private val connections = ConnectionFlow(this, onConnectionRequested = { bridge.cancelDiscovery() })
+    private val connections = ConnectionFlow(this, onConnectionRequested = { home.cancelDiscovery() })
 
-    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -49,38 +35,12 @@ class MainActivity : AppCompatActivity() {
                 .putExtra("link", link.toString()).putExtra("localAgent", true))
         }
 
-        val assets = WebViewAssetLoader.Builder()
-            .setDomain(LAUNCH_HOST)
-            .setHttpAllowed(true)
-            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
-            .build()
-        webView = WebView(this).apply {
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.allowFileAccess = false
-            settings.allowContentAccess = false
-            webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
-
-                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse {
-                    val url = request.url
-                    if (url.scheme == "http" && url.host == LAUNCH_HOST && url.port == -1 &&
-                        url.path?.startsWith(LAUNCH_PATH) == true && url.pathSegments.size == 3
-                    ) {
-                        assets.shouldInterceptRequest(url)?.let { return it }
-                    }
-                    return WebResourceResponse("text/plain", "UTF-8", 404, "Not Found", emptyMap(),
-                        ByteArrayInputStream(byteArrayOf()))
-                }
-            }
-        }
-        appSettings = AppSettings(this, webView, connections, localEngine = localAgent,
-            languageChanged = { bridge.updateLabels() })
+        home = ConnectionHome(this, connections, localAgent, { appSettings.openLocal() },
+            { appSettings.openRemote() }, { appSettings.open() })
+        appSettings = AppSettings(this, home.view, connections, localEngine = localAgent,
+            languageChanged = home::render)
         val autoConnect = openOnLaunch && AppPreferences(this).autoConnect
         val openLocal = autoConnect && (localAgent?.openWorkbench != null || localAgent?.shouldStartOnLaunch == true)
-        bridge = ConnectionBridge(this, webView, connections, appSettings::open, appSettings::openRemote,
-            localAgent, appSettings::openLocal, autoConnect && !openLocal)
-        webView.addJavascriptInterface(bridge, CONNECTION_BRIDGE)
         setContentView(FrameLayout(this).apply {
             setBackgroundColor(ConnectionUi(this@MainActivity).background)
             addView(appSettings.view, FrameLayout.LayoutParams(-1, -1))
@@ -91,8 +51,7 @@ class MainActivity : AppCompatActivity() {
                 if (!appSettings.back()) finish()
             }
         })
-        webView.loadUrl("http://$LAUNCH_HOST${LAUNCH_PATH}index.html")
-        localAgent?.observe { bridge.updateLocalEntry() }
+        localAgent?.observe(home::render)
         if (openLocal) {
             appSettings.view.visibility = View.INVISIBLE
             startActivity(Intent(this, WorkbenchActivity::class.java)
@@ -100,13 +59,14 @@ class MainActivity : AppCompatActivity() {
         } else if (openOnLaunch && localAgent?.shouldStartOnLaunch == true) {
             localAgent.startOnLaunch()
         }
+        if (autoConnect && !openLocal && connections.store.entries().isNotEmpty()) home.discover(true)
         openRequestedSettings(intent)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         appSettings.onConfigurationChanged()
-        bridge.updateLabels()
+        home.render()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -115,7 +75,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
-        bridge.cancelStartupConnection()
+        home.cancelDiscovery()
         super.onStop()
     }
 
@@ -132,12 +92,12 @@ class MainActivity : AppCompatActivity() {
     private fun openRequestedSettings(intent: Intent) {
         when {
             intent.getBooleanExtra(OPEN_HOST_SELECTION, false) -> {
-                bridge.cancelStartupConnection()
+                home.cancelDiscovery()
                 intent.removeExtra(OPEN_HOST_SELECTION)
                 appSettings.showHostSelection()
             }
             intent.getBooleanExtra("openLocalAgent", false) -> {
-                bridge.cancelStartupConnection()
+                home.cancelDiscovery()
                 intent.removeExtra("openLocalAgent")
                 appSettings.openLocal()
             }
@@ -145,10 +105,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        bridge.cancelDiscovery()
-        webView.removeJavascriptInterface(CONNECTION_BRIDGE)
-        (webView.parent as ViewGroup).removeView(webView)
-        webView.destroy()
+        home.cancelDiscovery()
         super.onDestroy()
     }
 }

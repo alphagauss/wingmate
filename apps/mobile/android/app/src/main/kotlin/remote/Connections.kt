@@ -9,38 +9,43 @@ import java.net.HttpURLConnection
 import java.net.Inet4Address
 import java.net.Proxy
 import java.net.URI
+import java.util.concurrent.Callable
 import java.util.concurrent.ExecutorCompletionService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 
 internal data class ConnectionTarget(val origin: String, val link: String) {
     companion object {
-        private val shortAddress = Regex("""[\w.-]+:\d+(?:[/?].*)?""")
-        private val ipv4 = Regex("""(?:\d{1,3}\.){3}\d{1,3}""")
-
-        // Ported from apps/native/src/utils/bridge-protocol.ts with Wingmate's gateway rules.
-        fun parse(raw: String, manual: Boolean = false): ConnectionTarget? = runCatching {
+        fun parse(raw: String, manual: Boolean = false): ConnectionTarget? {
             if (raw.length > 8192) return null
-            var text = raw.trim()
-            if (text.startsWith('{')) text = JSONObject(text).getString("url").trim()
-            if (shortAddress.matches(text)) text = "http://$text"
-            else if (manual && "://" !in text) text = "https://$text"
-            if (text.any { it.isWhitespace() || it == '\\' || it.isISOControl() }) return null
-            val uri = URI(text)
-            val scheme = uri.scheme?.lowercase()
-            val host = uri.host?.lowercase() ?: return null
-            val numeric = ipv4.matches(host)
-            if ((scheme != "http" && scheme != "https") || (scheme == "http") != numeric ||
-                host.startsWith('[') || uri.userInfo != null || uri.rawFragment != null ||
-                uri.rawPath !in listOf("", "/") || uri.port == 0 || uri.port > 65535 ||
-                uri.rawQuery?.matches(Regex("auth=[^&]+")) == false
+            val input = raw.trim()
+            val address = if (input.startsWith('{')) {
+                (runCatching { JSONObject(input).opt("url") }.getOrNull() as? String)?.trim() ?: return null
+            } else input
+            if (address.length > 8192 || address.any { it.isWhitespace() || it.isISOControl() }) return null
+
+            // The gateway serves LAN IPv4 over HTTP and public hostnames over HTTPS.
+            val prefix = when {
+                "://" in address -> ""
+                address.substringBefore('/').substringBefore('?').matches(Regex("[A-Za-z0-9_.-]+:[0-9]+")) -> "http://"
+                manual -> "https://"
+                else -> return null
+            }
+            val url = runCatching { URI(prefix + address) }.getOrNull() ?: return null
+            val host = url.host?.lowercase() ?: return null
+            if (url.rawUserInfo != null || url.rawFragment != null || ':' in host ||
+                url.rawPath.orEmpty().removePrefix("/").isNotEmpty() ||
+                url.port !in -1..65535 || url.port == 0
             ) return null
-            val defaultPort = if (scheme == "http") 80 else 443
-            val port = uri.port.takeIf { it != -1 && it != defaultPort }
-            val origin = "$scheme://$host" + if (port == null) "" else ":$port"
-            ConnectionTarget(origin, "$origin/" + (uri.rawQuery?.let { "?$it" } ?: ""))
-        }.getOrNull()
+            val lan = host.split('.').let { parts -> parts.size == 4 && parts.all { it.toIntOrNull() in 0..255 } }
+            val scheme = if (lan) "http" else "https"
+            if (!scheme.equals(url.scheme, ignoreCase = true)) return null
+            val query = url.rawQuery
+            if (query != null && (!query.startsWith("auth=") || query.length == 5 || '&' in query)) return null
+            val defaultPort = if (lan) 80 else 443
+            val origin = if (url.port == -1 || url.port == defaultPort) "$scheme://$host" else "$scheme://$host:${url.port}"
+            return ConnectionTarget(origin, "$origin/" + if (query == null) "" else "?$query")
+        }
     }
 }
 
@@ -69,12 +74,6 @@ internal class ConnectionStore(context: Context) {
     }
 
     fun forget(origin: String) = update { entries -> entries.filterNot { it.origin == origin } }
-
-    fun migrate(origins: JSONArray) = update { entries ->
-        (entries + (0 until origins.length()).mapNotNull {
-            ConnectionTarget.parse(origins.optString(it))?.let { target -> SavedConnection(target.origin) }
-        }).distinctBy { it.origin }
-    }
 
     private fun update(change: (List<SavedConnection>) -> List<SavedConnection>) = synchronized(preferences) {
         val updated = JSONArray()
@@ -113,7 +112,6 @@ internal fun probeConnection(origin: String, timeout: Int = 3000): Boolean = run
     }
 }.getOrDefault(false)
 
-// Same /24 range, default ports, concurrency and deadline as upstream discovery.
 internal class NoLanNetwork : Exception()
 
 internal fun discoverConnection(
@@ -124,10 +122,11 @@ internal fun discoverConnection(
     if (historyOnly) {
         return history.firstOrNull()?.origin?.takeIf { probeConnection(it) }
     }
-    val workers = Executors.newFixedThreadPool(40)
+    val parallel = 40
+    val workers = Executors.newFixedThreadPool(parallel)
     try {
         val known = workers.invokeAll(history.map { entry ->
-            java.util.concurrent.Callable { entry.origin.takeIf { probeConnection(it) } }
+            Callable { entry.origin.takeIf { probeConnection(it) } }
         }, 3, TimeUnit.SECONDS)
         known.firstNotNullOfOrNull { if (it.isCancelled) null else it.get() }?.let { return it }
         val network = context.getSystemService(ConnectivityManager::class.java)
@@ -138,27 +137,27 @@ internal fun discoverConnection(
         ) throw NoLanNetwork()
         val ip = network.getLinkProperties(active)?.linkAddresses
             ?.firstOrNull { it.address is Inet4Address }?.address?.hostAddress ?: throw NoLanNetwork()
+        val ports = history.map { URI(it.origin) }.filter { it.scheme == "http" }
+            .map { it.port.takeIf { port -> port > 0 } ?: 80 }
         val subnet = ip.substringBeforeLast('.')
-        val ports = (history.map { URI(it.origin) }.filter { it.scheme == "http" }.map { it.port } +
-            listOf(3088, 3080)).filter { it > 0 }.distinct()
-        val candidates = ports.flatMap { port ->
-            (1..254).map { "$subnet.$it" }.filterNot { it == ip }.map { "http://$it:$port" }
-        }
-        val cursor = AtomicInteger()
+        val addresses = (ports + listOf(3088, 3080)).distinct().asSequence().flatMap { port ->
+            (1..254).asSequence().map { "$subnet.$it" }.filterNot { it == ip }.map { "http://$it:$port" }
+        }.iterator()
         val results = ExecutorCompletionService<String?>(workers)
-        repeat(minOf(40, candidates.size)) {
-            results.submit(java.util.concurrent.Callable {
-                while (!Thread.currentThread().isInterrupted) {
-                    val origin = candidates.getOrNull(cursor.getAndIncrement()) ?: break
-                    if (probeConnection(origin, 600)) return@Callable origin
-                }
-                null
-            })
+        fun probeNext() {
+            val address = addresses.next()
+            results.submit(Callable { address.takeIf { probeConnection(it, 600) } })
         }
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(17)
-        repeat(minOf(40, candidates.size)) {
-            val result = results.poll(deadline - System.nanoTime(), TimeUnit.NANOSECONDS) ?: return null
-            result.get()?.let { return it }
+        repeat(parallel) { probeNext() }
+        var inFlight = parallel
+        val started = System.nanoTime()
+        val budget = TimeUnit.SECONDS.toNanos(17)
+        while (inFlight > 0) {
+            val remaining = budget - (System.nanoTime() - started)
+            if (remaining <= 0) break
+            val completed = results.poll(remaining, TimeUnit.NANOSECONDS) ?: break
+            completed.get()?.let { return it }
+            if (addresses.hasNext()) probeNext() else inFlight--
         }
         return null
     } finally {
