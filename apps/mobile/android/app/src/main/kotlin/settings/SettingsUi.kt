@@ -27,7 +27,7 @@ internal class SettingsUi(private val context: Context, theme: String) {
         "light" -> false
         else -> null
     })
-    private val dark = colors.background != Color.WHITE
+    private val dark = colors.dark
     private val secondary = Color.parseColor(if (dark) "#adb2b8" else "#61666b")
     val success = Color.parseColor(if (dark) "#8dd5ad" else "#26724a")
 

@@ -34,7 +34,7 @@ internal fun Context.rounded(color: Int, radius: Int, stroke: Int? = null) = Gra
 }
 
 internal class ConnectionUi(private val context: Context, darkOverride: Boolean? = null) {
-    private val dark = darkOverride ?: (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+    val dark = darkOverride ?: (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
         Configuration.UI_MODE_NIGHT_YES)
     val background = Color.parseColor(if (dark) "#111821" else "#FCFDFF")
     val foreground = Color.parseColor(if (dark) "#EAF1FB" else "#172235")

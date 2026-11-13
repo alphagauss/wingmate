@@ -1,6 +1,8 @@
 package dev.wingmate.mobile.launch
 
 import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -46,6 +48,7 @@ internal class ConnectionHome(
 
     fun render() {
         val ui = ConnectionUi(activity)
+        val monochrome = if (ui.dark) Color.WHITE else Color.BLACK
         view.setBackgroundColor(ui.background)
         body.removeAllViews()
         val heading = LinearLayout(activity).apply {
@@ -54,14 +57,18 @@ internal class ConnectionHome(
             minimumHeight = activity.dp(192)
             addView(ImageView(activity).apply {
                 setImageResource(R.drawable.ic_wingmate_foreground)
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                imageTintList = ColorStateList.valueOf(monochrome)
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }, activity.dp(116), activity.dp(96))
-            addView(ui.text(activity.getString(R.string.app_name), 26f, bold = true).apply {
+            }, activity.dp(152), activity.dp(88))
+            addView(ui.text(labels["app.name"], 28f, bold = true).apply {
+                gravity = Gravity.CENTER
+                includeFontPadding = false
                 ViewCompat.setAccessibilityHeading(this, true)
-            })
+            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = activity.dp(8) })
             progress?.let { key ->
                 addView(ProgressBar(activity).apply {
-                    indeterminateTintList = ColorStateList.valueOf(ui.accent)
+                    indeterminateTintList = ColorStateList.valueOf(monochrome)
                     importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 }, LinearLayout.LayoutParams(activity.dp(30), activity.dp(30)).apply {
                     topMargin = activity.dp(18)
@@ -83,12 +90,22 @@ internal class ConnectionHome(
             })
         }
         fun action(key: String, icon: Int, primary: Boolean = false, run: () -> Unit) {
-            val button = ui.button(labels[key], primary, run)
-            if (!primary) button.background = activity.rounded(ui.surface, 16, ui.border)
-            button.setCompoundDrawablesRelativeWithIntrinsicBounds(icon, 0, 0, 0)
-            button.compoundDrawableTintList = ColorStateList.valueOf(button.currentTextColor)
-            button.setPaddingRelative(activity.dp(16), 0, activity.dp(16), 0)
-            body.addView(button, LinearLayout.LayoutParams(-1, -2).apply { topMargin = activity.dp(10) })
+            val fill = if (primary) monochrome else ui.surface
+            val ink = if (primary) ui.background else ui.foreground
+            val button = ui.button(labels[key], primary, run).apply {
+                stateListAnimator = null
+                minHeight = activity.dp(54)
+                minimumHeight = activity.dp(54)
+                val ripple = (ink and 0x00FFFFFF) or 0x24000000
+                background = RippleDrawable(ColorStateList.valueOf(ripple),
+                    activity.rounded(fill, 14), null)
+                gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                setPaddingRelative(activity.dp(18), 0, activity.dp(18), 0)
+                setCompoundDrawablesRelativeWithIntrinsicBounds(icon, 0, 0, 0)
+                compoundDrawablePadding = activity.dp(12)
+                compoundDrawableTintList = ColorStateList.valueOf(ink)
+            }
+            body.addView(button, LinearLayout.LayoutParams(-1, -2).apply { topMargin = activity.dp(8) })
         }
         localEngine?.let { engine ->
             val openWorkbench = engine.openWorkbench
@@ -98,7 +115,10 @@ internal class ConnectionHome(
         action("connection.autoScan", R.drawable.ic_settings_search, primary = true) { discover(false) }
         action("scan.scanQr", R.drawable.ic_scan, run = ::scan)
         action("connection.recentConnections", R.drawable.ic_settings_host, run = openHosts)
-        body.addView(ui.button(labels["settings.title"], action = openSettings), -1, -2)
+        body.addView(ui.button(labels["settings.title"], action = openSettings).apply {
+            stateListAnimator = null
+            setTextColor(ui.muted)
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = activity.dp(4) })
     }
 
     fun discover(recentOnly: Boolean) {
