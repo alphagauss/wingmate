@@ -98,8 +98,8 @@ ubuntu_extra_debs() {
   while read -r file sum; do
     name="$(basename "$file")"
     dest="$CACHE/ubuntu/debs/$name"
-    fetch "$dest" "$sum" "https://mirrors.cloud.tencent.com/ubuntu-ports/$file" \
-      "https://ports.ubuntu.com/ubuntu-ports/$file" \
+    fetch "$dest" "$sum" "https://ports.ubuntu.com/ubuntu-ports/$file" \
+      "https://mirrors.cloud.tencent.com/ubuntu-ports/$file" \
       "https://launchpad.net/ubuntu/+archive/primary/+files/$name"
     printf '%s\n' "$dest"
   done
@@ -161,7 +161,9 @@ build_runtime() {
   proot_src="$CACHE/termux/$proot_name"
   fetch "$proot_src" "${PIN[$proot_name]}" "https://codeload.github.com/termux/proot/zip/refs/tags/v$PROOT_VERSION"
   local talloc_name="talloc-$TALLOC_VERSION.tar.gz" talloc_src="$CACHE/termux/talloc-$TALLOC_VERSION.tar.gz"
-  fetch "$talloc_src" "${PIN[$talloc_name]}" "https://www.samba.org/ftp/talloc/$talloc_name"
+  fetch "$talloc_src" "${PIN[$talloc_name]}" \
+    "https://ftp.osuosl.org/pub/blfs/conglomeration/talloc/$talloc_name" \
+    "https://www.samba.org/ftp/talloc/$talloc_name"
 
   if [[ -n "$RELEASE_SOURCES" ]]; then
     local shmem_name="libandroid-shmem-$SHMEM_VERSION.tar.gz" recipes="termux-packages-$TERMUX_RECIPE.tar.gz"
