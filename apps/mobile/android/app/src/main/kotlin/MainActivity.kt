@@ -18,6 +18,7 @@ import dev.wingmate.mobile.launch.ConnectionBridge
 import dev.wingmate.mobile.remote.ConnectionFlow
 import dev.wingmate.mobile.settings.AppSettings
 import dev.wingmate.mobile.theme.applyWindowInsets
+import dev.wingmate.mobile.web.WorkbenchActivity
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 
@@ -42,7 +43,11 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        val localAgent = localAgentAction(this)
+        val localAgent = localEngineSettings(this) { link ->
+            appSettings.close()
+            startActivity(Intent(this, WorkbenchActivity::class.java)
+                .putExtra("link", link.toString()).putExtra("localAgent", true))
+        }
 
         val assets = WebViewAssetLoader.Builder()
             .setDomain(LAUNCH_HOST)
@@ -69,9 +74,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        appSettings = AppSettings(this, webView, connections, openLocalAgent = localAgent,
+        appSettings = AppSettings(this, webView, connections, localEngine = localAgent,
             languageChanged = { bridge.updateLabels() })
-        bridge = ConnectionBridge(this, webView, connections, appSettings::open, appSettings::openRemote, localAgent)
+        bridge = ConnectionBridge(this, webView, connections, appSettings::open, appSettings::openRemote,
+            (appSettings::openLocal).takeIf { localAgent != null })
         webView.addJavascriptInterface(bridge, CONNECTION_BRIDGE)
         setContentView(FrameLayout(this).apply {
             addView(appSettings.view, FrameLayout.LayoutParams(-1, -1))
@@ -87,6 +93,7 @@ class MainActivity : AppCompatActivity() {
             }
         })
         webView.loadUrl("http://$LAUNCH_HOST${LAUNCH_PATH}index.html")
+        if (savedInstanceState == null) autoStartLocalEngine(this)
         openLocalFromNotification(intent)
     }
 
@@ -109,7 +116,7 @@ class MainActivity : AppCompatActivity() {
     private fun openLocalFromNotification(intent: Intent) {
         if (intent.getBooleanExtra("openLocalAgent", false)) {
             intent.removeExtra("openLocalAgent")
-            localAgentAction(this)?.invoke()
+            appSettings.openLocal()
         }
     }
 

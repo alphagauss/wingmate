@@ -26,7 +26,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import dev.wingmate.mobile.i18n.ConnectionStrings
-import dev.wingmate.mobile.localAgentAction
+import dev.wingmate.mobile.localEngineSettings
 import dev.wingmate.mobile.remote.ConnectionFlow
 import dev.wingmate.mobile.remote.addManagementButton
 import dev.wingmate.mobile.settings.AppPreferences
@@ -44,6 +44,7 @@ class WorkbenchActivity : AppCompatActivity() {
     private lateinit var activeOrigin: String
     private var loadFailed = false
     private var paused = true
+    private var localToken: String? = null
     private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
     private val connections = ConnectionFlow(this)
     private var fileResult: ValueCallback<Array<Uri>>? = null
@@ -59,6 +60,8 @@ class WorkbenchActivity : AppCompatActivity() {
         val link = intent.getStringExtra("link") ?: return finish()
         val origin = Uri.parse(link)
         activeOrigin = origin.workbenchOrigin() ?: return finish()
+        val localCurrent = intent.getBooleanExtra("localAgent", false)
+        if (localCurrent) localToken = origin.getQueryParameter("token")
         val ui = ConnectionUi(this)
         val workbench = FrameLayout(this)
         val root = FrameLayout(this).apply {
@@ -94,7 +97,7 @@ class WorkbenchActivity : AppCompatActivity() {
         workbench.addView(webView, FrameLayout.LayoutParams(-1, -1))
 
         appSettings = AppSettings(this, workbench, connections, activeOrigin,
-            intent.getBooleanExtra("localAgent", false), localAgentAction(this),
+            localCurrent, localEngineSettings(this, ::openLocalWorkbench),
             openDshSettings = { bridge.openSettings(it) })
         loading = WorkbenchLoading(this, ::retry, appSettings::open)
         workbench.addView(loading, FrameLayout.LayoutParams(-1, -1))
@@ -125,6 +128,22 @@ class WorkbenchActivity : AppCompatActivity() {
 
     private fun retry() {
         intent.getStringExtra("link")?.let(webView::loadUrl)
+    }
+
+    private fun openLocalWorkbench(link: Uri) {
+        appSettings.close()
+        if (link.workbenchOrigin() == activeOrigin && intent.getBooleanExtra("localAgent", false)) {
+            val token = link.getQueryParameter("token")
+            if (localToken != token || loadFailed) {
+                localToken = token
+                intent.putExtra("link", link.toString())
+                retry()
+            }
+            return
+        }
+        startActivity(Intent(this, WorkbenchActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT)
+            .putExtra("link", link.toString()).putExtra("localAgent", true))
+        finish()
     }
 
     private fun ready() {

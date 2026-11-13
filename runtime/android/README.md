@@ -1,6 +1,6 @@
 # Android 本地运行载荷
 
-从 Wingmate 根目录运行 `pnpm runtime:android`。MJS 入口在 Linux 上直接调用构建工具，在 Windows 上使用默认 WSL 发行版。构建环境需要 Bash、Python 3.11+、curl、xz、tar 和常用 Linux 工具。脚本自行下载锁定的 Linux Node 构建 DSH 依赖和 File Viewer。下载缓存位于 `work/cache/android`，交付给 Gradle 的构建输入是 `work/build/android/runtime-arm64-v8a.zip`。其中的清单记录 XZ 归档与 PRoot 原生库的校验值，构建报告记录裁剪原因和解包占用。首次准备后，手机可直接从本地 APK 释放环境。
+从 Wingmate 根目录运行 `pnpm runtime:android`。MJS 入口在 Linux 上直接调用构建工具，在 Windows 上使用默认 WSL 发行版。构建环境需要 Bash、Python 3.11+、curl、xz、tar 和常用 Linux 工具。Python 3.11 至 3.13 还需 `zstd` 解包 Ubuntu deb。脚本自行下载锁定的 Linux Node 构建 DSH 依赖和 File Viewer。下载缓存位于 `work/cache/android`，交付给 Gradle 的构建输入是 `work/build/android/runtime-arm64-v8a.zip`。其中的清单记录 XZ 归档与 PRoot 原生库的校验值，构建报告记录裁剪原因和解包占用。首次准备后，手机可直接从本地 APK 释放环境。
 
 Linux 基础包、Node、Python 和 PRoot 按 [dsh-Go 的 288234ae](https://github.com/ccch1mneyyy/dsh-Go/tree/288234ae52fdfcfc2b0a0388763c371d0b09ea7d) 移植。保留 Ubuntu 的 apt/dpkg、Git、时区和证书，保留 Node 的 npm、pnpm 与 Python 的 pip、venv。文档、缓存、Python 测试和 GUI 组件按上游规则裁剪。Ubuntu deb 锁从该基础包信任的签名索引生成。PRoot 二进制采用 Termux 包及其构建配方，重命名为 Android APK 可携带的原生库并修正 talloc 动态库名。上游代码许可见 [LICENSE.dsh-go](LICENSE.dsh-go)。
 

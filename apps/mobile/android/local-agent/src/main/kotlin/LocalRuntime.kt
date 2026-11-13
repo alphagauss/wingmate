@@ -40,6 +40,12 @@ object LocalRuntime {
         context.startService(Intent(context, DshService::class.java).setAction(DshService.STOP))
     }
 
+    fun restart(context: Context) {
+        context.startService(Intent(context, DshService::class.java).setAction(DshService.RESTART))
+    }
+
+    fun isInstalled(context: Context): Boolean = File(context.filesDir, "runtime/rootfs.version").isFile
+
     fun logs(): String = synchronized(logs) { logs.joinToString("\n") }
 
     internal fun launch(context: Context) {
@@ -51,8 +57,9 @@ object LocalRuntime {
         worker.execute(run::launch)
     }
 
-    internal fun requestStop() {
+    internal fun requestStop(restart: Boolean = false) {
         val run = active ?: return
+        run.restart = restart
         if (run.stopping) return
         run.stopping = true
         state.value = RuntimeStatus.Stopping
@@ -74,6 +81,7 @@ object LocalRuntime {
 
     private class Run(private val context: Context) : DshProcess.Listener {
         @Volatile var stopping = false
+        var restart = false
         // Accessed by the worker. The main thread owns the active run reference.
         var engine: DshProcess? = null
         private lateinit var rootfs: File
@@ -147,7 +155,7 @@ object LocalRuntime {
             main.post {
                 if (active === this) {
                     active = null
-                    state.value = value
+                    if (restart) launch(context) else state.value = value
                 }
             }
         }

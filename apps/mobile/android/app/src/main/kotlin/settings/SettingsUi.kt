@@ -8,13 +8,13 @@ import android.graphics.drawable.RippleDrawable
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
-import android.widget.ImageView
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import androidx.appcompat.widget.SwitchCompat
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.appcompat.widget.AppCompatImageButton
+import androidx.appcompat.widget.SwitchCompat
 import androidx.core.view.ViewCompat
 import dev.wingmate.mobile.R
 import dev.wingmate.mobile.theme.ConnectionUi
@@ -28,14 +28,13 @@ internal class SettingsUi(private val context: Context, theme: String) {
         else -> null
     })
     private val dark = colors.background != Color.WHITE
-    private val iconFill = Color.parseColor(if (dark) "#23364f" else "#e2eeff")
-    private val accent = Color.parseColor(if (dark) "#93bdff" else "#285fa7")
     private val secondary = Color.parseColor(if (dark) "#adb2b8" else "#61666b")
     val success = Color.parseColor(if (dark) "#8dd5ad" else "#26724a")
 
     fun page(title: String, backLabel: String, back: () -> Unit, content: LinearLayout.() -> Unit) =
         ScrollView(context).apply {
             isFillViewport = true
+            isFocusableInTouchMode = true
             background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(
                 Color.parseColor(if (dark) "#202733" else "#eaf0fc"), colors.background
             ))
@@ -74,6 +73,8 @@ internal class SettingsUi(private val context: Context, theme: String) {
         value: String? = null,
         icon: Int? = null,
         valueColor: Int = secondary,
+        maxSubtitleLines: Int = 2,
+        tone: Tone = Tone.AI,
         action: (() -> Unit)? = null
     ) = LinearLayout(context).apply {
         gravity = Gravity.CENTER_VERTICAL
@@ -81,15 +82,15 @@ internal class SettingsUi(private val context: Context, theme: String) {
         setPadding(dp(16), dp(8), dp(16), dp(8))
         if (icon != null) addView(ImageView(context).apply {
             setImageResource(icon)
-            setColorFilter(accent)
-            background = context.rounded(iconFill, 16)
+            setColorFilter(Color.parseColor(if (dark) tone.darkInk else tone.lightInk))
+            background = context.rounded(Color.parseColor(if (dark) tone.darkFill else tone.lightFill), 16)
             setPadding(dp(7), dp(7), dp(7), dp(7))
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(12) })
         addView(column().apply {
             addView(colors.text(title, 15f))
             if (subtitle != null) addView(colors.text(subtitle, 13f, secondary).apply {
-                maxLines = 2
+                maxLines = maxSubtitleLines
                 ellipsize = TextUtils.TruncateAt.END
             })
         }, LinearLayout.LayoutParams(0, -2, 1f))
@@ -154,4 +155,13 @@ internal class SettingsUi(private val context: Context, theme: String) {
     private fun ripple(radius: Int, fill: Int) =
         RippleDrawable(ColorStateList.valueOf(colors.border), context.rounded(fill, radius),
             context.rounded(Color.WHITE, radius))
+
+    enum class Tone(val lightFill: String, val lightInk: String, val darkFill: String, val darkInk: String) {
+        AI("#e2eeff", "#285fa7", "#23364f", "#93bdff"),
+        CAPABILITIES("#fff0dc", "#785213", "#49391f", "#f0d3a5"),
+        APPEARANCE("#eee8fb", "#594788", "#38324b", "#d7c8ff"),
+        GENERAL("#e6f0e1", "#3a6533", "#2e402a", "#bfdcb5"),
+        HOSTS("#def3ee", "#1c6256", "#1e403b", "#a0e0d0"),
+        HELP("#e0f1f6", "#246378", "#253e49", "#a7d9ed")
+    }
 }

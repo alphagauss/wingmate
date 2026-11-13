@@ -282,6 +282,8 @@
     var titles = {
       general: ['General', '通用设置', '一般', 'Général', 'Allgemein', 'Общие', 'Geral'],
       models: ['Models', '模型', 'モデル', 'Modelos', 'Modèles', 'Modelle', 'Модели'],
+      presets: ['Agent presets', 'Agent 预设', 'Ajustes preestablecidos del agente',
+        "Préréglages d'agent", 'Agentenvoreinstellungen', 'Настройки агента', 'Predefinições de agente'],
       plugins: ['Built-in plugins', '内置插件', '組み込みプラグイン', 'Complementos integrados',
         'Plugins intégrés', 'Integrierte Plugins', 'Встроенные плагины', 'Plug-ins integrados']
     }[section];
@@ -305,15 +307,22 @@
       launcher.click();
       return requestAnimationFrame(select);
     }
-    var account = document.querySelector('button[data-signed-out][aria-haspopup="menu"]');
-    if (!account) return report(false);
-    if (account.getAttribute('aria-expanded') !== 'true') account.click();
-    requestAnimationFrame(function () {
-      var entry = find('button[role="menuitem"]', settingsNames);
-      if (!entry) return report(false);
-      entry.click();
-      requestAnimationFrame(select);
-    });
+    function openAccount() {
+      var account = document.querySelector('button[data-signed-out][aria-haspopup="menu"]');
+      if (!account || account.closest('[inert]')) return report(false);
+      if (account.getAttribute('aria-expanded') !== 'true') account.click();
+      requestAnimationFrame(function () {
+        var entry = find('button[role="menuitem"]', settingsNames);
+        if (!entry) return report(false);
+        entry.click();
+        requestAnimationFrame(select);
+      });
+    }
+    var sidebar = document.querySelector('[data-sidebar-opener]:not([inert] *)');
+    if (sidebar && document.querySelector('[inert] button[data-signed-out]')) {
+      sidebar.click();
+      requestAnimationFrame(openAccount);
+    } else openAccount();
   }
   function syncTheme() {
     if (!readySent || window.__dshBridgeNonce !== nonce || !window.WingmateWorkbench) return;

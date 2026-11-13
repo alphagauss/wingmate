@@ -40,8 +40,9 @@ class DshService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == STOP) {
-            if (foreground) LocalRuntime.requestStop() else stopSelf(startId)
+        val action = intent?.action
+        if (action == STOP || action == RESTART) {
+            if (foreground) LocalRuntime.requestStop(restart = action == RESTART) else stopSelf(startId)
             return START_NOT_STICKY
         }
         if (!foreground) {
@@ -92,6 +93,7 @@ class DshService : Service() {
 
     companion object {
         internal const val STOP = "dev.wingmate.mobile.runtime.STOP"
+        internal const val RESTART = "dev.wingmate.mobile.runtime.RESTART"
         private const val CHANNEL = "wingmate-local-agent"
         private const val NOTIFICATION = 3080
     }

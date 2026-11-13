@@ -4,8 +4,8 @@ import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.LinearLayout
 import android.widget.Toast
-import androidx.core.widget.doAfterTextChanged
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.widget.doAfterTextChanged
 import dev.wingmate.mobile.R
 import dev.wingmate.mobile.i18n.ConnectionStrings
 import dev.wingmate.mobile.remote.ConnectionFlow
@@ -18,7 +18,7 @@ internal class AppSettings(
     flow: ConnectionFlow,
     current: String? = null,
     private val localCurrent: Boolean = false,
-    private val openLocalAgent: (() -> Unit)? = null,
+    private val localEngine: LocalEngineSettings? = null,
     private val languageChanged: () -> Unit = {},
     private val openDshSettings: ((DshSettings) -> Boolean)? = null
 ) {
@@ -27,7 +27,7 @@ internal class AppSettings(
     private var ui = SettingsUi(activity, theme)
     private val overlay: SettingsOverlay = SettingsOverlay(activity, workbench, ::back)
     val view: View get() = overlay
-    private val remote = RemoteHostSettings(activity, flow, current.takeUnless { localCurrent }, openLocalAgent == null)
+    private val remote = RemoteHostSettings(activity, flow, current.takeUnless { localCurrent }, localEngine == null)
     private val general = GeneralSettings(activity) {
         languageChanged()
         render()
@@ -39,6 +39,7 @@ internal class AppSettings(
     private var fromSearch = false
 
     init {
+        localEngine?.observe { if (page == Page.LOCAL || page == Page.HOME) refresh() }
         overlay.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) = Unit
             override fun onViewDetachedFromWindow(v: View) = remote.stop()
@@ -47,25 +48,36 @@ internal class AppSettings(
 
     fun open() = open(Page.HOME)
     fun openRemote() = open(Page.REMOTE)
+    fun openLocal() {
+        if (localEngine == null) return
+        if (!overlay.showing) open(Page.LOCAL)
+        else if (!overlay.closing) navigate(Page.LOCAL)
+    }
+
+    fun close() {
+        remote.stop()
+        overlay.close()
+    }
 
     private fun open(start: Page) {
         if (overlay.showing) return
         firstPage = start
         fromSearch = false
         searchQuery = ""
-        navigate(start)
+        page = start
+        render()
         overlay.open()
     }
 
     fun back(): Boolean {
         if (!overlay.showing) return false
         if (page != firstPage) {
-            navigate(if (fromSearch) Page.SEARCH else firstPage)
+            val parent = if (fromSearch) Page.SEARCH else firstPage
             fromSearch = false
+            navigate(parent)
             overlay.resetSwipe()
         } else {
-            remote.stop()
-            overlay.close()
+            close()
         }
         return true
     }
@@ -79,8 +91,7 @@ internal class AppSettings(
     fun dshSettingsOpened(opened: Boolean) {
         if (!overlay.showing || overlay.closing) return
         if (opened) {
-            remote.stop()
-            overlay.close()
+            close()
         } else {
             Toast.makeText(activity, labels["settings.webUnavailable"], Toast.LENGTH_SHORT).show()
         }
@@ -97,7 +108,7 @@ internal class AppSettings(
     }
 
     fun onConfigurationChanged() {
-        if (theme == "system") updateColors()
+        if (theme == "system") updateColors() else refresh()
     }
 
     private fun updateColors() {
@@ -107,6 +118,7 @@ internal class AppSettings(
 
     private fun navigate(next: Page) {
         if (page == Page.SEARCH && next != Page.SEARCH) {
+            fromSearch = next != firstPage
             activity.getSystemService(InputMethodManager::class.java)
                 .hideSoftInputFromWindow(view.windowToken, 0)
         }
@@ -128,6 +140,7 @@ internal class AppSettings(
                 Page.DIAGNOSTICS -> general.diagnostics(ui, this,
                     if (localCurrent) labels["localAgent.title"] else remote.currentName)
                 Page.ABOUT -> general.about(ui, this)
+                Page.LOCAL -> localEngine?.render(ui, this)
             }
         })
     }
@@ -137,18 +150,20 @@ internal class AppSettings(
             LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = activity.dp(16) })
         body.section {
             if (localCurrent) {
-                addView(row(labels["localAgent.title"], labels["connection.currentConnection"],
-                    icon = R.drawable.ic_settings_engine, action = openLocalAgent))
+                addView(row(labels["settings.thisPhone"], labels["connection.currentConnection"],
+                    icon = R.drawable.ic_settings_engine, tone = SettingsUi.Tone.HOSTS, action = ::openLocal))
             } else {
                 addView(row(remote.currentName ?: labels["connection.noConnection"],
-                    labels["settings.remoteHosts"], icon = R.drawable.ic_settings_host,
+                    labels["settings.remoteHosts"], icon = R.drawable.ic_settings_host, tone = SettingsUi.Tone.HOSTS,
                     action = { navigate(Page.REMOTE) }))
             }
+            localEngine?.let { addView(row(labels["localAgent.title"], it.summary,
+                icon = R.drawable.ic_settings_engine, tone = SettingsUi.Tone.HOSTS, action = ::openLocal)) }
         }
-        for ((group, entries) in groups()) {
+        for ((group, tone, entries) in groups()) {
             body.section(labels[group]) {
                 entries.forEach { item -> addView(row(labels[item.title], value = item.value,
-                    icon = item.icon, action = item.action)) }
+                    icon = item.icon, tone = tone, action = item.action)) }
             }
         }
     }
@@ -162,18 +177,13 @@ internal class AppSettings(
             setPadding(0, activity.dp(16), 0, 0)
         }
         body.addView(matches)
-        val items = groups().flatMap { it.second }
+        val items = groups().flatMap { it.items }
         fun update(query: String) {
             matches.removeAllViews()
             val found = items.filter { labels[it.title].contains(query.trim(), ignoreCase = true) }
             matches.section {
                 if (found.isEmpty()) addView(row(labels["settings.noResults"]))
-                found.forEach { item ->
-                    addView(row(labels[item.title], icon = item.icon, action = {
-                        item.action()
-                        fromSearch = page != Page.SEARCH
-                    }))
-                }
+                found.forEach { item -> addView(row(labels[item.title], icon = item.icon, action = item.action)) }
             }
         }
         input.doAfterTextChanged {
@@ -183,26 +193,28 @@ internal class AppSettings(
         update(searchQuery)
     }
 
-    private fun groups(): List<Pair<String, List<Item>>> = buildList {
+    private fun groups(): List<Group> = buildList {
         if (dshReady && openDshSettings != null) {
-            add("settings.ai" to listOf(webItem(DshSettings.MODELS, R.drawable.ic_settings_models)))
-            add("settings.capabilities" to listOf(webItem(DshSettings.PLUGINS, R.drawable.ic_settings_plugins)))
-            add("settings.appearance" to listOf(webItem(DshSettings.GENERAL, R.drawable.ic_settings_theme,
-                labels["settings.$theme"])))
+            add(Group("settings.ai", SettingsUi.Tone.AI, listOf(webItem(DshSettings.MODELS, R.drawable.ic_settings_models),
+                webItem(DshSettings.PRESETS, R.drawable.ic_settings_engine))))
+            add(Group("settings.capabilities", SettingsUi.Tone.CAPABILITIES,
+                listOf(webItem(DshSettings.PLUGINS, R.drawable.ic_settings_plugins))))
+            add(Group("settings.appearance", SettingsUi.Tone.APPEARANCE,
+                listOf(webItem(DshSettings.GENERAL, R.drawable.ic_settings_theme, labels["settings.$theme"]))))
         }
-        add("settings.general" to listOf(
+        add(Group("settings.general", SettingsUi.Tone.GENERAL, listOf(
             Item("settings.language", R.drawable.ic_manage, general.languageName, general::language),
             item(Page.NOTIFICATIONS, R.drawable.ic_settings_bell, general.state(general.notificationsEnabled)),
             item(Page.PERMISSIONS, R.drawable.ic_settings_shield)
-        ))
-        add("settings.hosts" to buildList {
-            openLocalAgent?.let { add(Item("localAgent.title", R.drawable.ic_settings_engine, action = it)) }
+        )))
+        add(Group("settings.hosts", SettingsUi.Tone.HOSTS, buildList {
+            localEngine?.let { add(item(Page.LOCAL, R.drawable.ic_settings_engine, it.summary)) }
             add(item(Page.REMOTE, R.drawable.ic_settings_host, remote.count.takeIf { it > 0 }?.toString()))
-        })
-        add("settings.help" to listOf(
+        }))
+        add(Group("settings.help", SettingsUi.Tone.HELP, listOf(
             item(Page.DIAGNOSTICS, R.drawable.ic_settings_engine),
             item(Page.ABOUT, R.drawable.ic_settings_info, general.version)
-        ))
+        )))
     }
 
     private fun item(page: Page, icon: Int, value: String? = null) =
@@ -214,14 +226,15 @@ internal class AppSettings(
         }
 
     private data class Item(val title: String, val icon: Int, val value: String? = null, val action: () -> Unit)
+    private data class Group(val title: String, val tone: SettingsUi.Tone, val items: List<Item>)
 
     private enum class Page(val title: String) {
         HOME("settings.title"), SEARCH("settings.search"), REMOTE("settings.remoteHosts"),
         NOTIFICATIONS("settings.taskNotifications"), PERMISSIONS("settings.permissions"),
-        DIAGNOSTICS("settings.diagnostics"), ABOUT("settings.about")
+        DIAGNOSTICS("settings.diagnostics"), ABOUT("settings.about"), LOCAL("localAgent.title")
     }
 }
 
 internal enum class DshSettings(val title: String) {
-    MODELS("settings.models"), PLUGINS("settings.plugins"), GENERAL("settings.theme")
+    MODELS("settings.models"), PRESETS("settings.presets"), PLUGINS("settings.plugins"), GENERAL("settings.theme")
 }
