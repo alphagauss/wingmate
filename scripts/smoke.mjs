@@ -154,7 +154,8 @@ try {
   const page = await fetch(a.url, { headers: { Cookie: cookie } });
   assert.equal(page.status, 200);
   const html = await page.text();
-  const boot = html.match(/(?:globalThis|window)\["__DSH_BOOT__"\]\s*=\s*(\{[^\n]+?\})\s*;?\s*<\/script>/);
+  const bootPattern = /(?:globalThis|window)\["__DSH_BOOT__"\]\s*=\s*(\{[^\n]+?\})\s*;?\s*<\/script>/;
+  const boot = html.match(bootPattern);
   assert.ok(boot, 'DSH Web 缺少客户端启动清单');
   const plugin = JSON.parse(boot[1]).entries.find(row => row.id === 'dsh-wingmate-web');
   assert.ok(plugin, '释放的运行包未加载后台服务插件');
@@ -252,16 +253,28 @@ try {
   const sharedPage = await remote('/');
   assert.equal(sharedPage.status, 200);
   assert.equal(sharedPage.headers.has('set-cookie'), false);
-  assert.match(await sharedPage.text(), /__DSH_BOOT__/);
+  const sharedBoot = (await sharedPage.text()).match(bootPattern);
+  assert.ok(sharedBoot, '分享工作台缺少客户端启动清单');
+  const sharedModules = JSON.parse(sharedBoot[1]).entries.map(row => row.id);
+  assert.ok(sharedModules.includes('@deepseek-ai/dsh-client-ui-directory-picker-browse'));
+  assert.ok(!sharedModules.includes('@deepseek-ai/dsh-client-ui-directory-picker-native'));
   assert.equal((await remote(plugin.url)).status, 200);
   assert.equal((await remote(backends.url)).status, 200);
   assert.equal((await remote(fileViewer.url)).status, 200);
 
-  const method = 'session/create';
-  const created = await remote('/api/' + method, {
+  const call = (method, args) => remote('/api/' + method, {
     method: 'POST', headers: { Origin: gateway, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: 'client-request', rpcId: randomUUID(), method, payload: { args: { request: { cwd: work } } } }),
+    body: JSON.stringify({ type: 'client-request', rpcId: randomUUID(), method, payload: { args } }),
   });
+  const listing = await call('directoryPicker/list', { path: work });
+  assert.equal(listing.status, 200);
+  const { result: directories } = await listing.json();
+  assert.equal(directories.ok, true, JSON.stringify(directories));
+  assert.equal(directories.value.path, work);
+  assert.ok(directories.value.entries.some(entry => entry.path === env.WINGMATE_HOME));
+  checks.push('分享工作台加载网页目录选择器，并可浏览主机目录');
+
+  const created = await call('session/create', { request: { cwd: work } });
   assert.equal(created.status, 200);
   const { result: session } = await created.json();
   assert.equal(session.ok, true, JSON.stringify(session));

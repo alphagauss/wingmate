@@ -131,6 +131,8 @@
 
 配置组合优先使用 DSH 的 patch 和插件接口；代码补丁用于上游尚无扩展点的必要改动，原因和撤销条件放在对应插件文档。以后需要源码构建时，先从受管理的 URL、tag 与 commit 准备干净源码并应用补丁，再把编译包接入运行时组装，不能只修改 `stage` 或被忽略的参考仓库。
 
+Wingmate 的 DSH 仅监听回环地址，由网关提供共享访问。DSH 的自动目录选择器在启动时为整个后台选定一种交互，有图形会话时可能选中宿主系统对话框。启动配置按[上游的配置示例](https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/apps/web/tests/pin-browse-picker.overlay.yml)显式组合网页目录选择器，供同一后台的所有工作台使用。升级时如果上游能识别这种网关部署并默认提供网页选择器，可以撤掉该配置。
+
 实际 DSH 升级、预装组件变化或兼容性调整时，在 `docs/records/` 新增有日期的简短记录：变更目标与前后版本、输入/来源、此次取舍及适配变化、验证环境和结论、已有安装的处理方式、未验证项。只记录发生的工作，不预建空台账。
 
 Android 远程版的包体积、构建耗时和验收范围见 [2026-11-12 Android 远程版](records/2026-11-12-android-remote.md)。工作台兼容性调整见 [2026-11-14 WebView 104 验证](records/2026-11-14-android-webview-104.md)。
