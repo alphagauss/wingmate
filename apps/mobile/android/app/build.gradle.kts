@@ -1,6 +1,8 @@
 import org.gradle.api.file.ArchiveOperations
 import org.gradle.api.file.FileSystemOperations
+import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RelativePath
+import org.gradle.process.ExecOperations
 import javax.inject.Inject
 
 plugins {
@@ -37,6 +39,32 @@ val unpackLocalRuntime = tasks.register<UnpackLocalRuntime>("unpackLocalRuntime"
     bundle.set(rootProject.layout.projectDirectory.file("../../../work/build/android/runtime-arm64-v8a.zip"))
     assets.set(layout.buildDirectory.dir("generated/localRuntime/assets"))
     libraries.set(layout.buildDirectory.dir("generated/localRuntime/jniLibs"))
+}
+
+abstract class BundleWebViewCompat @Inject constructor(
+    private val exec: ExecOperations,
+) : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val sources: ConfigurableFileCollection
+    @get:Internal abstract val repository: DirectoryProperty
+    @get:OutputDirectory abstract val assets: DirectoryProperty
+
+    @TaskAction
+    fun bundle() {
+        exec.exec {
+            workingDir(repository.get().asFile)
+            commandLine("node", "apps/mobile/build-webview-compat.mjs", assets.get().asFile.absolutePath)
+        }
+    }
+}
+
+val bundleWebViewCompat = tasks.register<BundleWebViewCompat>("bundleWebViewCompat") {
+    repository.set(rootProject.layout.projectDirectory.dir("../../.."))
+    val root = repository.get()
+    sources.from(root.dir("apps/mobile/webview"), root.file("apps/mobile/build-webview-compat.mjs"),
+        root.file("package.json"), root.file("pnpm-lock.yaml"))
+    assets.set(layout.buildDirectory.dir("generated/webViewCompat/assets"))
 }
 
 android {
@@ -88,6 +116,10 @@ android {
 androidComponents.onVariants(androidComponents.selector().withFlavor("execution" to "local")) { variant ->
     variant.sources.assets?.addGeneratedSourceDirectory(unpackLocalRuntime, UnpackLocalRuntime::assets)
     variant.sources.jniLibs?.addGeneratedSourceDirectory(unpackLocalRuntime, UnpackLocalRuntime::libraries)
+}
+
+androidComponents.onVariants { variant ->
+    variant.sources.assets?.addGeneratedSourceDirectory(bundleWebViewCompat, BundleWebViewCompat::assets)
 }
 
 dependencies {

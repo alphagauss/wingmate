@@ -32,6 +32,17 @@
     return { promise, resolve, reject };
   });
 
+  if (typeof document !== 'undefined' && !('onscrollend' in document)) {
+    const timers = new WeakMap();
+    document.addEventListener('scroll', ({ target }) => {
+      clearTimeout(timers.get(target));
+      timers.set(target, setTimeout(() => {
+        timers.delete(target);
+        target.dispatchEvent(new Event('scrollend', { bubbles: target === document }));
+      }, 150));
+    }, { capture: true, passive: true });
+  }
+
   if (typeof AbortSignal.any !== 'function') {
     const controllers = new WeakMap();
     const listeners = new FinalizationRegistry((cleanup) => cleanup.abort());

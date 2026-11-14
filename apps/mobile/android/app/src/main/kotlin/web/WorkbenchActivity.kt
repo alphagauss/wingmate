@@ -170,8 +170,10 @@ class WorkbenchActivity : AppCompatActivity() {
         root.removeView(workbench)
         appSettings = AppSettings(this, root, workbench, connections, activeOrigin,
             localCurrent, localEngineSettings(this, ::openLocalWorkbench))
-        val compatibilityScript = assets.open("web/webview-compat.js").bufferedReader().use { it.readText() }
-        WebViewCompat.addDocumentStartJavaScript(webView, compatibilityScript, setOf(activeOrigin))
+        for (script in listOf("webview-compat.js", "css-compat.js")) {
+            val source = assets.open("web/$script").bufferedReader().use { it.readText() }
+            WebViewCompat.addDocumentStartJavaScript(webView, source, setOf(activeOrigin))
+        }
         bridge = WorkbenchBridge(this, webView, activeOrigin, ::ready) { theme ->
             appSettings.applyTheme(theme)
             loading.applyTheme(theme)

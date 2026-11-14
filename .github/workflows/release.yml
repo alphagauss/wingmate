@@ -62,6 +62,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
@@ -74,6 +75,7 @@ jobs:
         with:
           path: work/cache/android
           key: android-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('runtime/android/build-runtime.sh', 'runtime/android/release-sources.py', 'runtime/android/locks/**', 'runtime/package-lock.json', 'pnpm-lock.yaml') }}
+      - run: pnpm install --frozen-lockfile
       - run: node --test apps/mobile/test/*.test.mjs
       - name: Prepare local runtime and corresponding sources
         run: |
@@ -127,6 +129,9 @@ jobs:
             code="$(sed -n "s/^package: .*versionCode='\([0-9][0-9]*\)'.*/\1/p" "$RUNNER_TEMP/$flavor-badging")"
             [[ -n "$code" && "$code" == "${remote_code:-$code}" ]]
             remote_code="$code"
+            for entry in assets/web/{webview-compat.js,css-compat.js} assets/licenses/webview-compat.txt; do
+              grep -Fx "$entry" "$RUNNER_TEMP/$flavor-files"
+            done
             if grep -q '^assets/launch/' "$RUNNER_TEMP/$flavor-files"; then
               echo "::error::$flavor APK contains the retired WebView home"
               exit 1

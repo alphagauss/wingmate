@@ -72,3 +72,29 @@ test('restores the interfaces missing on WebView 104', async () => {
     for (const [owner, name, descriptor] of removed) Object.defineProperty(owner, name, descriptor)
   }
 })
+
+test('settles legacy element scrolling once without replacing native scrollend', () => {
+  const callbacks = new Map()
+  let serial = 0
+  const document = new EventTarget()
+  const scroller = new EventTarget()
+  const seen = []
+  scroller.addEventListener('scrollend', event => seen.push(event.bubbles))
+  const context = {
+    window, document, Event, URL, AbortSignal,
+    setTimeout(callback) { callbacks.set(++serial, callback); return serial },
+    clearTimeout(id) { callbacks.delete(id) },
+  }
+  runInNewContext(script, context)
+  for (let i = 0; i < 2; i++) {
+    const event = new Event('scroll')
+    Object.defineProperty(event, 'target', { value: scroller })
+    document.dispatchEvent(event)
+  }
+  assert.equal(callbacks.size, 1)
+  for (const callback of callbacks.values()) callback()
+  assert.deepEqual(seen, [false])
+
+  const native = { onscrollend: null, addEventListener: () => assert.fail('native scrollend was replaced') }
+  runInNewContext(script, { ...context, document: native })
+})

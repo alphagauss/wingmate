@@ -20,6 +20,12 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.12.3",
+    "container-query-polyfill": "1.0.2",
+    "css-has-pseudo": "8.0.2",
+    "esbuild": "0.27.7",
+    "postcss": "8.5.32",
+    "postcss-selector-parser": "7.1.1",
+    "postcss-value-parser": "4.2.0",
     "tar": "^7.5.7"
   }
 }
