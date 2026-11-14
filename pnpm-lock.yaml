@@ -11,24 +11,6 @@ importers:
       '@tauri-apps/cli':
         specifier: 2.12.3
         version: 2.12.3
-      container-query-polyfill:
-        specifier: 1.0.2
-        version: 1.0.2
-      css-has-pseudo:
-        specifier: 8.0.2
-        version: 8.0.2(postcss@8.5.32)
-      esbuild:
-        specifier: 0.27.7
-        version: 0.27.7
-      postcss:
-        specifier: 8.5.32
-        version: 8.5.32
-      postcss-selector-parser:
-        specifier: 7.1.1
-        version: 7.1.1
-      postcss-value-parser:
-        specifier: 4.2.0
-        version: 4.2.0
       tar:
         specifier: ^7.5.7
         version: 7.5.22
@@ -115,12 +97,6 @@ packages:
     peerDependenciesMeta:
       '@modelcontextprotocol/server':
         optional: true
-
-  '@csstools/selector-specificity@6.0.1':
-    resolution: {integrity: sha512-MBuqFIIvqk4S593MGAskTkPpEUUzZNvGzh8mMxEwl3oHwjQlXmqHEDxNbN3Y0Tsh+xjmem4GZjeg7I0qkwBivg==}
-    engines: {node: '>=20.19.0'}
-    peerDependencies:
-      postcss-selector-parser: ^7.1.1
 
   '@esbuild/aix-ppc64@0.27.7':
     resolution: {integrity: sha512-EKX3Qwmhz1eMdEJokhALr0YiD0lhQNwDqkPYyPhiSwKrh7/4KRjQc04sZ8db+5DVVnZ1LmbNDI1uAMPEUBnQPg==}
@@ -619,26 +595,12 @@ packages:
     resolution: {integrity: sha512-+IxzY9BZOQd/XuYPRmrvEVjF/nqj5kgT4kEq7VofrDoM1MxoRjEWkrCC3EtLi59TVawxTAn+orJwFQcrqEN1+g==}
     engines: {node: '>=18'}
 
-  container-query-polyfill@1.0.2:
-    resolution: {integrity: sha512-YjbsYHidpX0vgHRjTXfWV5Sai4EbocVuXuhL/lcVzRKcwlvVhU92yUqZwO6rRjMQMk08unLLBkQhu60u31LCIQ==}
-
   core-util-is@1.0.3:
     resolution: {integrity: sha512-ZQBvi1DcpJ4GDqanjucZ2Hj3wEO5pZDS89BWbkcrvdxksJorwUDDZamX9ldFkp9aw2lmBDLgkObEA4DWNJ9FYQ==}
 
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
-
-  css-has-pseudo@8.0.2:
-    resolution: {integrity: sha512-QETMa6SoTlDAa8Xou5Rnmv/28c9QnuMYMCbk3yRO1Pl6fzerXNevZA+oFFoQgxtCjch5VAQkN+gyHFlJnkV77Q==}
-    engines: {node: '>=20.19.0'}
-    peerDependencies:
-      postcss: ^8.4
-
-  cssesc@3.0.0:
-    resolution: {integrity: sha512-/Tb/JcjK111nNScGob5MNtsntNM1aCNUDipB/TkwZFhyDrrE47SOx/18wF2bbjgc3ZzCSKW1T5nt5EbFoAz/Vg==}
-    engines: {node: '>=4'}
-    hasBin: true
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
@@ -764,13 +726,6 @@ packages:
   postal-mime@4.1.4:
     resolution: {integrity: sha512-+6Qsn7Q2TSLMScfN4X2VQIclPRKgDAtKhytQex3fVSV/+HgVaawtsQGzKYDQLQIBR7b4Vfg+88WRGvuF/kwLSw==}
     engines: {node: '>=20'}
-
-  postcss-selector-parser@7.1.1:
-    resolution: {integrity: sha512-orRsuYpJVw8LdAwqqLykBj9ecS5/cRHlI5+nvTo8LcCKmzDmqVORXtOIYEEQuL9D4BxtA1lm5isAqzQZCoQ6Eg==}
-    engines: {node: '>=4'}
-
-  postcss-value-parser@4.2.0:
-    resolution: {integrity: sha512-1NNCs6uurfkVbeXG4S8JFT9t19m45ICnif8zWLd5oPSZ50QnwMfK+H3jv408d4jw/7Bttv5axS5IiHoLaVNHeQ==}
 
   postcss@8.5.32:
     resolution: {integrity: sha512-LJlKCCAUFKOuZxipUdYw1NzIITEsPcgyOG9LkvRJvuKj/bRzbuRY0ARXvL0pWGpsZvn8jku+LMep2eU0seHp8g==}
@@ -925,10 +880,6 @@ snapshots:
   '@agentclientprotocol/sdk@2.5.0(zod@4.6.7)':
     dependencies:
       zod: 4.6.7
-
-  '@csstools/selector-specificity@6.0.1(postcss-selector-parser@7.1.1)':
-    dependencies:
-      postcss-selector-parser: 7.1.1
 
   '@esbuild/aix-ppc64@0.27.7':
     optional: true
@@ -1265,8 +1216,6 @@ snapshots:
 
   chownr@3.0.0: {}
 
-  container-query-polyfill@1.0.2: {}
-
   core-util-is@1.0.3: {}
 
   cross-spawn@7.0.6:
@@ -1274,15 +1223,6 @@ snapshots:
       path-key: 3.1.1
       shebang-command: 2.0.0
       which: 2.0.2
-
-  css-has-pseudo@8.0.2(postcss@8.5.32):
-    dependencies:
-      '@csstools/selector-specificity': 6.0.1(postcss-selector-parser@7.1.1)
-      postcss: 8.5.32
-      postcss-selector-parser: 7.1.1
-      postcss-value-parser: 4.2.0
-
-  cssesc@3.0.0: {}
 
   csstype@3.2.3: {}
 
@@ -1404,13 +1344,6 @@ snapshots:
   picomatch@4.0.7: {}
 
   postal-mime@4.1.4: {}
-
-  postcss-selector-parser@7.1.1:
-    dependencies:
-      cssesc: 3.0.0
-      util-deprecate: 1.0.2
-
-  postcss-value-parser@4.2.0: {}
 
   postcss@8.5.32:
     dependencies:

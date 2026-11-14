@@ -62,11 +62,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-          package-manager-cache: false
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -75,7 +73,6 @@ jobs:
         with:
           path: work/cache/android
           key: android-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('runtime/android/build-runtime.sh', 'runtime/android/release-sources.py', 'runtime/android/locks/**', 'runtime/package-lock.json', 'pnpm-lock.yaml') }}
-      - run: pnpm install --frozen-lockfile
       - run: node --test apps/mobile/test/*.test.mjs
       - name: Prepare local runtime and corresponding sources
         run: |
@@ -129,9 +126,6 @@ jobs:
             code="$(sed -n "s/^package: .*versionCode='\([0-9][0-9]*\)'.*/\1/p" "$RUNNER_TEMP/$flavor-badging")"
             [[ -n "$code" && "$code" == "${remote_code:-$code}" ]]
             remote_code="$code"
-            for entry in assets/web/{webview-compat.js,css-compat.js} assets/licenses/webview-compat.txt; do
-              grep -Fx "$entry" "$RUNNER_TEMP/$flavor-files"
-            done
             if grep -q '^assets/launch/' "$RUNNER_TEMP/$flavor-files"; then
               echo "::error::$flavor APK contains the retired WebView home"
               exit 1
@@ -203,7 +197,7 @@ jobs:
           - \`wingmate-android-remote.apk\` · Android 远程版，连接已有 Wingmate 主机。
           - \`wingmate-android-local.apk\` · Android 本地版，可在 Android 8.0 及以上的 ARM64 手机上运行 DSH。
 
-          两种 Android 版本打开工作台均需 WebView 104 或更新版本。
+          两种 Android 版本打开工作台均需 WebView 130 或更新版本。
 
           本地 APK 按 AGPLv3 分发。[对应 Wingmate 源码和构建说明](https://github.com/$GH_REPO/tree/$GITHUB_SHA/apps/mobile)、[随包组件源码说明](https://github.com/$GH_REPO/blob/$GITHUB_SHA/runtime/android/SOURCES.md)及下方的 \`wingmate-android-runtime-sources.tar\` 随此版本提供。
           EOF

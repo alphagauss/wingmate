@@ -38,7 +38,7 @@ import dev.wingmate.mobile.theme.ConnectionUi
 import dev.wingmate.mobile.theme.applyWindowInsets
 
 internal const val START_LOCAL_WORKBENCH = "startLocalWorkbench"
-private const val MIN_WORKBENCH_WEBVIEW_MAJOR = 104
+private const val MIN_WORKBENCH_WEBVIEW_MAJOR = 130
 
 internal fun supportsWorkbenchWebView(versionName: String?): Boolean =
     (versionName?.substringBefore('.')?.toIntOrNull() ?: 0) >= MIN_WORKBENCH_WEBVIEW_MAJOR
@@ -170,10 +170,6 @@ class WorkbenchActivity : AppCompatActivity() {
         root.removeView(workbench)
         appSettings = AppSettings(this, root, workbench, connections, activeOrigin,
             localCurrent, localEngineSettings(this, ::openLocalWorkbench))
-        for (script in listOf("webview-compat.js", "css-compat.js")) {
-            val source = assets.open("web/$script").bufferedReader().use { it.readText() }
-            WebViewCompat.addDocumentStartJavaScript(webView, source, setOf(activeOrigin))
-        }
         bridge = WorkbenchBridge(this, webView, activeOrigin, ::ready) { theme ->
             appSettings.applyTheme(theme)
             loading.applyTheme(theme)

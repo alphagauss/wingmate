@@ -6,11 +6,11 @@ import org.junit.Test
 
 class WorkbenchWebViewTest {
     @Test
-    fun requiresWebView104OrLater() {
-        assertTrue(supportsWorkbenchWebView("104.0.5112.97"))
-        assertTrue(supportsWorkbenchWebView("105.0.5195.68"))
-        assertFalse(supportsWorkbenchWebView("103.0.5060.129"))
-        assertFalse(supportsWorkbenchWebView("96.0.4664.104"))
+    fun requiresWebView130OrLater() {
+        assertTrue(supportsWorkbenchWebView("130.0.6723.107"))
+        assertTrue(supportsWorkbenchWebView("131.0.6778.81"))
+        assertFalse(supportsWorkbenchWebView("129.0.6668.100"))
+        assertFalse(supportsWorkbenchWebView("104.0.5112.97"))
         assertFalse(supportsWorkbenchWebView("unknown"))
         assertFalse(supportsWorkbenchWebView(null))
     }

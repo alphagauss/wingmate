@@ -133,14 +133,12 @@
 
 Wingmate 的 DSH 仅监听回环地址，由网关提供共享访问。DSH 的自动目录选择器在启动时为整个后台选定一种交互，有图形会话时可能选中宿主系统对话框。启动配置按[上游的配置示例](https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/apps/web/tests/pin-browse-picker.overlay.yml)显式组合网页目录选择器，供同一后台的所有工作台使用。升级时如果上游能识别这种网关部署并默认提供网页选择器，可以撤掉该配置。
 
-Android WebView 104 缺少 `dvh`，影响目录选择器、菜单、浮动面板、自动化任务及快捷键浮窗。共享运行时补丁用 `vh` 提供高度和位置回退，覆盖手机本机载荷和远程主机提供的页面。混用 `var()` 的新版声明放入 `@supports (height: 100dvh)`，避免旧 WebView 在计算属性时才判定无效而丢失回退。上游加入兼容的声明，或最低支持的 WebView 支持 `dvh` 后，可撤掉这些补丁。见 [浮窗真机验证](records/2026-11-14-directory-picker-webview-104.md)。
-
-旧版 Chromium 无法从 `dsh-resource://file/…` 读取 `hostname`，导致 DSH 无法查找已注册的文件资源提供方。共享运行时按能力检测回退到 DSH 资源地址的类型字段，文件读取仍由原有服务按会话授权。上游不再依赖这一解析行为，或最低支持的 WebView 已具备该能力后，可撤掉补丁。见 [工作台与文件预览真机验证](records/2026-11-14-android-workbench-css.md)。
+工作台使用浏览器原生的 `dvh` 和 `dsh-resource://file/…` 主机名解析。Chromium 130 开始支持该类自定义 URL 的标准解析。Android 门槛见[工作台要求](../apps/mobile/README.md#工作台要求)。
 
 Android WebView 禁用了 `scrollbar-width`。目录选择器的分栏和路径面包屑、表格预览的工作表标签栏和公式栏在缺少该属性时使用 `::-webkit-scrollbar` 隐藏横向滚动条，保留横向滚动。DSH 升级时核对普通与延迟加载的样式。上游加入等效样式后可移除对应补丁。[Chromium 源码](https://chromium.googlesource.com/chromium/src.git/+/8eb52611bcb7d11aae6884aeda43b5290e9f0f3c/android_webview/browser/aw_field_trials.cc)
 
 实际 DSH 升级、预装组件变化或兼容性调整时，在 `docs/records/` 新增有日期的简短记录：变更目标与前后版本、输入/来源、此次取舍及适配变化、验证环境和结论、已有安装的处理方式、未验证项。只记录发生的工作，不预建空台账。
 
-Android 远程版的包体积、构建耗时和验收范围见 [2026-11-12 Android 远程版](records/2026-11-12-android-remote.md)。工作台兼容性调整见 [2026-11-14 WebView 104 验证](records/2026-11-14-android-webview-104.md)和[滚动条复核](records/2026-11-15-android-webview-scrollbars.md)。
+Android 远程版的包体积、构建耗时和验收范围见 [2026-11-12 Android 远程版](records/2026-11-12-android-remote.md)。工作台兼容性调整见 [WebView 104 验证](records/2026-11-14-android-webview-104.md)、[WebView 130 真机验证](records/2026-11-14-android-webview-130.md)和[滚动条复核](records/2026-11-15-android-webview-scrollbars.md)。
 
 当前约定更新在本指南或所属模块；历史记录保留当时结论，不持续改写成最新状态。已有记录包括 [2026-11-05 运行时体积优化](records/2026-11-05-runtime-size.md)、[2026-11-08 Wingmate 后台服务插件](records/2026-11-08-wingmate-web.md)、[2026-11-10 文件预览与 LibreOffice 裁剪](records/2026-11-10-file-viewer.md)、[开发依赖复用与运行目录回收](records/2026-11-10-runtime-reuse.md)、[2026-11-11 独立管理服务与无 GUI 引导](records/2026-11-11-management-service.md)、[ACP 执行后端插件](records/2026-11-11-acp-backends.md)和[预装插件标签页](records/2026-11-11-preinstalled-plugins.md)。

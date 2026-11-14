@@ -10,102 +10,12 @@
     "after": ""
   },
   {
-    "id": "resolve-resource-protocol-in-legacy-chromium",
-    "package": "@deepseek-ai/dsh-client-resources",
-    "version": "0.2.2-rc.1",
-    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/packages/client/resources/src/client/resources.ts#L56",
-    "file": "lib/client.js",
-    "sha256": "16c6da29e338582fffa6c378dcccd543f7ad0272ea1c457c3e7d6722a9897765",
-    "before": "\t\tfunction protocolOf(address) {\n",
-    "after": "\t\tconst parsesResourceHostname = new URL(\"dsh-resource://file/\").hostname === \"file\";\n\t\tfunction protocolOf(address) {\n\t\t\tif (!parsesResourceHostname) return /^dsh-resource:\\/\\/([a-z0-9-]+)(?=[/?#]|$)/i.exec(address.trim())?.[1].toLowerCase();\n"
-  },
-  {
-    "id": "fallback-directory-picker-height",
-    "package": "@deepseek-ai/dsh-client-ui-directory-picker-browse",
-    "version": "0.2.2-rc.1",
-    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/packages/client/ui-directory-picker-browse/src/client/DirectoryBrowser.module.css#L7",
-    "file": "lib/client.js",
-    "sha256": "dbb02027bc8d836cd1a88dbb90d0b7a53124423142c1b7de28866ab2d08dc2fe",
-    "before": "height:min(500px,100dvh - 32px);",
-    "after": "height:min(500px,100vh - 32px);height:min(500px,100dvh - 32px);"
-  },
-  {
-    "id": "guard-menu-dynamic-height",
-    "package": "@deepseek-ai/dsh-web-frontend",
-    "version": "0.2.2-rc.1",
-    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/packages/client/ui-primitives/src/Menu.module.css#L75",
-    "file": "dist/assets/index-lh_YM6sT.css",
-    "sha256": "ac7c3d764558542be08b2da02e208c01bf2b9953a7a94bf1fd109bdc03e2d3a4",
-    "before": "._scrollable_1p5el_19{max-height:min(calc(100vh - 12px - max(12px,var(--dsh-frame-overlay-top, 12px))),var(--dsh-anchored-max-height, 100vh));max-height:min(calc(100dvh - 12px - max(12px,var(--dsh-frame-overlay-top, 12px))),var(--dsh-anchored-max-height, 100vh))}",
-    "after": "._scrollable_1p5el_19{max-height:min(calc(100vh - 12px - max(12px,var(--dsh-frame-overlay-top, 12px))),var(--dsh-anchored-max-height, 100vh))}@supports (height: 100dvh){._scrollable_1p5el_19{max-height:min(calc(100dvh - 12px - max(12px,var(--dsh-frame-overlay-top, 12px))),var(--dsh-anchored-max-height, 100vh))}}"
-  },
-  {
-    "id": "guard-context-menu-dynamic-height",
-    "package": "@deepseek-ai/dsh-web-frontend",
-    "version": "0.2.2-rc.1",
-    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/packages/client/ui-primitives/src/Menu.module.css#L322",
-    "file": "dist/assets/index-lh_YM6sT.css",
-    "sha256": "876e07c40ed4be9b80e10d1f1773dede52945e54294cf7a68f7fc8fe6917eb86",
-    "before": "._list_1p5el_7[data-context-menu]._scrollable_1p5el_19{max-height:min(calc(100vh - 24px),var(--dsh-anchored-max-height, 100vh));max-height:min(calc(100dvh - 24px),var(--dsh-anchored-max-height, 100vh))}",
-    "after": "._list_1p5el_7[data-context-menu]._scrollable_1p5el_19{max-height:min(calc(100vh - 24px),var(--dsh-anchored-max-height, 100vh))}@supports (height: 100dvh){._list_1p5el_7[data-context-menu]._scrollable_1p5el_19{max-height:min(calc(100dvh - 24px),var(--dsh-anchored-max-height, 100vh))}}"
-  },
-  {
-    "id": "fallback-dockkit-float-layout",
-    "package": "@deepseek-ai/dsh-web-frontend",
-    "version": "0.2.2-rc.1",
-    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/packages/client/ui-dockkit/src/components/dockkit.module.css#L794",
-    "file": "dist/assets/index-lh_YM6sT.css",
-    "sha256": "8d4c639af9e3afee91a147879c42f854bc969fdf9be1383f7c4448b468aa9f87",
-    "before": "._float_3oazc_158{position:fixed;left:max(0px,min(var(--dsh-dockkit-float-x),100vw - var(--dsh-dockkit-float-width)));top:max(var(--dsh-dockkit-float-top, 0px),min(var(--dsh-dockkit-float-y),100dvh - var(--dsh-dockkit-float-height)));width:min(var(--dsh-dockkit-float-width),100vw);height:min(var(--dsh-dockkit-float-height),100dvh - var(--dsh-dockkit-float-top, 0px));display:flex;flex-direction:column;overflow:hidden;background:var(--dsw-alias-bg-layer-2);border-radius:var(--dsw-radius-panel);--dsw-elevation-stroke-color: var(--dsw-alias-border-l2);box-shadow:var(--dsw-elevation-prominent);pointer-events:auto}",
-    "after": "._float_3oazc_158{position:fixed;left:max(0px,min(var(--dsh-dockkit-float-x),100vw - var(--dsh-dockkit-float-width)));top:max(var(--dsh-dockkit-float-top, 0px),min(var(--dsh-dockkit-float-y),100vh - var(--dsh-dockkit-float-height)));width:min(var(--dsh-dockkit-float-width),100vw);height:min(var(--dsh-dockkit-float-height),100vh - var(--dsh-dockkit-float-top, 0px));display:flex;flex-direction:column;overflow:hidden;background:var(--dsw-alias-bg-layer-2);border-radius:var(--dsw-radius-panel);--dsw-elevation-stroke-color: var(--dsw-alias-border-l2);box-shadow:var(--dsw-elevation-prominent);pointer-events:auto}@supports (height: 100dvh){._float_3oazc_158{top:max(var(--dsh-dockkit-float-top, 0px),min(var(--dsh-dockkit-float-y),100dvh - var(--dsh-dockkit-float-height)));height:min(var(--dsh-dockkit-float-height),100dvh - var(--dsh-dockkit-float-top, 0px))}}"
-  },
-  {
-    "id": "guard-task-menu-dynamic-height",
-    "package": "@deepseek-ai/dsh-client-ui-schedule",
-    "version": "0.2.2-rc.1",
-    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/packages/client/ui-schedule/src/client/TaskMenu.module.css#L60",
-    "file": "lib/client.js",
-    "sha256": "e4eb24442e7bdb7e7ff07dc1232739cd09f3ef8343f8f197e2c34b929084d911",
-    "before": ".JYBKaa_scrollable{max-height:min(calc(100vh - 12px - max(12px, var(--dsh-frame-overlay-top,12px))), var(--dsh-anchored-max-height,100vh));max-height:min(calc(100dvh - 12px - max(12px, var(--dsh-frame-overlay-top,12px))), var(--dsh-anchored-max-height,100vh))}",
-    "after": ".JYBKaa_scrollable{max-height:min(calc(100vh - 12px - max(12px, var(--dsh-frame-overlay-top,12px))), var(--dsh-anchored-max-height,100vh))}@supports (height: 100dvh){.JYBKaa_scrollable{max-height:min(calc(100dvh - 12px - max(12px, var(--dsh-frame-overlay-top,12px))), var(--dsh-anchored-max-height,100vh))}}"
-  },
-  {
-    "id": "fallback-task-zone-menu-height",
-    "package": "@deepseek-ai/dsh-client-ui-schedule",
-    "version": "0.2.2-rc.1",
-    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/packages/client/ui-schedule/src/client/TaskManagerPage.module.css#L812",
-    "file": "lib/client.js",
-    "sha256": "7952cbdd7d9acac4de27ed0b051f592e8e3cd960d21ed429bd2be0fd3a7f297e",
-    "before": ".t-XoWW_zoneMenu.t-XoWW_zoneMenu{height:min(420px,100dvh - 48px);max-height:min(420px, calc(100dvh - 48px), var(--dsh-anchored-max-height,100dvh))}",
-    "after": ".t-XoWW_zoneMenu.t-XoWW_zoneMenu{height:min(420px,100vh - 48px);max-height:min(420px, calc(100vh - 48px), var(--dsh-anchored-max-height,100vh))}@supports (height: 100dvh){.t-XoWW_zoneMenu.t-XoWW_zoneMenu{height:min(420px,100dvh - 48px);max-height:min(420px, calc(100dvh - 48px), var(--dsh-anchored-max-height,100dvh))}}"
-  },
-  {
-    "id": "fallback-task-confirmation-height",
-    "package": "@deepseek-ai/dsh-client-ui-schedule",
-    "version": "0.2.2-rc.1",
-    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/packages/client/ui-schedule/src/client/TaskManagerPage.module.css#L1341",
-    "file": "lib/client.js",
-    "sha256": "95329c09e15a1958ff7b0b93433edba9ba9bdab130b3816e1099491afbd731db",
-    "before": ".t-XoWW_confirmDialog{box-sizing:border-box;max-height:calc(100dvh - 48px)}",
-    "after": ".t-XoWW_confirmDialog{box-sizing:border-box;max-height:calc(100vh - 48px);max-height:calc(100dvh - 48px)}"
-  },
-  {
-    "id": "fallback-shortcut-dialog-height",
-    "package": "@deepseek-ai/dsh-client-ui-shortcuts",
-    "version": "0.2.2-rc.1",
-    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/packages/client/ui-shortcuts/src/client/Reference.module.css#L58",
-    "file": "lib/client.js",
-    "sha256": "de518648ca1c3078237e4734339dee5981c549dac299aa17810f6775df41c2d5",
-    "before": "height:600px;max-height:calc(100dvh - 108px);",
-    "after": "height:600px;max-height:calc(100vh - 108px);max-height:calc(100dvh - 108px);"
-  },
-  {
     "id": "hide-directory-picker-scrollbars-in-webview",
     "package": "@deepseek-ai/dsh-client-ui-directory-picker-browse",
     "version": "0.2.2-rc.1",
     "source": "https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/packages/client/ui-directory-picker-browse/src/client/DirectoryBrowser.module.css",
     "file": "lib/client.js",
-    "sha256": "aac00c60548f7d606dbe6eb06ec86ee4646a71b83fb4c83fe197e539b9c641e8",
+    "sha256": "dbb02027bc8d836cd1a88dbb90d0b7a53124423142c1b7de28866ab2d08dc2fe",
     "before": ".ZuhsRW_crumbTrail{scrollbar-width:none;flex:0 auto;align-items:center;gap:4px;min-width:0;display:flex;overflow-x:auto}",
     "after": ".ZuhsRW_crumbTrail{scrollbar-width:none;flex:0 auto;align-items:center;gap:4px;min-width:0;display:flex;overflow-x:auto}@supports not (scrollbar-width:none){.ZuhsRW_millerRow::-webkit-scrollbar,.ZuhsRW_crumbTrail::-webkit-scrollbar{display:none}}"
   },

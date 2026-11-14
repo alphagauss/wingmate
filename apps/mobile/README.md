@@ -16,7 +16,7 @@
 
 ## 工作台要求
 
-本地版和远程版打开工作台均要求系统当前使用的 **Android WebView 104 或更新版本**。如果版本过低或系统没有可用的 WebView，应用会在打开工作台前提示更新。可在「设置 → 诊断」查看当前使用的 WebView 版本。连接首页和本机引擎管理使用原生界面，仍可打开。真机结果见 [WebView 104 验证](../../docs/records/2026-11-14-android-webview-104.md)与[工作台 CSS 验证](../../docs/records/2026-11-14-android-workbench-css.md)。
+本地版和远程版打开工作台均要求系统当前使用的 **Android WebView 130 或更新版本**。如果版本过低或系统没有可用的 WebView，应用会在打开工作台前提示更新。可在「设置 → 诊断」查看当前使用的 WebView 版本。连接首页和本机引擎管理使用原生界面，仍可打开。见 [WebView 130 真机验证](../../docs/records/2026-11-14-android-webview-130.md)及[滚动条适配](../../docs/runtime-maintenance.md#适配与升级记录)。
 
 ## 工程布局
 
@@ -28,7 +28,7 @@ Android 工程沿用 Gradle 默认源码集，应用 Kotlin 源码在 `android/a
 
 ## 开发与构建
 
-安装 JDK 17、Android SDK Platform 36、Build Tools 36 和 Platform Tools，并配置 `JAVA_HOME`、`ANDROID_HOME`。从仓库根目录运行 `pnpm install --frozen-lockfile` 准备 WebView 兼容脚本的构建依赖，再运行 Gradle Wrapper。本地版先运行 `pnpm runtime:android`。连接手机后可分别用 `:app:installRemoteDebug` 和 `:app:installLocalDebug` 安装。
+安装 JDK 17、Android SDK Platform 36、Build Tools 36 和 Platform Tools，并配置 `JAVA_HOME`、`ANDROID_HOME`。本地版先运行 `pnpm runtime:android` 准备载荷。连接手机后可分别用 `:app:installRemoteDebug` 和 `:app:installLocalDebug` 安装。
 
 ```powershell
 .\apps\mobile\android\gradlew.bat -p apps/mobile/android :app:assembleRemoteRelease
@@ -49,7 +49,7 @@ $apkSigner = Join-Path $env:ANDROID_HOME 'build-tools/36.0.0/apksigner.bat'
 & $apkSigner sign --v4-signing-enabled false --ks "$env:USERPROFILE/.android/debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --out "$releaseDir/wingmate-android.apk" "$releaseDir/app-remote-release-unsigned.apk"
 ```
 
-Android Gradle 复用配置和任务输出，Kotlin 使用增量编译。两种 APK 在已连接来源的主页面共用 WebView 兼容层。脚本按能力检测补齐缺少的 JavaScript 接口、滚动结束事件及 DSH 样式所需的视口单位、容器查询、选择器、颜色、样式作用域和入场动画。CSS 补齐资源和第三方许可随 APK 提供。颜色计算覆盖 DSH 使用的 sRGB 混合和主题变量，表格样式作用域按 DSH 的预览容器转换。最低支持的 WebView 原生提供对应能力后，可删除其补齐。工作台桥接在同一页面读取主题和 DSH 会话状态事件，并在打开通知时定位会话。升级 DSH 时检查兼容接口、主题属性、会话事件、侧栏定位和移动端设置样式。
+Android Gradle 复用配置和任务输出，Kotlin 使用增量编译。工作台桥接在已连接来源的主页面读取主题和 DSH 会话状态事件，并在打开通知时定位会话。升级 DSH 时检查最低支持的 WebView、主题属性、会话事件、侧栏定位和移动端设置样式。
 
 Debug 构建的工作台可通过 ADB 转发 WebView DevTools 端口，检查前端异常和 WebSocket 状态。
 
