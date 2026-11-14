@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, mkdtempDisposable, readFile, writeFile, copyFile, rename } from 'node:fs/promises';
+import { mkdir, mkdtempDisposable, readFile, readdir, writeFile, copyFile, rename } from 'node:fs/promises';
 import { existsSync, createReadStream, createWriteStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { pipeline } from 'node:stream/promises';
@@ -10,7 +10,6 @@ import { stripVTControlCharacters } from 'node:util';
 import { createZstdCompress, constants } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
-import { tmpdir } from 'node:os';
 import * as tar from 'tar';
 import { excludedRuntimeFile } from './runtime-files.mjs';
 import { applyRuntimePatches } from './runtime-patches.mjs';
@@ -68,27 +67,6 @@ function npm(args, options) {
     { windowsHide: true, ...options, stdio: ['ignore', ...output] });
 }
 
-await using pluginBuild = await mkdtempDisposable(join(tmpdir(), 'wingmate-plugin-'));
-const plugins = [];
-for (const name of ['wingmate-web', 'wingmate-file-viewer', 'wingmate-backends']) {
-  const directory = `plugins/${name}`;
-  const source = join(root, directory);
-  const build = npm(['run', 'build', '--if-present'], { cwd: source, stdio: 'inherit' });
-  const [buildStatus] = await once(build, 'close');
-  if (buildStatus !== 0) throw new Error(`插件编译失败: ${name}`);
-  const pack = npm(['pack', '--ignore-scripts', '--pack-destination', pluginBuild.path,
-    '--cache', cache, '--json'], { cwd: source, stdio: ['ignore', 'pipe', 'inherit'] });
-  let packed = '';
-  pack.stdout.setEncoding('utf8');
-  pack.stdout.on('data', chunk => { packed += chunk; });
-  const [packStatus] = await once(pack, 'close');
-  if (packStatus !== 0) throw new Error(`插件打包失败: ${name}`);
-  const [{ filename }] = JSON.parse(packed);
-  const archive = join(pluginBuild.path, filename);
-  await validatePluginArchive(archive, selected);
-  console.log(`插件包检查通过: ${name}`);
-  plugins.push({ name, directory, archive, bytes: await readFile(archive) });
-}
 const pluginPatch = 'plugins/cordis.patch.yml';
 const pluginPatchBytes = await readFile(join(root, pluginPatch));
 
@@ -135,8 +113,28 @@ if (targets.length) {
       return { cwd: stage };
     });
 }
-for (const { name, directory, archive, bytes } of plugins) {
-  components[name] = await archiveComponent(name, digest(bytes), [directory], async () => {
+const devPluginInputs = dev ? digest(
+  selected, hostTarget, nodeTarget, process.env.NODE_ENV ?? '',
+  await readFile(join(root, 'package.json')),
+  await readFile(join(root, 'pnpm-workspace.yaml')),
+  await readFile(join(root, 'pnpm-lock.yaml')),
+  await readFile(new URL('./runtime-plugins.mjs', import.meta.url)),
+  buildPlugin.toString(),
+  npm.toString(),
+) : null;
+const sharedSources = join(root, 'packages');
+const sharedDigest = dev ? await sourceDigest(sharedSources) : null;
+for (const name of ['wingmate-web', 'wingmate-file-viewer', 'wingmate-backends']) {
+  const directory = `plugins/${name}`;
+  const source = join(root, directory);
+  const packed = dev ? null : await buildPlugin(name, source);
+  const sourceKey = dev ? await sourceDigest(source) : null;
+  const inputs = dev ? digest(devPluginInputs, sharedDigest, sourceKey) : digest(await readFile(packed));
+  components[name] = await archiveComponent(name, inputs, [directory], async () => {
+    const archive = packed ?? await buildPlugin(name, source);
+    if (dev && (sourceKey !== await sourceDigest(source) || sharedDigest !== await sourceDigest(sharedSources))) {
+      throw new Error(`准备期间插件源码已变化，请重新准备开发运行时: ${name}`);
+    }
     const stage = join(scratch.path, name);
     const plugin = join(stage, directory);
     await mkdir(plugin, { recursive: true });
@@ -160,6 +158,37 @@ function digest(...values) {
     hash.update(String(bytes.length)).update(':').update(bytes);
   }
   return hash.digest('hex');
+}
+
+async function sourceDigest(directory) {
+  const files = [];
+  const entries = await readdir(directory, { withFileTypes: true });
+  entries.sort((left, right) => left.name < right.name ? -1 : Number(left.name > right.name));
+  for (const entry of entries) {
+    if (['node_modules', 'dist', '.git'].includes(entry.name)) continue;
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) files.push([entry.name, await sourceDigest(path)]);
+    else if (entry.isFile()) files.push([entry.name, digest(await readFile(path))]);
+  }
+  return digest(JSON.stringify(files));
+}
+
+async function buildPlugin(name, source) {
+  const build = npm(['run', 'build', '--if-present'], { cwd: source, stdio: 'inherit' });
+  const [buildStatus] = await once(build, 'close');
+  if (buildStatus !== 0) throw new Error(`插件编译失败: ${name}`);
+  const pack = npm(['pack', '--ignore-scripts', '--pack-destination', scratch.path,
+    '--cache', cache, '--json'], { cwd: source, stdio: ['ignore', 'pipe', 'inherit'] });
+  let packed = '';
+  pack.stdout.setEncoding('utf8');
+  pack.stdout.on('data', chunk => { packed += chunk; });
+  const [packStatus] = await once(pack, 'close');
+  if (packStatus !== 0) throw new Error(`插件打包失败: ${name}`);
+  const [{ filename }] = JSON.parse(packed);
+  const archive = join(scratch.path, filename);
+  await validatePluginArchive(archive, selected);
+  console.log(`插件包检查通过: ${name}`);
+  return archive;
 }
 
 async function prepareDependencies() {
