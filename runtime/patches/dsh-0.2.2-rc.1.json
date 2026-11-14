@@ -98,5 +98,25 @@
     "sha256": "de518648ca1c3078237e4734339dee5981c549dac299aa17810f6775df41c2d5",
     "before": "height:600px;max-height:calc(100dvh - 108px);",
     "after": "height:600px;max-height:calc(100vh - 108px);max-height:calc(100dvh - 108px);"
+  },
+  {
+    "id": "hide-directory-picker-scrollbars-in-webview",
+    "package": "@deepseek-ai/dsh-client-ui-directory-picker-browse",
+    "version": "0.2.2-rc.1",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/packages/client/ui-directory-picker-browse/src/client/DirectoryBrowser.module.css",
+    "file": "lib/client.js",
+    "sha256": "aac00c60548f7d606dbe6eb06ec86ee4646a71b83fb4c83fe197e539b9c641e8",
+    "before": ".ZuhsRW_crumbTrail{scrollbar-width:none;flex:0 auto;align-items:center;gap:4px;min-width:0;display:flex;overflow-x:auto}",
+    "after": ".ZuhsRW_crumbTrail{scrollbar-width:none;flex:0 auto;align-items:center;gap:4px;min-width:0;display:flex;overflow-x:auto}@supports not (scrollbar-width:none){.ZuhsRW_millerRow::-webkit-scrollbar,.ZuhsRW_crumbTrail::-webkit-scrollbar{display:none}}"
+  },
+  {
+    "id": "hide-spreadsheet-preview-scrollbars-in-webview",
+    "package": "@deepseek-ai/dsh-client-ui-sidebar-documentpreview",
+    "version": "0.2.2-rc.1",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/packages/client/ui-sidebar-documentpreview/src/client/excel/ExcelBody.module.css",
+    "file": "lib/client.excel.js",
+    "sha256": "4b12dae5f007c05603321cf5d091038a8b5d9d3ed4c2147fd668096cb2f21ebb",
+    "before": "._3HaaOG_workbook .fortune-fx-input{white-space:nowrap;scrollbar-width:none;min-width:0;overflow:auto hidden}",
+    "after": "._3HaaOG_workbook .fortune-fx-input{white-space:nowrap;scrollbar-width:none;min-width:0;overflow:auto hidden}@supports not (scrollbar-width:none){._3HaaOG_workbook .fortune-sheettab-container .fortune-sheettab-container-c::-webkit-scrollbar,._3HaaOG_workbook .fortune-fx-input::-webkit-scrollbar{display:none}}"
   }
 ]
