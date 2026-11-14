@@ -198,6 +198,8 @@ jobs:
           - \`wingmate-android-remote.apk\` · Android 远程版，连接已有 Wingmate 主机。
           - \`wingmate-android-local.apk\` · Android 本地版，可在 Android 8.0 及以上的 ARM64 手机上运行 DSH。
 
+          两种 Android 版本打开工作台均需 WebView 104 或更新版本。
+
           本地 APK 按 AGPLv3 分发。[对应 Wingmate 源码和构建说明](https://github.com/$GH_REPO/tree/$GITHUB_SHA/apps/mobile)、[随包组件源码说明](https://github.com/$GH_REPO/blob/$GITHUB_SHA/runtime/android/SOURCES.md)及下方的 \`wingmate-android-runtime-sources.tar\` 随此版本提供。
           EOF
             gh release create "$tag" --verify-tag --draft --generate-notes --notes-file "$RUNNER_TEMP/release-notes.md" "${flags[@]}"

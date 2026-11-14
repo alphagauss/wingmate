@@ -49,6 +49,7 @@
   "connection.scanning": "正在查找局域网中的主机…",
   "connection.checkingHistory": "正在连接上次使用的主机…",
   "connection.loading": "正在建立连接…",
+  "connection.webViewUpdateRequired": "请将系统当前使用的 WebView 更新到 %d 或更高版本，再打开工作台。",
   "connection.loadingSlow": "工作台暂未响应。你可以重试连接。",
   "connection.autoScan": "搜索局域网",
   "connection.recentConnections": "最近连接",

@@ -33,7 +33,6 @@ internal class WorkbenchBridge(
     private val labels = ConnectionStrings(activity)
     private val preferences = AppPreferences(activity)
     private val listener = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
-    private val documentStart = listener && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
     private var ready = false
     private val script by lazy {
         activity.assets.open("web/workbench-bridge.js").bufferedReader().use { it.readText() }
@@ -47,23 +46,15 @@ internal class WorkbenchBridge(
                     message.type == WebMessageCompat.TYPE_STRING
                 ) receive(message.data)
             }
+            WebViewCompat.addDocumentStartJavaScript(view, script, setOf(origin))
         }
-        if (documentStart) WebViewCompat.addDocumentStartJavaScript(view, script, setOf(origin))
     }
 
     fun started() { ready = false }
 
     fun finished() {
-        if (documentStart || !listener) {
-            ready = documentStart
-            onReady()
-            return
-        }
-        view.evaluateJavascript(script) {
-            if (view.url?.let { it == origin || it.startsWith("$origin/") } != true) return@evaluateJavascript
-            ready = true
-            onReady()
-        }
+        ready = listener
+        onReady()
     }
 
     fun focus(session: String): Boolean {

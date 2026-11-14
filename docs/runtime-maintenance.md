@@ -133,6 +133,6 @@
 
 实际 DSH 升级、预装组件变化或兼容性调整时，在 `docs/records/` 新增有日期的简短记录：变更目标与前后版本、输入/来源、此次取舍及适配变化、验证环境和结论、已有安装的处理方式、未验证项。只记录发生的工作，不预建空台账。
 
-Android 远程版的包体积、构建耗时和验收范围见 [2026-11-12 Android 远程版](records/2026-11-12-android-remote.md)。
+Android 远程版的包体积、构建耗时和验收范围见 [2026-11-12 Android 远程版](records/2026-11-12-android-remote.md)。工作台兼容性调整见 [2026-11-14 WebView 104 验证](records/2026-11-14-android-webview-104.md)。
 
 当前约定更新在本指南或所属模块；历史记录保留当时结论，不持续改写成最新状态。已有记录包括 [2026-11-05 运行时体积优化](records/2026-11-05-runtime-size.md)、[2026-11-08 Wingmate 后台服务插件](records/2026-11-08-wingmate-web.md)、[2026-11-10 文件预览与 LibreOffice 裁剪](records/2026-11-10-file-viewer.md)、[开发依赖复用与运行目录回收](records/2026-11-10-runtime-reuse.md)、[2026-11-11 独立管理服务与无 GUI 引导](records/2026-11-11-management-service.md)、[ACP 执行后端插件](records/2026-11-11-acp-backends.md)和[预装插件标签页](records/2026-11-11-preinstalled-plugins.md)。

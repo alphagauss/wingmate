@@ -6,13 +6,17 @@
 
 点按工作台的可拖动浮动按钮，从右侧滑入全屏应用设置。子页同样从右侧滑入。点顶部返回、按系统返回键或右滑，当前页向右滑出，逐级回到设置首页和原工作台。设置首页的「当前主机」显示远程主机名或「本机工作台」，点按打开「切换主机」页。点当前主机行回到原工作台，点其他主机则在确认可连接后关闭原工作台并切换。该页也可扫码、手输新地址或打开已就绪的本机工作台。设置首页右上角可直接扫码。启动页的「最近连接」也进入主机列表，支持刷新、长按重命名或删除。已连接主机右侧提供「断开」。断开后停在「切换主机」页，由用户选择下一次连接，返回时显示启动页。断开保留配对与连接记录，主机上的服务和任务继续运行。验收范围见 [D2](../../ARCHITECTURE_PLAN.md#d2-android-全屏应用设置)和 [C2](../../ARCHITECTURE_PLAN.md#c2-android-远程版)。
 
-应用设置管理 APK 语言、任务通知、系统权限、启动时连接上次主机及诊断。模型、Agent 预设、主题和插件由当前主机的 DSH 工作台管理。手机窄屏使用 DSH 工作台自带的全屏设置页。对不支持 CSS 媒体查询范围语法的 WebView，工作台桥接将 DSH 设置页断点还原为 `max-width` 写法。升级 DSH 时核对设置样式的标识和布局断点。
+应用设置管理 APK 语言、任务通知、系统权限、启动时连接上次主机及诊断。模型、Agent 预设、主题和插件由当前主机的 DSH 工作台管理。手机窄屏使用 DSH 工作台自带的全屏设置页。
 
 两种 APK 默认启动到连接首页。纯远程版开启「启动时连接上次主机」后，只尝试最近使用的远程主机。本地版的「开 App 时自动启动」控制已安装的引擎是否随应用启动。「启动时连接上次主机（本机优先）」控制是否自动打开工作台，优先使用已就绪或正在自动启动的本机引擎，其余情况尝试最近使用的远程主机。两个开关默认关闭。连接或本机启动失败时留在首页。本地版首页在引擎就绪时提供「本机工作台」快捷入口，其余状态显示「本机引擎」管理入口。
 
 从连接首页按系统返回退出后，再点桌面图标会重新应用启动设置。按 Home 或从最近任务切回会恢复原页面。启动时选择本机且引擎尚未就绪时，工作台启动页先显示「正在启动 DSH」，引擎就绪后在同一页显示「正在进入 DSH」。等待期间可按返回回到连接首页，引擎继续启动。
 
-包体积和验证结果见 [Android 远程版记录](../../docs/records/2026-11-12-android-remote.md)及 [Android 本地版首包记录](../../docs/records/2026-11-12-android-local.md)。本地工作台已在真机验证的最低版本组合见[工作台连接和默认工作区修复](../../docs/records/2026-11-12-android-local.md#工作台连接和默认工作区修复)。
+包体积和首包验证见 [Android 远程版记录](../../docs/records/2026-11-12-android-remote.md)及 [Android 本地版首包记录](../../docs/records/2026-11-12-android-local.md)。
+
+## 工作台要求
+
+本地版和远程版打开工作台均要求系统当前使用的 **Android WebView 104 或更新版本**。如果版本过低或系统没有可用的 WebView，应用会在打开工作台前提示更新。可在「设置 → 诊断」查看当前使用的 WebView 版本。连接首页和本机引擎管理使用原生界面，仍可打开。WebView 104 真机结果见[兼容性验证记录](../../docs/records/2026-11-14-android-webview-104.md)。
 
 ## 工程布局
 
@@ -45,7 +49,7 @@ $apkSigner = Join-Path $env:ANDROID_HOME 'build-tools/36.0.0/apksigner.bat'
 & $apkSigner sign --v4-signing-enabled false --ks "$env:USERPROFILE/.android/debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --out "$releaseDir/wingmate-android.apk" "$releaseDir/app-remote-release-unsigned.apk"
 ```
 
-Android Gradle 复用配置和任务输出，Kotlin 使用增量编译。工作台桥接脚本随 APK 打包，在已连接来源的主页面读取主题和 DSH 会话状态事件，并在打开通知时定位会话。升级 DSH 时检查主题属性、会话事件、侧栏定位和移动端设置样式。
+Android Gradle 复用配置和任务输出，Kotlin 使用增量编译。两种 APK 共用一份 WebView 兼容脚本，在已连接来源的主页面开始加载时补齐缺失的 `toSorted`、`toReversed`、`URL.canParse`、`Promise.withResolvers` 和 `AbortSignal.any`。最低支持的 WebView 原生提供对应接口后，可删除其补齐。工作台桥接在同一页面读取主题和 DSH 会话状态事件，并在打开通知时定位会话。升级 DSH 时检查兼容接口、主题属性、会话事件、侧栏定位和移动端设置样式。
 
 Debug 构建的工作台可通过 ADB 转发 WebView DevTools 端口，检查前端异常和 WebSocket 状态。
 

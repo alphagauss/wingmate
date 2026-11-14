@@ -4,7 +4,6 @@
 
   const send = (event, details = {}) => host.postMessage(JSON.stringify({ event, ...details }));
   const rows = '[data-row-key^="session:"]';
-  const settingsCss = 'style[data-plugin-css="@deepseek-ai/dsh-client-ui-settings-general/SettingsRoot.module.css"]';
   const sessionId = row => row.dataset.rowKey.slice('session:'.length);
   let theme;
   let focusTimer;
@@ -97,17 +96,6 @@
       * { -webkit-tap-highlight-color: transparent; }
     `;
     document.head.append(appearance);
-
-    if (!matchMedia('(width >= 0px)').matches) {
-      const adapt = () => {
-        const style = document.head.querySelector(settingsCss);
-        if (!style) return;
-        const css = style.textContent.replace(/@media\s*\(\s*width\s*<=\s*767px\s*\)/g, '@media (max-width: 767px)');
-        if (css !== style.textContent) style.textContent = css;
-      };
-      new MutationObserver(adapt).observe(document.head, { childList: true });
-      adapt();
-    }
 
     const observer = new MutationObserver(publishTheme);
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-ds-theme-source'] });

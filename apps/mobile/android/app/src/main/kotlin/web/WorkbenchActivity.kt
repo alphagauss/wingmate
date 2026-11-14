@@ -24,7 +24,10 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import dev.wingmate.mobile.i18n.ConnectionStrings
 import dev.wingmate.mobile.localEngineSettings
 import dev.wingmate.mobile.remote.ConnectionFlow
@@ -35,6 +38,10 @@ import dev.wingmate.mobile.theme.ConnectionUi
 import dev.wingmate.mobile.theme.applyWindowInsets
 
 internal const val START_LOCAL_WORKBENCH = "startLocalWorkbench"
+private const val MIN_WORKBENCH_WEBVIEW_MAJOR = 104
+
+internal fun supportsWorkbenchWebView(versionName: String?): Boolean =
+    (versionName?.substringBefore('.')?.toIntOrNull() ?: 0) >= MIN_WORKBENCH_WEBVIEW_MAJOR
 
 class WorkbenchActivity : AppCompatActivity() {
     private val labels by lazy { ConnectionStrings(this) }
@@ -60,6 +67,17 @@ class WorkbenchActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        val provider = WebViewCompat.getCurrentWebViewPackage(this)
+        if (!supportsWorkbenchWebView(provider?.versionName) ||
+            !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+        ) {
+            AlertDialog.Builder(this)
+                .setMessage(labels["connection.webViewUpdateRequired"].format(MIN_WORKBENCH_WEBVIEW_MAJOR))
+                .setPositiveButton(android.R.string.ok, null)
+                .setOnDismissListener { finish() }
+                .show()
+            return
+        }
         workbench = FrameLayout(this)
         root = FrameLayout(this).apply {
             setBackgroundColor(ConnectionUi(this@WorkbenchActivity).background)
@@ -152,6 +170,8 @@ class WorkbenchActivity : AppCompatActivity() {
         root.removeView(workbench)
         appSettings = AppSettings(this, root, workbench, connections, activeOrigin,
             localCurrent, localEngineSettings(this, ::openLocalWorkbench))
+        val compatibilityScript = assets.open("web/webview-compat.js").bufferedReader().use { it.readText() }
+        WebViewCompat.addDocumentStartJavaScript(webView, compatibilityScript, setOf(activeOrigin))
         bridge = WorkbenchBridge(this, webView, activeOrigin, ::ready) { theme ->
             appSettings.applyTheme(theme)
             loading.applyTheme(theme)
@@ -311,7 +331,7 @@ class WorkbenchActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
-        CookieManager.getInstance().flush()
+        if (::webView.isInitialized) CookieManager.getInstance().flush()
         super.onStop()
     }
 

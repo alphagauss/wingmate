@@ -292,7 +292,7 @@ YAML
       sha256sum "$base" "$node" "$python" "${extra_debs[@]}" "$proot_deb" "$talloc_deb" "$shmem_deb" |
         awk '{print $1}'
       sha256sum "$HERE/build-runtime.sh" "$HERE/lib/rtbuild.py" "$HERE/prepare-dsh.mjs" "$HERE/guest/"*.mjs \
-        "$HERE/patches/dsh-$dsh_version.json" "$HERE/webview-compat.js" \
+        "$HERE/patches/dsh-$dsh_version.json" \
         "$HERE/LICENSE.dsh-go" "$HERE/SOURCES.md" "$ROOT/runtime/package.json" "$ROOT/runtime/package-lock.json" \
         "$LOCKS/pnpm-$PNPM_VERSION/package.json" "$LOCKS/pnpm-$PNPM_VERSION/package-lock.json" \
         "$ROOT/scripts/runtime-files.mjs" "$ROOT/scripts/runtime-patches.mjs" \

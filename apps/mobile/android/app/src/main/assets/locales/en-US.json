@@ -50,6 +50,7 @@
   "connection.checkingHistory": "Checking the last host…",
   "connection.loading": "Opening connection…",
   "connection.loadingSlow": "The workbench is taking a while to respond. You can retry the connection.",
+  "connection.webViewUpdateRequired": "Update the system’s active WebView to version %d or later to open the workbench.",
   "connection.autoScan": "Find hosts on LAN",
   "connection.recentConnections": "Recent hosts",
   "connection.refreshConnections": "Check hosts again",

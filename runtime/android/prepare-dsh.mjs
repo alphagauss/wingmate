@@ -1,4 +1,4 @@
-import { copyFile, readFile, readdir, writeFile } from 'node:fs/promises';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { excludedRuntimeFile } from '../../scripts/runtime-files.mjs';
 import { applyRuntimePatches } from '../../scripts/runtime-patches.mjs';
@@ -10,8 +10,6 @@ const androidPatches = JSON.parse(await readFile(new URL(`patches/dsh-${version}
 await applyRuntimePatches(prefix, [...patches, ...androidPatches]);
 
 const modules = join(prefix, 'node_modules');
-await copyFile(new URL('webview-compat.js', import.meta.url),
-  join(modules, '@deepseek-ai/dsh-web-frontend/dist/assets/wingmate-webview-compat.js'));
 const excluded = {};
 for (const entry of await readdir(modules, { recursive: true, withFileTypes: true })) {
   if (!entry.isFile()) continue;

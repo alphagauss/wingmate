@@ -50,6 +50,7 @@
   "connection.checkingHistory": "Проверка последнего узла…",
   "connection.loading": "Установка соединения…",
   "connection.loadingSlow": "Рабочая область пока не отвечает. Можно подключиться снова.",
+  "connection.webViewUpdateRequired": "Чтобы открыть рабочую область, обновите используемый системой WebView до версии %d или выше.",
   "connection.autoScan": "Поиск в локальной сети",
   "connection.recentConnections": "Недавние узлы",
   "connection.refreshConnections": "Проверить узлы снова",

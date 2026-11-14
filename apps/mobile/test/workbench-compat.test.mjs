@@ -3,57 +3,52 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { runInNewContext } from 'node:vm'
 
-const script = readFileSync(new URL('../../../runtime/android/webview-compat.js', import.meta.url), 'utf8')
+const script = readFileSync(new URL('../android/app/src/main/assets/web/webview-compat.js', import.meta.url), 'utf8')
+const window = {}
+window.top = window
 
 test('keeps the native interfaces on newer WebView versions', () => {
-  const native = [Promise.withResolvers, AbortSignal.any, AbortSignal.prototype.throwIfAborted, AbortController.prototype.abort, structuredClone]
-  const browser = { Promise, AbortController, AbortSignal, structuredClone, URL }
-  runInNewContext(script, browser)
-  assert.deepEqual(
-    [Promise.withResolvers, AbortSignal.any, AbortSignal.prototype.throwIfAborted, AbortController.prototype.abort, browser.structuredClone],
-    native,
-  )
+  const preserved = runInNewContext(`
+    const native = [Array.prototype.toSorted, Array.prototype.toReversed, URL.canParse, Promise.withResolvers, AbortSignal.any];
+    ${script}
+    const current = [Array.prototype.toSorted, Array.prototype.toReversed, URL.canParse, Promise.withResolvers, AbortSignal.any]
+    native.every((method, index) => typeof method === 'function' && method === current[index])
+  `, { window, URL, AbortSignal })
+  assert.equal(preserved, true)
 })
 
-test('restores connection and workspace configuration APIs on WebView 96', async () => {
+test('does not install compatibility interfaces in a child frame', () => {
+  const result = runInNewContext(`
+    delete Array.prototype.toSorted;
+    ${script}
+    typeof Array.prototype.toSorted
+  `, { window: { top: {} } })
+  assert.equal(result, 'undefined')
+})
+
+test('restores the interfaces missing on WebView 104', async () => {
   // The test file runs in its own process. Model the WebView's missing native interfaces.
   const removed = [
     [Promise, 'withResolvers'],
     [AbortSignal, 'any'],
-    [AbortSignal.prototype, 'throwIfAborted'],
-    [AbortSignal.prototype, 'reason'],
-    [AbortController.prototype, 'abort'],
   ].map(([owner, name]) => [owner, name, Object.getOwnPropertyDescriptor(owner, name)])
   try {
-    for (const [owner, name] of removed.slice(0, -1)) delete owner[name]
+    for (const [owner, name] of removed) delete owner[name]
     class LegacyURL extends URL { static canParse }
-    const browser = {
-      Promise, AbortController, AbortSignal, DOMException, FinalizationRegistry, WeakRef, PerformanceMark, MessageChannel,
-      URL: LegacyURL,
-    }
+    const browser = { window, Promise, AbortController, AbortSignal, URL: LegacyURL }
     runInNewContext(`
-      for (const name of ['toSorted', 'toReversed', 'findLast', 'findLastIndex']) {
+      for (const name of ['toSorted', 'toReversed']) {
         delete Array.prototype[name]
       }
       ${script}
       const rows = [3, 1, 2]
       globalThis.arrayResult = JSON.stringify([
-        rows.toSorted((a, b) => a - b), rows.toReversed(), rows.findLast(n => n < 3),
-        rows.findLastIndex(n => n === 1), rows,
+        rows.toSorted((a, b) => a - b), rows.toReversed(), rows,
       ])
     `, browser)
-    assert.deepEqual(JSON.parse(browser.arrayResult), [[1, 2, 3], [2, 1, 3], 2, 1, [3, 1, 2]])
+    assert.deepEqual(JSON.parse(browser.arrayResult), [[1, 2, 3], [2, 1, 3], [3, 1, 2]])
     assert.equal(LegacyURL.canParse('child', 'http://127.0.0.1/'), true)
     assert.equal(LegacyURL.canParse('child'), false)
-
-    const workspaceOps = [{ kind: 'set', path: ['workspace'], value: { directories: ['/root'], missing: undefined } }]
-    const copy = browser.structuredClone(workspaceOps)
-    assert.deepEqual(copy, workspaceOps)
-    copy[0].value.directories.push('/tmp')
-    assert.deepEqual(workspaceOps[0].value.directories, ['/root'])
-    const bytes = Uint8Array.of(1, 2, 3)
-    assert.deepEqual(browser.structuredClone(bytes, { transfer: [bytes.buffer] }), Uint8Array.of(1, 2, 3))
-    assert.equal(bytes.byteLength, 0)
 
     const resolved = Promise.withResolvers()
     resolved.resolve('ready')
