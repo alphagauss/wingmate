@@ -25,6 +25,21 @@ use wingmate_launcher::{
     RUNTIME_REVISION,
 };
 
+#[cfg(all(target_os = "macos", feature = "custom-protocol"))]
+fn set_dock_icon() -> Result<()> {
+    use objc2::{AllocAnyThread, MainThreadMarker};
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::NSData;
+
+    let main_thread =
+        MainThreadMarker::new().ok_or_else(|| anyhow::anyhow!("Dock 图标必须在主线程设置"))?;
+    let data = NSData::with_bytes(include_bytes!("../icons/icon.png"));
+    let icon = NSImage::initWithData(NSImage::alloc(), &data)
+        .ok_or_else(|| anyhow::anyhow!("无法加载 Wingmate Dock 图标"))?;
+    unsafe { NSApplication::sharedApplication(main_thread).setApplicationIconImage(Some(&icon)) };
+    Ok(())
+}
+
 #[derive(Default)]
 enum View {
     #[default]
@@ -493,6 +508,8 @@ pub fn run(home: PathBuf) -> Result<()> {
             remote::local_share
         ])
         .setup(move |app| {
+            #[cfg(all(target_os = "macos", feature = "custom-protocol"))]
+            set_dock_icon()?;
             let page_load = desktop.clone();
             let popup_app = app.handle().clone();
             let label = desktop.window_label.as_str();

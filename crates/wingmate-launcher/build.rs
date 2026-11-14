@@ -17,6 +17,24 @@ fn main() {
         .expect("runtime/package.json 必须声明固定 DSH 版本");
     println!("cargo:rustc-env=WINGMATE_RUNTIME_ID=dsh-{version}");
     let bundled = env::var_os("CARGO_FEATURE_BUNDLED_RUNTIME").is_some();
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    #[cfg(windows)]
+    if bundled && target_os == "windows" {
+        let resource = root.join("wingmate.rc");
+        let icons = checkout.join("src-tauri/icons");
+        println!("cargo:rerun-if-changed={}", resource.display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            icons.join("icon.ico").display()
+        );
+        embed_resource::compile_for(
+            resource,
+            ["wingmate"],
+            embed_resource::ParamsIncludeDirs([icons]),
+        )
+        .manifest_required()
+        .expect("无法嵌入 Wingmate 发行入口图标");
+    }
     let release = bundled || env::var_os("CARGO_FEATURE_RELEASE_CLIENT").is_some();
     let directory = if release {
         checkout.join("work/build/runtime")
@@ -40,11 +58,7 @@ fn main() {
     ] {
         let binary = bin_directory.join(format!(
             "{name}{}",
-            if env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows" {
-                ".exe"
-            } else {
-                ""
-            }
+            if target_os == "windows" { ".exe" } else { "" }
         ));
         println!("cargo:rerun-if-changed={}", binary.display());
         let enabled = name == "wingmate-service" || env::var_os("CARGO_FEATURE_DESKTOP").is_some();

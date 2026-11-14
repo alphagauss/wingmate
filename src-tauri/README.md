@@ -40,4 +40,6 @@ Windows 桌面窗口以无系统标题栏的形式打开，导航时保留当前
 
 [品牌母版](icons/logo.svg)使用透明底蓝鲸。[桌面图标](icons/icon.svg)沿用同一鲸形，蓝色圆角底板为不同壁纸上的白鲸提供稳定对比，底板外保持透明。
 
-更新轮廓或对齐时同步两份 SVG 和 Android 首页、矢量前景。用 `pnpm tauri icon src-tauri/icons/icon.svg --output <临时目录>` 生成图标，取 `icon.ico` 供 Windows EXE 使用，取 `icon.png` 供 Tauri 在其他桌面平台回退使用。Android 旧版系统图标取生成目录中各密度下的 `ic_launcher.png`。
+Windows 桌面程序与[外层发行入口](../crates/wingmate-launcher/README.md)共用 `icon.ico`。Linux 窗口由 Tauri 加载 `icon.png`，macOS 桌面进程启动时用同一 PNG 设置 Dock 图标。
+
+更新轮廓或对齐时同步两份 SVG 和 Android 首页、矢量前景。用 `pnpm tauri icon src-tauri/icons/icon.svg --output <临时目录>` 生成 `icon.ico` 和 `icon.png`。Android 旧版系统图标取生成目录中各密度下的 `ic_launcher.png`。

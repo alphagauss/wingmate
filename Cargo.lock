@@ -4764,6 +4764,9 @@ dependencies = [
  "anyhow",
  "fs2",
  "gtk",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "open",
  "qrcode",
  "reqwest 0.12.28",
@@ -4785,6 +4788,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
+ "embed-resource",
  "fs2",
  "libc",
  "plist",
