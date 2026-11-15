@@ -372,6 +372,7 @@ struct Desktop {
     title: &'static str,
     page: StartupPage,
     connection: Mutex<ConnectionState>,
+    lan_scan: Mutex<Option<remote::LanScan>>,
 }
 
 fn desktop_window(app: &AppHandle) -> Option<WebviewWindow> {
@@ -502,6 +503,7 @@ pub fn run(home: PathBuf) -> Result<()> {
         title,
         page: StartupPage::new(dev_url),
         connection: Mutex::new(connection),
+        lan_scan: Mutex::default(),
     });
     let exit_state = desktop.clone();
     tauri::Builder::default()
@@ -517,6 +519,8 @@ pub fn run(home: PathBuf) -> Result<()> {
             connection_panel::resize_connections,
             connection_panel::close_connections,
             remote::connect_remote,
+            remote::scan_lan,
+            remote::cancel_lan_scan,
             connection_panel::open_tunnel_settings,
             remote::return_local,
             remote::local_share

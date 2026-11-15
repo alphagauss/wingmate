@@ -49,7 +49,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (!appSettings.back()) finish()
+                if (!appSettings.back() && !home.closeLanResults()) finish()
             }
         })
         localAgent?.observe(home::render)

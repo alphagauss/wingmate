@@ -14,6 +14,60 @@ use tauri::{
 };
 use wingmate_launcher::service::{self, ShareCommand, ShareStatus};
 
+#[path = "remote_lan.rs"]
+mod lan;
+
+pub(super) struct LanScan {
+    panel: String,
+    id: u32,
+    cancel: tokio::sync::oneshot::Sender<()>,
+}
+
+#[tauri::command]
+pub(super) async fn scan_lan(
+    webview: Webview,
+    desktop: State<'_, Arc<Desktop>>,
+    saved: Vec<String>,
+    scan: u32,
+) -> Result<bool, String> {
+    connection_panel::local_panel(&webview, &desktop)?;
+    let (cancel, cancelled) = tokio::sync::oneshot::channel();
+    *desktop.lan_scan.lock().unwrap() = Some(LanScan {
+        panel: webview.label().into(),
+        id: scan,
+        cancel,
+    });
+    let result = tokio::select! {
+        _ = cancelled => Ok(false),
+        result = lan::scan(&webview, &desktop, saved, scan) => result.map_err(|error| error.to_string()),
+    };
+    cancel_scan(&desktop, webview.label(), Some(scan));
+    result
+}
+
+pub(super) fn cancel_scan(desktop: &Desktop, panel: &str, id: Option<u32>) {
+    let mut active = desktop.lan_scan.lock().unwrap();
+    if active
+        .as_ref()
+        .is_some_and(|scan| scan.panel == panel && id.is_none_or(|id| scan.id == id))
+    {
+        if let Some(scan) = active.take() {
+            let _ = scan.cancel.send(());
+        }
+    }
+}
+
+#[tauri::command]
+pub(super) fn cancel_lan_scan(
+    webview: Webview,
+    desktop: State<'_, Arc<Desktop>>,
+    scan: u32,
+) -> Result<(), String> {
+    connection_panel::local_panel(&webview, &desktop)?;
+    cancel_scan(&desktop, webview.label(), Some(scan));
+    Ok(())
+}
+
 const HEADER_HEIGHT: f64 = 40.;
 
 fn target(link: &str) -> Result<Url> {
@@ -86,6 +140,149 @@ pub(super) fn render_header(app: &tauri::AppHandle) {
 struct Identity {
     product: String,
     transport: String,
+    name: Option<String>,
+    #[serde(default)]
+    password: bool,
+}
+
+fn client(lan: bool) -> Result<reqwest::Client> {
+    let builder = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(4));
+    Ok(if lan { builder.no_proxy() } else { builder }.build()?)
+}
+
+async fn probe(client: &reqwest::Client, url: &Url, timeout: Duration) -> Option<Identity> {
+    let mut response = client
+        .get(url.join("/_wingmate").ok()?)
+        .timeout(timeout)
+        .send()
+        .await
+        .ok()?;
+    if response.status() != reqwest::StatusCode::OK {
+        return None;
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.ok()? {
+        if body.len() + chunk.len() > 2048 {
+            return None;
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let identity: Identity = serde_json::from_slice(&body).ok()?;
+    let allowed = match (url.scheme(), identity.transport.as_str()) {
+        ("http", "local") => url.host_str() == Some("127.0.0.1"),
+        ("http", "lan") | ("https", "public") => true,
+        _ => false,
+    };
+    (identity.product == "wingmate" && allowed).then_some(identity)
+}
+
+#[derive(serde::Serialize)]
+pub(super) struct ConnectionReply {
+    origin: String,
+    needs_password: bool,
+    needs_pairing: bool,
+}
+
+async fn with_cookie_store<T: Send + 'static>(
+    panel: &Webview,
+    desktop: &Desktop,
+    use_store: impl FnOnce(Webview) -> tauri::Result<T> + Send + 'static,
+) -> Result<T> {
+    let app = panel.app_handle().clone();
+    let handle = app.clone();
+    let panel_label = panel.label().to_owned();
+    let main_label = desktop.window_label.clone();
+    let (reply, result) = tokio::sync::oneshot::channel();
+    // Resolve the windows on the UI thread so the cookie getter cannot race a destroyed panel.
+    app.run_on_main_thread(move || {
+        let value = (|| {
+            handle
+                .get_webview_window(&panel_label)
+                .context("Wingmate 连接浮层已关闭")?;
+            let main = handle.get_webview(&main_label).context("主窗口已关闭")?;
+            Ok::<_, anyhow::Error>(use_store(main)?)
+        })();
+        let _ = reply.send(value);
+    })?;
+    result.await?
+}
+
+async fn lan_session(
+    webview: &Webview,
+    desktop: &Desktop,
+    client: &reqwest::Client,
+    url: &Url,
+    password: Option<String>,
+) -> Result<bool> {
+    use reqwest::{header, StatusCode};
+    use tauri::webview::Cookie;
+
+    let host = url.host_str().context("缺少局域网主机地址")?;
+    let cookie_name = format!(
+        "wingmate_share_{}",
+        url.port_or_known_default().unwrap_or(80)
+    );
+    if let Some(password) = password {
+        let reply = client
+            .post(url.join("/_wingmate/login")?)
+            .header(header::ORIGIN, url.origin().ascii_serialization())
+            .body(password)
+            .send()
+            .await?;
+        match reply.status() {
+            StatusCode::NO_CONTENT => {}
+            StatusCode::UNAUTHORIZED => anyhow::bail!("密码错误，请重试"),
+            StatusCode::TOO_MANY_REQUESTS => anyhow::bail!("尝试次数过多，请稍后重试"),
+            _ => anyhow::bail!("无法登录主机，请确认已启用局域网密码"),
+        }
+        let value = reply
+            .headers()
+            .get(header::SET_COOKIE)
+            .context("主机未返回会话")?
+            .to_str()?;
+        let cookie = Cookie::parse(value)?;
+        anyhow::ensure!(
+            cookie.name() == cookie_name
+                && cookie.value().len() == 36
+                && cookie
+                    .value()
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit() || byte == b'-'),
+            "主机返回的会话无效"
+        );
+        let cookie = Cookie::build((cookie_name, cookie.value().to_owned()))
+            .domain(host.to_owned())
+            .path("/")
+            .http_only(true)
+            .same_site(cookie::SameSite::Strict)
+            .max_age(cookie::time::Duration::days(30))
+            .build();
+        with_cookie_store(webview, desktop, move |main| main.set_cookie(cookie)).await?;
+        return Ok(true);
+    }
+    let cookie_url = url.clone();
+    let cookie = with_cookie_store(webview, desktop, move |main| {
+        Ok(main
+            .cookies_for_url(cookie_url)?
+            .into_iter()
+            .find(|cookie| cookie.name() == cookie_name))
+    })
+    .await?;
+    let Some(cookie) = cookie else {
+        return Ok(false);
+    };
+    Ok(client
+        .get(url.join("/_wingmate/session")?)
+        .header(
+            header::COOKIE,
+            format!("{}={}", cookie.name(), cookie.value()),
+        )
+        .send()
+        .await?
+        .status()
+        == StatusCode::NO_CONTENT)
 }
 
 #[tauri::command]
@@ -93,37 +290,43 @@ pub(super) async fn connect_remote(
     webview: Webview,
     desktop: State<'_, Arc<Desktop>>,
     link: String,
-) -> Result<String, String> {
+    password: Option<String>,
+) -> Result<ConnectionReply, String> {
     connection_panel::local_panel(&webview, &desktop)?;
-    let url = target(&link).map_err(|error| error.to_string())?;
+    let mut url = target(&link).map_err(|error| error.to_string())?;
+    let client = client(url.scheme() == "http").map_err(|_| "无法初始化远程连接")?;
+    let mut identity = probe(&client, &url, Duration::from_secs(4)).await;
+    if identity.is_none() && password.is_none() && url.query().is_none() && url.scheme() == "http" {
+        for candidate in lan::alternatives(&url.clone()) {
+            let found = probe(&client, &candidate, Duration::from_millis(650)).await;
+            if found
+                .as_ref()
+                .is_some_and(|identity| identity.transport == "lan")
+            {
+                url = candidate;
+                identity = found;
+                break;
+            }
+        }
+    }
+    let identity = identity.ok_or("无法连接 Wingmate 主机，请检查地址及网络")?;
     let origin = url.origin().ascii_serialization();
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(4));
-    let client = if url.scheme() == "http" {
-        client.no_proxy()
-    } else {
-        client
-    };
-    let client = client.build().map_err(|_| "无法初始化远程连接")?;
-    let response = client
-        .get(format!("{origin}/_wingmate"))
-        .send()
-        .await
-        .map_err(|_| "无法连接远程主机")?;
-    let identity: Identity = response
-        .error_for_status()
-        .map_err(|_| "无法识别 Wingmate 主机")?
-        .json()
-        .await
-        .map_err(|_| "无法识别 Wingmate 主机")?;
-    let supported = match (url.scheme(), identity.transport.as_str()) {
-        ("http", "local") => url.host_str() == Some("127.0.0.1"),
-        ("http", "lan") | ("https", "public") => true,
-        _ => false,
-    };
-    if identity.product != "wingmate" || !supported {
-        return Err("此链接未提供 Wingmate 连接入口".into());
+    if password.is_some()
+        && (identity.transport != "lan" || !identity.password || url.query().is_some())
+    {
+        return Err("此主机未启用局域网密码登录".into());
+    }
+    if identity.transport == "lan"
+        && url.query().is_none()
+        && !lan_session(&webview, &desktop, &client, &url, password)
+            .await
+            .map_err(|error| error.to_string())?
+    {
+        return Ok(ConnectionReply {
+            origin,
+            needs_password: identity.password,
+            needs_pairing: !identity.password,
+        });
     }
     connection_panel::local_panel(&webview, &desktop)?;
     let origin_guard = url.origin();
@@ -173,7 +376,11 @@ pub(super) async fn connect_remote(
         let _ = previous.view.close();
     }
     render_header(&app);
-    Ok(origin)
+    Ok(ConnectionReply {
+        origin,
+        needs_password: false,
+        needs_pairing: false,
+    })
 }
 
 #[tauri::command]
@@ -239,6 +446,14 @@ pub(super) async fn local_share(
     instance: Option<String>,
 ) -> Result<ShareReply, String> {
     if connection_panel::local_panel(&webview, &desktop).is_err() {
+        if matches!(
+            command,
+            ShareCommand::LanPasswordSet { .. }
+                | ShareCommand::LanPasswordReveal
+                | ShareCommand::LanPasswordDisable
+        ) {
+            return Err("请在本机连接浮窗的「局域网」管理密码".into());
+        }
         let url = webview.url().map_err(|error| error.to_string())?;
         let current = desktop.connection.lock().unwrap();
         let state = current.workspace().ok_or("本机后台尚未连接")?;
@@ -252,7 +467,10 @@ pub(super) async fn local_share(
     let home = desktop.home.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<ShareReply> {
         let status = service::share(&home, &command)?;
-        let pairings = if matches!(command, ShareCommand::Pair | ShareCommand::TunnelPair) {
+        let pairings = if matches!(
+            command,
+            ShareCommand::Pair | ShareCommand::TunnelPair { .. }
+        ) {
             pairings(&status)?
         } else {
             Vec::new()

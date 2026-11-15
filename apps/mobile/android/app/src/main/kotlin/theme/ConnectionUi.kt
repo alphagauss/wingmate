@@ -5,6 +5,7 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.TextView
@@ -43,6 +44,19 @@ internal class ConnectionUi(private val context: Context, darkOverride: Boolean?
     val border = Color.parseColor(if (dark) "#394A61" else "#CFDBE9")
     val danger = Color.parseColor(if (dark) "#FFA8A0" else "#A52B2B")
     val accent = Color.parseColor(if (dark) "#A9C9FF" else "#234E90")
+
+    // DSH Models > API key uses a business-primary border on focus.
+    fun modelInputBackground(): StateListDrawable {
+        fun field(stroke: Int) = GradientDrawable().apply {
+            setColor(background)
+            cornerRadius = context.dp(6).toFloat()
+            setStroke(context.dp(1), stroke)
+        }
+        return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_focused), field(Color.parseColor(if (dark) "#7AAAFF" else "#4176E6")))
+            addState(intArrayOf(), field(Color.parseColor(if (dark) "#33FFFFFF" else "#29000000")))
+        }
+    }
 
     fun text(value: String, size: Float, color: Int = foreground, bold: Boolean = false) =
         TextView(context).apply {

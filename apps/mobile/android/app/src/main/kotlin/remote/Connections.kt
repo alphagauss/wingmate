@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.webkit.CookieManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -65,9 +66,11 @@ internal class ConnectionStore(context: Context) {
         }
     }
 
-    fun remember(origin: String) = update { entries ->
-        listOf(entries.firstOrNull { it.origin == origin } ?: SavedConnection(origin)) +
-            entries.filterNot { it.origin == origin }
+    fun remember(origin: String, previousOrigin: String) = update { entries ->
+        val entry = entries.firstOrNull { it.origin == previousOrigin && it.name.isNotBlank() }
+            ?: entries.firstOrNull { it.origin == origin }
+        listOf(SavedConnection(origin, entry?.name.orEmpty())) +
+            entries.filterNot { it.origin == origin || it.origin == previousOrigin }
     }
 
     fun rename(origin: String, name: String) = update { entries ->
@@ -85,7 +88,12 @@ internal class ConnectionStore(context: Context) {
     }
 }
 
-internal fun probeConnection(origin: String, timeout: Int = 3000): Boolean = runCatching {
+internal data class HostIdentity(val name: String, val password: Boolean)
+internal data class DiscoveredHost(val origin: String, val identity: HostIdentity, val previousOrigin: String = origin) {
+    val target: ConnectionTarget get() = ConnectionTarget(origin, "$origin/")
+}
+
+internal fun inspectConnection(origin: String, timeout: Int = 3000): HostIdentity? = runCatching {
     val target = URI(origin)
     val lan = target.scheme == "http"
     val endpoint = target.resolve("/_wingmate").toURL()
@@ -94,9 +102,9 @@ internal fun probeConnection(origin: String, timeout: Int = 3000): Boolean = run
         connection.instanceFollowRedirects = false
         connection.connectTimeout = timeout
         connection.readTimeout = timeout
-        if (connection.responseCode != HttpURLConnection.HTTP_OK) return false
-        val body = connection.inputStream.reader(Charsets.UTF_8).use { reader ->
-            val buffer = CharArray(512)
+        if (connection.responseCode != HttpURLConnection.HTTP_OK) return null
+        val body = connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+            val buffer = CharArray(1024)
             var size = 0
             while (size < buffer.size) {
                 val read = reader.read(buffer, size, buffer.size - size)
@@ -106,37 +114,109 @@ internal fun probeConnection(origin: String, timeout: Int = 3000): Boolean = run
             String(buffer, 0, size)
         }
         val identity = JSONObject(body)
-        identity.optString("product") == "wingmate" &&
-            identity.optString("transport") == if (lan) "lan" else "public"
+        if (identity.optString("product") != "wingmate" ||
+            identity.optString("transport") != (if (lan) "lan" else "public")) return null
+        HostIdentity(identity.optString("name"), lan && identity.optBoolean("password"))
     } finally {
         connection.disconnect()
     }
-}.getOrDefault(false)
+}.getOrNull()
+
+internal fun probeConnection(origin: String, timeout: Int = 3000) = inspectConnection(origin, timeout) != null
+
+internal fun resolveConnection(context: Context, target: ConnectionTarget, timeout: Int = 3000): DiscoveredHost? {
+    inspectConnection(target.origin, timeout)?.let { return DiscoveredHost(target.origin, it) }
+    if (target.link != "${target.origin}/") return null
+    val uri = URI(target.origin)
+    if (uri.scheme != "http" || !privateIpv4(uri.host)) return null
+    val debug = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    for (port in lanPorts(debug)) {
+        if (port == uri.port) continue
+        val origin = "http://${uri.host}:$port"
+        inspectConnection(origin, 650)?.let { return DiscoveredHost(origin, it, target.origin) }
+    }
+    return null
+}
+
+private fun lanRequest(origin: String, path: String): HttpURLConnection =
+    (URI(origin).resolve(path).toURL().openConnection(Proxy.NO_PROXY) as HttpURLConnection).apply {
+        instanceFollowRedirects = false
+        connectTimeout = 3500
+        readTimeout = 4500
+    }
+
+internal fun sessionCookieName(origin: String): String {
+    val uri = URI(origin)
+    return if (uri.scheme == "https") "wingmate_public" else "wingmate_share_${uri.port.takeIf { it > 0 } ?: 80}"
+}
+
+internal fun hasLanSession(origin: String): Boolean {
+    val expected = "${sessionCookieName(origin)}="
+    val cookie = CookieManager.getInstance().getCookie(origin)?.split(';')
+        ?.map(String::trim)?.firstOrNull { it.startsWith(expected) } ?: return false
+    val connection = lanRequest(origin, "/_wingmate/session")
+    return try {
+        connection.setRequestProperty("Cookie", cookie)
+        connection.responseCode == HttpURLConnection.HTTP_NO_CONTENT
+    } finally {
+        connection.disconnect()
+    }
+}
+
+internal data class PasswordReply(val status: Int, val cookie: String?)
+
+internal fun submitLanPassword(origin: String, password: String): PasswordReply {
+    val connection = lanRequest(origin, "/_wingmate/login")
+    return try {
+        val body = password.toByteArray(Charsets.UTF_8)
+        connection.requestMethod = "POST"
+        connection.setRequestProperty("Origin", origin)
+        connection.doOutput = true
+        connection.setFixedLengthStreamingMode(body.size)
+        connection.outputStream.use { it.write(body) }
+        val expected = "${sessionCookieName(origin)}="
+        val cookie = connection.getHeaderField("Set-Cookie")?.substringBefore(';')?.takeIf {
+            it.startsWith(expected) && it.removePrefix(expected).matches(Regex("[a-fA-F0-9-]{36}"))
+        }?.let { "$it; Path=/; Max-Age=2592000; HttpOnly; SameSite=Strict" }
+        PasswordReply(connection.responseCode, cookie)
+    } finally {
+        connection.disconnect()
+    }
+}
 
 internal class NoLanNetwork : Exception()
+private fun lanPorts(debug: Boolean) = if (debug) 8746..8749 else 8746..8748
+
+private fun privateIpv4(host: String): Boolean {
+    val octets = host.split('.')
+    val first = octets[0].toIntOrNull()
+    val second = octets.getOrNull(1)?.toIntOrNull()
+    return first == 10 || (first == 172 && second != null && second in 16..31) || (first == 192 && second == 168)
+}
 
 internal fun lanCandidates(ip: String, debug: Boolean): Sequence<String> {
-    val ports = if (debug) 8746..8749 else 8746..8748
     val subnet = ip.substringBeforeLast('.')
-    return ports.asSequence().flatMap { port ->
-        (1..254).asSequence().map { "$subnet.$it" }.filterNot { it == ip }.map { "http://$it:$port" }
+    return (1..254).asSequence().map { "$subnet.$it" }.filterNot { it == ip }.flatMap { host ->
+        lanPorts(debug).asSequence().map { "http://$host:$it" }
     }
 }
 
 internal fun discoverConnections(
     context: Context,
     history: List<SavedConnection>,
-    historyOnly: Boolean
-): List<String> {
+    historyOnly: Boolean,
+    onFound: (DiscoveredHost) -> Unit = {}
+): List<DiscoveredHost> {
     if (historyOnly) {
-        return listOfNotNull(history.firstOrNull()?.origin?.takeIf { probeConnection(it) })
+        val target = history.firstOrNull()?.origin?.let { ConnectionTarget.parse(it) }
+        return listOfNotNull(target?.let { resolveConnection(context, it) })
     }
     val parallel = 40
     val workers = Executors.newFixedThreadPool(parallel)
     try {
         val historyAddresses = history.map { it.origin }.filter { URI(it).scheme == "http" }.toSet()
         val known = workers.invokeAll(historyAddresses.map { origin ->
-            Callable { origin.takeIf { probeConnection(it) } }
+            Callable { inspectConnection(origin)?.let { DiscoveredHost(origin, it).also(onFound) } }
         }, 3, TimeUnit.SECONDS)
         val found = known.mapNotNull { if (it.isCancelled) null else it.get() }.toMutableList()
         val network = context.getSystemService(ConnectivityManager::class.java)
@@ -150,24 +230,31 @@ internal fun discoverConnections(
         if (ip == null) return found.ifEmpty { throw NoLanNetwork() }
         val debug = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
         val addresses = lanCandidates(ip, debug).filterNot { it in historyAddresses }.withIndex().iterator()
-        val results = ExecutorCompletionService<IndexedValue<String>?>(workers)
+        val results = ExecutorCompletionService<IndexedValue<DiscoveredHost>?>(workers)
         fun probeNext() {
             val address = addresses.next()
-            results.submit(Callable { address.takeIf { probeConnection(it.value, 600) } })
+            results.submit(Callable {
+                inspectConnection(address.value, 600)?.let {
+                    IndexedValue(address.index, DiscoveredHost(address.value, it))
+                }
+            })
         }
         var inFlight = 0
         while (inFlight < parallel && addresses.hasNext()) {
             probeNext()
             inFlight++
         }
-        val discovered = mutableListOf<IndexedValue<String>>()
+        val discovered = mutableListOf<IndexedValue<DiscoveredHost>>()
         val started = System.nanoTime()
         val budget = TimeUnit.SECONDS.toNanos(17)
         while (inFlight > 0) {
             val remaining = budget - (System.nanoTime() - started)
             if (remaining <= 0) break
             val completed = results.poll(remaining, TimeUnit.NANOSECONDS) ?: break
-            completed.get()?.let { discovered.add(it) }
+            completed.get()?.let {
+                discovered.add(it)
+                onFound(it.value)
+            }
             if (addresses.hasNext()) probeNext() else inFlight--
         }
         found.addAll(discovered.sortedBy { it.index }.map { it.value })

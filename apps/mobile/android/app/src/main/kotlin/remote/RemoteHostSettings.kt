@@ -1,6 +1,8 @@
 package dev.wingmate.mobile.remote
 
 import android.content.Intent
+import android.transition.AutoTransition
+import android.transition.TransitionManager
 import android.view.View
 import android.webkit.CookieManager
 import android.widget.EditText
@@ -13,6 +15,7 @@ import dev.wingmate.mobile.R
 import dev.wingmate.mobile.i18n.ConnectionStrings
 import dev.wingmate.mobile.settings.AppPreferences
 import dev.wingmate.mobile.settings.SettingsUi
+import dev.wingmate.mobile.theme.ConnectionUi
 import dev.wingmate.mobile.theme.dp
 import java.util.concurrent.Executors
 
@@ -33,6 +36,8 @@ internal class RemoteHostSettings(
     private var health = emptyMap<String, Boolean>()
     private var notice: String? = null
     private var checking = false
+    private var selected: String? = null
+    private var openPassword: LinearLayout? = null
     private val refreshTimer = object : Runnable {
         override fun run() {
             val view = content ?: return
@@ -59,6 +64,9 @@ internal class RemoteHostSettings(
     fun stop() {
         content?.removeCallbacks(refreshTimer)
         content = null
+        if (selected != null) flow.cancelConnection()
+        selected = null
+        openPassword = null
         openLocal = null
     }
 
@@ -66,6 +74,9 @@ internal class RemoteHostSettings(
         val body = content ?: return
         val entries = flow.store.entries()
         val recent = entries.filterNot { it.origin == current }
+        if (selected != null) flow.cancelConnection()
+        selected = null
+        openPassword = null
         body.removeAllViews()
         with(ui) {
             notice?.let { body.addView(text(it, 14f, danger)) }
@@ -118,15 +129,44 @@ internal class RemoteHostSettings(
             status == false -> "connection.unavailable"
             else -> "connection.checking"
         }]
-        return ui.row(entry.label, subtitle = state.takeIf { active }, value = state.takeUnless { active },
+        val wrapper = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val details = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val row = ui.row(entry.label, subtitle = state.takeIf { active }, value = state.takeUnless { active },
             icon = R.drawable.ic_settings_host,
             valueColor = if (status == true) ui.success else ui.primaryText,
             subtitleColor = if (connected) ui.success else ui.primaryText,
             trailing = if (active) disconnectButton() else null,
-            action = if (active) returnToWorkbench else ({ flow.connect(entry.origin, ::showNotice) })
+            action = if (active) returnToWorkbench else ({ select(entry, details) })
         ).apply {
             setOnLongClickListener { edit(entry); true }
             androidx.core.view.ViewCompat.setTooltipText(this, labels["connection.editHint"])
+        }
+        wrapper.addView(row)
+        wrapper.addView(details)
+        return wrapper
+    }
+
+    private fun select(entry: SavedConnection, details: LinearLayout) {
+        val list = content ?: return
+        flow.cancelConnection()
+        TransitionManager.beginDelayedTransition(list, AutoTransition().setDuration(180))
+        openPassword?.removeAllViews()
+        openPassword = null
+        if (selected == entry.origin) {
+            selected = null
+            return
+        }
+        selected = entry.origin
+        flow.select(entry) { message, host ->
+            if (selected != entry.origin || content !== list) return@select
+            TransitionManager.beginDelayedTransition(list, AutoTransition().setDuration(180))
+            openPassword = details
+            if (message != null) details.addView(ui.text(message, 14f, ui.danger))
+            else if (host != null) {
+                details.addView(lanPasswordView(activity, ConnectionUi(activity, ui.dark)) { password, onError ->
+                    flow.login(host, password, onError)
+                })
+            }
         }
     }
 
@@ -163,7 +203,7 @@ internal class RemoteHostSettings(
                 }
                 if (health != updated) {
                     health = updated
-                    render()
+                    if (selected == null) render()
                 }
             }
         }.start()
@@ -206,13 +246,10 @@ internal class RemoteHostSettings(
             .setNegativeButton(labels["common.cancel"], null)
             .setPositiveButton(labels["connection.delete"]) { _, _ ->
                 flow.store.forget(entry.origin)
-                val cookies = CookieManager.getInstance()
                 val secure = if (entry.origin.startsWith("https:")) "; Secure" else ""
-                cookies.getCookie(entry.origin)?.split(';')?.forEach { cookie ->
-                    val name = cookie.substringBefore('=').trim()
-                    if (name.startsWith("wingmate_share_"))
-                        cookies.setCookie(entry.origin, "$name=; Path=/; Max-Age=0; HttpOnly$secure")
-                }
+                val cookies = CookieManager.getInstance()
+                val name = sessionCookieName(entry.origin)
+                cookies.setCookie(entry.origin, "$name=; Path=/; Max-Age=0; HttpOnly$secure")
                 cookies.flush()
                 if (active) activity.finish() else render()
             }

@@ -17,6 +17,8 @@
     --hover: light-dark(#2631480f, #ffffff12);
     --press: light-dark(#2631481a, #ffffff20);
     --accent: light-dark(#4176e6, #90acff);
+    --input-focus: light-dark(#4176e6, #7aaaff);
+    --input-border: light-dark(#00000029, #fff3);
     --selected: light-dark(#edf2ff, #343b59);
     --primary: light-dark(#0f1115, #f1f1f1);
     --primary-hover: light-dark(#43454a, #d8d8db);
@@ -37,7 +39,7 @@
   button:hover { background: var(--press); }
   button:active { background: color-mix(in srgb, var(--press) 80%, var(--ink)); }
   button:disabled { opacity: .6; cursor: default; }
-  button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   #close { width: 26px; min-height: 26px; padding: 0; background: transparent; color: var(--muted); }
   #close:hover { background: var(--hover); }
   [role="tablist"] { display: flex; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
@@ -46,9 +48,46 @@
   [role="tab"][aria-selected="true"] { background: var(--selected); color: var(--accent); font-weight: 600; }
   [role="tabpanel"] { padding-top: 12px; }
   label { display: block; margin: 0 0 5px; font-weight: 500; }
-  input {
-    width: 100%; min-width: 0; min-height: 30px; border: 1px solid var(--line);
-    border-radius: 6px; padding: 4px 8px; background: var(--surface);
+  input, select {
+    width: 100%; min-width: 0; min-height: 30px; border: .5px solid var(--input-border);
+    border-radius: 6px; padding: 4px 8px; background: var(--surface); color: var(--ink);
+  }
+  input:focus, select:focus { outline: none; border-color: var(--input-focus); }
+  input::-ms-reveal { display: none; }
+  .password-field { position: relative; min-width: 0; flex: 1; }
+  .password-field input { padding-right: 32px; }
+  .password-eye { position: absolute; inset: 1px 1px 1px auto; min-height: 0; width: 30px; padding: 0; background: transparent; color: var(--muted); }
+  .password-eye[aria-pressed="false"] .eye-slash { display: none; }
+  .password-eye svg { width: 16px; height: 16px; }
+  .input-error { color: var(--error); }
+  .input-error:empty { display: none; }
+  #lan-search { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+  #lan-search .row:first-child { justify-content: space-between; }
+  #scan-lan { inline-size: 92px; }
+  #lan-hosts { display: grid; margin-top: 4px; }
+  .lan-host { width: 100%; align-items: center; justify-content: space-between; text-align: left; padding: 5px 8px; background: transparent; }
+  .lan-host-name { display: block; font-weight: 500; overflow-wrap: anywhere; }
+  .lan-host[aria-expanded="true"] .lan-host-arrow { transform: rotate(180deg); }
+  .lan-host-arrow { transition: transform .16s ease; }
+  .lan-fold:not([hidden]) { display: grid; grid-template-rows: 1fr; animation: lan-expand .18s ease-out; }
+  .lan-fold > div { min-height: 0; overflow: hidden; }
+  .lan-auth { margin: 2px 4px 8px; padding: 8px; border-radius: 8px; background: var(--hover); }
+  .lan-auth label { margin-bottom: 4px; }
+  .lan-auth .input-error { margin-top: 5px; }
+  @keyframes lan-expand { from { grid-template-rows: 0fr; opacity: .6; } }
+  #lan-password-form { margin-top: 9px; }
+  #lan-password-row, #lan-password-note { justify-content: space-between; }
+  #lan-password-row label { flex: none; margin: 0; }
+  #lan-password-row .password-field:not([hidden]) { animation: show-password-field .18s ease-out; }
+  @keyframes show-password-field { from { opacity: 0; transform: translateX(-4px); } }
+  #lan-password-note { margin-top: 5px; }
+  #lan-password-note button { min-height: 24px; font-size: 12px; }
+  #tunnel-duration { width: auto; font: inherit; }
+  #tunnel-actions { flex-wrap: wrap; }
+  #tunnel-invite { margin: 8px 0; }
+  @media (prefers-reduced-motion: reduce) {
+    .lan-fold:not([hidden]), #lan-password-row .password-field:not([hidden]) { animation: none; }
+    .lan-host-arrow { transition: none; }
   }
   .primary { background: var(--primary); color: var(--surface); }
   .primary:hover { background: var(--primary-hover); }
@@ -144,12 +183,13 @@
   <section id="connect" role="tabpanel" aria-labelledby="connect-tab">
     <p id="current" class="muted" hidden></p>
     <form>
-      <label for="link">分享链接</label>
+      <label for="link">连接地址或配对链接</label>
       <div class="row">
         <input id="link" type="url" required autocomplete="off" placeholder="http://192.168.1.10:12345/ 或 https://域名/">
         <button class="primary" type="submit">连接</button>
       </div>
     </form>
+    <div id="manual-auth"></div>
     <div id="saved" hidden>
       <label id="saved-label" for="host-picker">最近连接</label>
       <button id="host-picker" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="host-options" aria-labelledby="saved-label host-value">
@@ -160,6 +200,21 @@
         <button type="button" role="option" aria-selected="false" tabindex="-1" data-address="" hidden>取消选择</button>
       </div>
     </div>
+    <section id="lan-search" aria-label="局域网主机">
+      <div class="row"><span>局域网主机</span><button id="scan-lan" type="button">搜索局域网</button></div>
+      <p id="lan-search-status" class="muted" role="status"></p>
+      <div id="lan-hosts"></div>
+    </section>
+    <template id="lan-login-template">
+      <div class="lan-fold"><div><div class="lan-auth">
+        <p class="pair-required muted" hidden>请从主机获取配对链接，再粘贴到上方连接。</p>
+        <form class="lan-login" autocomplete="off">
+          <label for="host-password">局域网密码</label>
+          <div class="row"><div class="password-field"><input id="host-password" type="password" required maxlength="256" autocomplete="off"></div><button class="primary" type="submit">连接</button></div>
+          <p class="input-error" role="alert"></p>
+        </form>
+      </div></div></div>
+    </template>
   </section>
   <section id="share" role="tabpanel" aria-labelledby="share-tab" hidden>
     <div class="row share-row">
@@ -171,6 +226,20 @@
       <button id="share-enable" class="share-action" type="button" hidden>开启分享</button>
       <button id="share-pair" class="share-action" type="button" hidden>生成配对码</button>
     </div>
+    <form id="lan-password-form" autocomplete="off" hidden>
+      <div class="row" id="lan-password-row">
+        <label for="local-lan-password">局域网密码</label>
+        <span id="lan-password-status" class="muted">未设置</span>
+        <div class="password-field" hidden><input id="local-lan-password" type="password" readonly maxlength="256" autocomplete="off"></div>
+        <button id="lan-password-edit" type="button">设置</button>
+        <button id="lan-password-disable" type="button" hidden>停用</button>
+        <button id="lan-password-save" type="submit" class="primary" hidden>保存</button>
+      </div>
+      <div id="lan-password-note" class="row muted" hidden>
+        <span>局域网使用 HTTP，请在可信网络中启用。</span>
+        <button id="lan-password-cancel" type="button">取消</button>
+      </div>
+    </form>
     <div id="share-result" hidden>
       <div class="pairing-card">
         <img id="share-code" width="124" height="124" alt="局域网配对二维码">
@@ -201,11 +270,16 @@
     <progress id="tunnel-progress" aria-label="下载进度" hidden></progress>
     <p id="tunnel-address" class="pairing-address" hidden></p>
     <p id="tunnel-hint" class="muted" hidden></p>
-    <div class="row">
+    <div id="tunnel-actions" class="row">
       <button id="tunnel-start" type="button" hidden>开启隧道</button>
       <button id="tunnel-stop" type="button" hidden>关闭</button>
+      <select id="tunnel-duration" aria-label="邀请有效期" hidden><option value="5m">5 分钟</option><option value="24h">24 小时</option></select>
       <button id="tunnel-pair" type="button" hidden>生成配对码</button>
       <button id="tunnel-settings" type="button" hidden>前往配置</button>
+    </div>
+    <div id="tunnel-invite" class="row" hidden>
+      <span id="tunnel-expiry" class="muted" role="status"></span>
+      <button id="tunnel-revoke" type="button" hidden>撤销邀请</button>
     </div>
     <div id="tunnel-result" hidden>
       <div class="pairing-card">
@@ -213,7 +287,7 @@
         <div class="pairing-details">
           <p class="pairing-heading">扫码配对</p>
           <button id="tunnel-copy" type="button" aria-live="polite">复制链接</button>
-          <p class="muted">5 分钟内可用一次</p>
+          <p id="tunnel-pair-expiry" class="muted"></p>
         </div>
       </div>
       <p id="tunnel-link" class="pairing-address" hidden></p>

@@ -4,6 +4,7 @@ const panel = document.querySelector('main');
 const tabs = [...document.querySelectorAll('[role="tab"]')];
 const form = document.querySelector('form');
 const link = document.getElementById('link');
+const hostPicker = document.getElementById('host-picker');
 const message = document.getElementById('message');
 const localWebStatus = document.getElementById('local-web-status');
 const localPair = document.getElementById('local-pair');
@@ -47,7 +48,7 @@ function savedHosts() {
 const saved = savedHosts();
 if (saved.length) {
   const hosts = document.getElementById('saved');
-  const trigger = document.getElementById('host-picker');
+  const trigger = hostPicker;
   const value = document.getElementById('host-value');
   const menu = document.getElementById('host-options');
   const clear = menu.firstElementChild;
@@ -96,9 +97,12 @@ if (saved.length) {
   });
   menu.addEventListener('click', event => {
     const option = event.target.closest('[role="option"]');
-    if (!option) return;
+    if (!option || connectionBusy) return;
     const address = option.dataset.address;
-    if (address || link.value === selected) link.value = address;
+    if ((address || link.value === selected) && link.value !== address) {
+      link.value = address;
+      link.dispatchEvent(new Event('input'));
+    }
     dismissHosts();
     selectHost(address);
   });
@@ -152,13 +156,161 @@ async function act(button, operation) {
   }
 }
 
+function passwordEye(input, toggle) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'password-eye';
+  button.setAttribute('aria-controls', input.id);
+  button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/><path class="eye-slash" d="m4 4 16 16"/></svg>';
+  function setVisible(visible) {
+    input.type = visible ? 'text' : 'password';
+    button.setAttribute('aria-pressed', String(visible));
+    button.setAttribute('aria-label', visible ? '隐藏密码' : '显示密码');
+  }
+  setVisible(false);
+  button.addEventListener('click', () => toggle ? toggle(setVisible, button) : setVisible(input.type === 'password'));
+  input.after(button);
+  return setVisible;
+}
+
+const manualAuth = document.getElementById('manual-auth');
+const lanSearch = document.getElementById('scan-lan');
+const lanStatus = document.getElementById('lan-search-status');
+const lanHosts = document.getElementById('lan-hosts');
+const lanLoginTemplate = document.getElementById('lan-login-template');
+let scanGeneration = 0;
+let activeScan;
+let connectionBusy = false;
+let selectedHost;
+let activeLogin;
+
+function clearLogin() {
+  selectedHost?.setAttribute('aria-expanded', 'false');
+  selectedHost = undefined;
+  activeLogin?.remove();
+  activeLogin = undefined;
+}
+
+async function connectRemote(address, password, row, errorStatus = message, requestedAddress = address) {
+  if (connectionBusy) return;
+  connectionBusy = true;
+  link.disabled = hostPicker.disabled = true;
+  errorStatus.textContent = '';
+  try {
+    const result = await invoke('connect_remote', { link: address, password });
+    if (result.needs_password || result.needs_pairing) {
+      clearLogin();
+      const item = lanLoginTemplate.content.firstElementChild.cloneNode(true);
+      const login = item.querySelector('form');
+      const input = login.querySelector('input');
+      const button = login.querySelector('[type="submit"]');
+      const error = login.querySelector('.input-error');
+      login.hidden = !result.needs_password;
+      item.querySelector('.pair-required').hidden = !result.needs_pairing;
+      selectedHost = row;
+      activeLogin = item;
+      if (row) {
+        row.setAttribute('aria-expanded', 'true');
+        row.after(item);
+      } else manualAuth.append(item);
+      if (result.needs_password) {
+        passwordEye(input);
+        login.addEventListener('submit', async event => {
+          event.preventDefault();
+          button.disabled = true;
+          await connectRemote(result.origin, input.value, row, error, requestedAddress);
+          button.disabled = false;
+        });
+        input.focus();
+      }
+      return;
+    }
+    const requestedOrigin = new URL(requestedAddress).origin;
+    const recent = savedHosts().filter(item => item !== result.origin && item !== requestedOrigin);
+    localStorage.setItem(key, JSON.stringify([result.origin, ...recent].slice(0, 20)));
+    close();
+  } catch (error) {
+    errorStatus.textContent = String(error);
+  } finally {
+    connectionBusy = false;
+    link.disabled = hostPicker.disabled = false;
+  }
+}
+
 form.addEventListener('submit', event => {
   event.preventDefault();
-  act(form.querySelector('button'), async () => {
-    const address = await invoke('connect_remote', { link: link.value });
-    localStorage.setItem(key, JSON.stringify([address, ...saved.filter(item => item !== address)]));
-    close();
+  if (connectionBusy) return;
+  clearLogin();
+  act(form.querySelector('button'), () => connectRemote(link.value));
+});
+link.addEventListener('input', () => { if (!connectionBusy) clearLogin(); });
+
+window.wingmateLanHost = (id, host) => {
+  if (id !== scanGeneration) return;
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'lan-host';
+  row.setAttribute('aria-expanded', 'false');
+  const address = new URL(host.origin).host;
+  const text = document.createElement('span');
+  if (host.name?.trim()) {
+    const name = document.createElement('span');
+    name.className = 'lan-host-name';
+    name.textContent = host.name;
+    text.append(name);
+  }
+  const endpoint = document.createElement('span');
+  endpoint.className = 'muted';
+  endpoint.textContent = address;
+  text.append(endpoint);
+  const arrow = document.createElement('span');
+  arrow.className = 'lan-host-arrow';
+  arrow.setAttribute('aria-hidden', 'true');
+  arrow.textContent = '⌄';
+  row.append(text, arrow);
+  row.addEventListener('click', () => {
+    if (connectionBusy) return;
+    const toggle = row === selectedHost;
+    clearLogin();
+    if (!toggle) connectRemote(host.origin, undefined, row);
   });
+  lanHosts.append(row);
+};
+
+lanSearch.addEventListener('click', () => {
+  if (activeScan !== undefined) {
+    const scan = activeScan;
+    ++scanGeneration;
+    activeScan = undefined;
+    lanSearch.textContent = '搜索局域网';
+    lanStatus.textContent = '已取消搜索';
+    invoke('cancel_lan_scan', { scan }).catch(report);
+    return;
+  }
+  if (connectionBusy) return;
+  (async () => {
+    clearLogin();
+    const scan = ++scanGeneration;
+    activeScan = scan;
+    lanHosts.replaceChildren();
+    lanStatus.textContent = '正在搜索…';
+    lanSearch.textContent = '取消搜索';
+    try {
+      const timedOut = await invoke('scan_lan', { saved: savedHosts(), scan });
+      if (scan !== scanGeneration) return;
+      const count = lanHosts.querySelectorAll('.lan-host').length;
+      lanStatus.textContent = timedOut
+        ? (count ? `搜索超时，已找到 ${count} 台主机` : '搜索超时，请确认在同一局域网且已开启分享。')
+        : (count ? `找到 ${count} 台主机` : '未发现主机，请确认在同一局域网且已开启分享。');
+    } catch (error) {
+      if (scan === scanGeneration) lanStatus.textContent = String(error);
+    } finally {
+      if (scan === scanGeneration) {
+        activeScan = undefined;
+        lanSearch.textContent = '搜索局域网';
+      }
+    }
+  })();
 });
 
 async function updateShare(action) {
@@ -170,8 +322,76 @@ async function updateShare(action) {
   shareStatus.textContent = status.web_error ?? (status.address ? `局域网分享 · ${status.address}` : '局域网分享已关闭');
   shareEnable.hidden = Boolean(status.address);
   sharePair.hidden = !status.address;
+  if (action === 'status') renderLanPassword(status.lan_password_enabled);
   renderPairings(status.pairings ?? []);
 }
+
+const lanPasswordForm = document.getElementById('lan-password-form');
+const lanPasswordInput = document.getElementById('local-lan-password');
+const lanPasswordEdit = document.getElementById('lan-password-edit');
+const lanPasswordSave = document.getElementById('lan-password-save');
+const lanPasswordDisable = document.getElementById('lan-password-disable');
+const lanPasswordNote = document.getElementById('lan-password-note');
+const lanPasswordStatus = document.getElementById('lan-password-status');
+let lanPasswordEnabled = false;
+let editingLanPassword = false;
+let revealGeneration = 0;
+const showLanPassword = passwordEye(lanPasswordInput, (setVisible, button) => {
+  const generation = ++revealGeneration;
+  if (lanPasswordInput.type === 'text') {
+    if (!editingLanPassword) lanPasswordInput.value = '';
+    setVisible(false);
+  } else if (editingLanPassword) setVisible(true);
+  else act(button, async () => {
+    const status = await invoke('local_share', { command: { action: 'lan_password_reveal' } });
+    if (generation !== revealGeneration || editingLanPassword) return;
+    lanPasswordInput.value = status.lan_password;
+    setVisible(true);
+  });
+});
+
+function renderLanPassword(enabled, editing = false) {
+  ++revealGeneration;
+  lanPasswordEnabled = Boolean(enabled);
+  editingLanPassword = editing;
+  const showField = enabled || editing;
+  lanPasswordForm.hidden = false;
+  lanPasswordInput.parentElement.hidden = !showField;
+  lanPasswordInput.readOnly = !editing;
+  lanPasswordInput.required = editing;
+  lanPasswordInput.value = '';
+  lanPasswordInput.placeholder = editing ? '至少 8 个字符' : '••••••••';
+  showLanPassword(false);
+  lanPasswordStatus.hidden = showField;
+  lanPasswordEdit.textContent = enabled ? '修改' : '设置';
+  lanPasswordEdit.hidden = editing;
+  lanPasswordSave.hidden = !editing;
+  lanPasswordNote.hidden = !editing;
+  lanPasswordDisable.hidden = !enabled || editing;
+  if (editing) lanPasswordInput.focus();
+}
+
+lanPasswordEdit.addEventListener('click', () => renderLanPassword(lanPasswordEnabled, true));
+document.getElementById('lan-password-cancel').addEventListener('click', () => {
+  renderLanPassword(lanPasswordEnabled);
+  lanPasswordEdit.focus();
+});
+lanPasswordForm.addEventListener('submit', event => {
+  event.preventDefault();
+  if (!editingLanPassword) return;
+  act(lanPasswordSave, async () => {
+    const status = await invoke('local_share', { command: {
+      action: 'lan_password_set', password: lanPasswordInput.value, recoverable: true,
+    } });
+    renderLanPassword(status.lan_password_enabled);
+    lanPasswordEdit.focus();
+  });
+});
+lanPasswordDisable.addEventListener('click', () => act(lanPasswordDisable, async () => {
+  const status = await invoke('local_share', { command: { action: 'lan_password_disable' } });
+  renderLanPassword(status.lan_password_enabled);
+  lanPasswordEdit.focus();
+}));
 
 let selectedPairing;
 let shareCopyTimer;
@@ -252,6 +472,7 @@ function selectTab(tab) {
   message.textContent = '';
   clearTimeout(tunnelPoll);
   if (tab.id === 'tunnel-tab' && !tunnelBusy) updateTunnel();
+  if (tab.id !== 'share-tab' && !lanPasswordForm.hidden) renderLanPassword(lanPasswordEnabled);
   if (tab.id === 'share-tab' && !shareStatusRequest) {
     shareStatus.textContent = '正在读取分享状态…';
     shareStatusRequest = updateShare('status').catch(error => {
@@ -340,6 +561,11 @@ const tunnelResult = document.getElementById('tunnel-result');
 const tunnelCode = document.getElementById('tunnel-code');
 const tunnelCopy = document.getElementById('tunnel-copy');
 const tunnelLink = document.getElementById('tunnel-link');
+const tunnelInvite = document.getElementById('tunnel-invite');
+const tunnelDuration = document.getElementById('tunnel-duration');
+const tunnelExpiry = document.getElementById('tunnel-expiry');
+const tunnelPairExpiry = document.getElementById('tunnel-pair-expiry');
+const tunnelRevoke = document.getElementById('tunnel-revoke');
 
 let tunnel;
 let tunnelMode;
@@ -348,6 +574,11 @@ let tunnelPoll;
 let tunnelRequest = 0;
 let tunnelBusy = false;
 let tunnelReadError;
+let tunnelInviteExpires;
+
+function inviteTime(value) {
+  return new Date(value * 1000).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
 
 function showTunnelPairing(pairing) {
   tunnelPairing = pairing;
@@ -355,7 +586,10 @@ function showTunnelPairing(pairing) {
   tunnelLink.hidden = true;
   tunnelLink.textContent = '';
   tunnelCopy.textContent = '复制链接';
-  if (pairing) tunnelCode.src = 'data:image/svg+xml,' + encodeURIComponent(pairing.qr);
+  if (pairing) {
+    tunnelCode.src = 'data:image/svg+xml,' + encodeURIComponent(pairing.qr);
+    tunnelPairExpiry.textContent = pairing.named ? '可用一次' : `可用一次 · ${inviteTime(pairing.expires)} 到期`;
+  }
   else tunnelCode.removeAttribute('src');
 }
 
@@ -391,14 +625,19 @@ function renderTunnel() {
   tunnelStart.hidden = !tunnel || Boolean(progress) || needsSettings || (running && !switching && mode === 'quick');
   tunnelStart.textContent = switching ? '切换并重启' : running ? '重启隧道' : '开启隧道';
   tunnelStop.hidden = !tunnel?.mode;
-  tunnelPair.hidden = !running;
+  const canPair = running && !switching;
+  tunnelPair.hidden = !canPair;
   tunnelPair.textContent = tunnelPairing ? '重新生成' : '生成配对码';
+  tunnelInvite.hidden = mode !== 'named' || !tunnelInviteExpires;
+  tunnelDuration.hidden = !canPair || tunnel?.mode !== 'named';
+  tunnelExpiry.textContent = tunnelInviteExpires ? `${inviteTime(tunnelInviteExpires)} 到期` : '';
+  tunnelRevoke.hidden = !tunnelInviteExpires;
   tunnelSettings.hidden = !needsSettings || !tunnel;
   for (const button of tunnelModes) {
     button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
     button.disabled = tunnelBusy || Boolean(progress);
   }
-  for (const button of [tunnelStart, tunnelStop, tunnelPair, tunnelSettings]) button.disabled = tunnelBusy;
+  for (const control of [tunnelStart, tunnelStop, tunnelPair, tunnelSettings, tunnelDuration, tunnelRevoke]) control.disabled = tunnelBusy;
 }
 
 async function updateTunnel(command = { action: 'status' }) {
@@ -416,7 +655,11 @@ async function updateTunnel(command = { action: 'status' }) {
     tunnelReadError = undefined;
     if (status.tunnel?.url !== tunnel?.url) showTunnelPairing(null);
     tunnel = status.tunnel;
-    if (command.action === 'tunnel_pair') showTunnelPairing(status.pairings[0]);
+    tunnelInviteExpires = status.tunnel_invite_expires_at;
+    if (command.action === 'tunnel_pair' && status.pairings[0]) {
+      showTunnelPairing({ ...status.pairings[0], expires: status.pairing_expires_at, named: tunnel.mode === 'named' });
+    } else if (tunnelPairing && (tunnelPairing.expires * 1000 <= Date.now() ||
+      (tunnelPairing.named && tunnelInviteExpires !== tunnelPairing.expires))) showTunnelPairing(null);
   } catch (error) {
     if (id !== tunnelRequest) return;
     if (command.action === 'status') tunnelReadError = String(error);
@@ -436,7 +679,8 @@ for (const button of tunnelModes) button.addEventListener('click', () => {
 });
 tunnelStart.addEventListener('click', () => updateTunnel({ action: 'tunnel_start', mode: tunnelMode ?? tunnel?.mode ?? 'quick' }));
 tunnelStop.addEventListener('click', () => updateTunnel({ action: 'tunnel_stop' }));
-tunnelPair.addEventListener('click', () => updateTunnel({ action: 'tunnel_pair' }));
+tunnelPair.addEventListener('click', () => updateTunnel({ action: 'tunnel_pair', long_lived: tunnel.mode === 'named' && tunnelDuration.value === '24h' }));
+tunnelRevoke.addEventListener('click', () => updateTunnel({ action: 'tunnel_revoke' }));
 tunnelSettings.addEventListener('click', () => act(tunnelSettings, () => invoke('open_tunnel_settings')));
 tunnelCopy.addEventListener('click', () => act(tunnelCopy, async () => {
   const pairing = tunnelPairing;

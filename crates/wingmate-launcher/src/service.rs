@@ -8,7 +8,9 @@ use std::{
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
-pub use wingmate_service::host::{ShareCommand, ShareStatus, Status as HostStatus, TunnelMode};
+pub use wingmate_service::host::{
+    ShareCommand, ShareStatus, Status as HostStatus, TunnelMode, DEV_WEB_PORTS, WEB_PORTS,
+};
 use wingmate_service::{engine, host, runtime::Runtime};
 
 #[derive(serde::Serialize, serde::Deserialize)]

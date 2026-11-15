@@ -106,7 +106,7 @@ class ScannerActivity : AppCompatActivity() {
             setTextColor(ui.foreground)
             setHintTextColor(ui.muted)
             setPadding(dp(14), 0, dp(14), 0)
-            background = rounded(ui.surface, 12, ui.border)
+            background = ui.modelInputBackground()
         }
         val submit = {
             val target = ConnectionTarget.parse(field.text.toString(), manual = true)

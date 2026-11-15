@@ -1,4 +1,5 @@
 //! Serve the managed DSH Web through local, LAN and public listeners.
+mod password;
 mod proxy;
 
 use crate::{engine, host, tunnel};
@@ -29,6 +30,7 @@ use uuid::Uuid;
 type Body = UnsyncBoxBody<Bytes, anyhow::Error>;
 const SESSION_AGE: u64 = 30 * 24 * 60 * 60;
 const PAIR_AGE: Duration = Duration::from_secs(300);
+const LONG_INVITE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const PAIR_PAGE: &str = include_str!("gateway/pair.html");
 
 #[derive(Serialize, Deserialize)]
@@ -41,6 +43,12 @@ pub enum Command {
     Disable,
     Pair,
     PairLocal,
+    LanPasswordSet {
+        password: String,
+        recoverable: bool,
+    },
+    LanPasswordReveal,
+    LanPasswordDisable,
     DesktopSession {
         instance: String,
     },
@@ -55,7 +63,11 @@ pub enum Command {
         mode: tunnel::Mode,
     },
     TunnelStop,
-    TunnelPair,
+    TunnelPair {
+        #[serde(default)]
+        long_lived: bool,
+    },
+    TunnelRevoke,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -69,6 +81,12 @@ pub struct ShareStatus {
     pub pairing_url: Option<String>,
     #[serde(default)]
     pub pairing_urls: Vec<String>,
+    pub pairing_expires_at: Option<u64>,
+    pub tunnel_invite_expires_at: Option<u64>,
+    #[serde(default)]
+    pub lan_password_enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lan_password: Option<String>,
     pub devices: Vec<Device>,
     #[serde(default)]
     pub tunnel: Option<tunnel::Status>,
@@ -145,6 +163,26 @@ struct Auth {
     pairing: HashMap<Access, (Uuid, Instant)>,
     desktop_tickets: HashMap<Uuid, DesktopTicket>,
     sessions: HashMap<String, Session>,
+    named_invite: Option<NamedInvite>,
+    password: Option<password::Password>,
+    attempts: HashMap<IpAddr, (Instant, u8)>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct NamedInvite {
+    origin: String,
+    hash: String,
+    expires_at: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum SavedAuth {
+    Current {
+        devices: HashMap<String, Device>,
+        named_invite: Option<NamedInvite>,
+    },
+    Devices(HashMap<String, Device>),
 }
 
 struct DesktopTicket {
@@ -154,9 +192,16 @@ struct DesktopTicket {
 
 impl Auth {
     fn load(home: &Path) -> Result<Self> {
-        let devices: HashMap<String, Device> =
-            read(&home.join("share-devices.json"))?.unwrap_or_default();
+        let (devices, named_invite) = match read(&home.join("share-devices.json"))? {
+            Some(SavedAuth::Current {
+                devices,
+                named_invite,
+            }) => (devices, named_invite),
+            Some(SavedAuth::Devices(devices)) => (devices, None),
+            None => (HashMap::new(), None),
+        };
         Ok(Self {
+            named_invite: named_invite.filter(|invite| invite.expires_at > now()),
             sessions: devices
                 .into_iter()
                 .filter(|(_, device)| device.expires_at > now())
@@ -180,6 +225,16 @@ impl Auth {
         revoked: Option<Uuid>,
         added: Option<(&str, &Device)>,
     ) -> Result<()> {
+        self.persist(home, revoked, added, self.named_invite.as_ref())
+    }
+
+    fn persist(
+        &self,
+        home: &Path,
+        revoked: Option<Uuid>,
+        added: Option<(&str, &Device)>,
+        invite: Option<&NamedInvite>,
+    ) -> Result<()> {
         let mut devices: HashMap<_, _> = self
             .sessions
             .iter()
@@ -189,7 +244,18 @@ impl Auth {
             .map(|(key, session)| (key.as_str(), &session.device))
             .collect();
         devices.extend(added);
-        host::publish(&home.join("share-devices.json"), &devices)
+        host::publish(
+            &home.join("share-devices.json"),
+            &serde_json::json!({
+                "devices": devices, "named_invite": invite,
+            }),
+        )
+    }
+
+    fn publish_invite(&mut self, home: &Path, invite: Option<NamedInvite>) -> Result<()> {
+        self.persist(home, None, None, invite.as_ref())?;
+        self.named_invite = invite;
+        Ok(())
     }
 
     fn exchange(
@@ -199,6 +265,17 @@ impl Auth {
         provided: Uuid,
         public_origin: Option<&str>,
     ) -> Result<Option<Uuid>> {
+        if access == Access::Public
+            && self.named_invite.as_ref().is_some_and(|invite| {
+                public_origin == Some(invite.origin.as_str())
+                    && invite.expires_at > now()
+                    && invite.hash == digest(&provided.to_string())
+            })
+        {
+            return self
+                .issue_session(home, access, public_origin, true)
+                .map(Some);
+        }
         if !self
             .pairing
             .get(&access)
@@ -217,6 +294,16 @@ impl Auth {
         access: Access,
         public_origin: Option<&str>,
     ) -> Result<Uuid> {
+        self.issue_session(home, access, public_origin, false)
+    }
+
+    fn issue_session(
+        &mut self,
+        home: &Path,
+        access: Access,
+        public_origin: Option<&str>,
+        consume_invite: bool,
+    ) -> Result<Uuid> {
         let token = Uuid::new_v4();
         let key = session_key(token, public_origin);
         let paired_at = now();
@@ -226,7 +313,15 @@ impl Auth {
             expires_at: paired_at + SESSION_AGE,
             access,
         };
-        self.save(home, None, Some((&key, &device)))?;
+        self.persist(
+            home,
+            None,
+            Some((&key, &device)),
+            self.named_invite.as_ref().filter(|_| !consume_invite),
+        )?;
+        if consume_invite {
+            self.named_invite = None;
+        }
         self.sessions
             .retain(|_, session| session.device.expires_at > paired_at);
         self.sessions.insert(
@@ -250,6 +345,8 @@ struct Gateway {
     auth: Arc<Mutex<Auth>>,
     closed: CancellationToken,
     upstream: proxy::Credentials,
+    host_name: Arc<str>,
+    login_workers: Arc<tokio::sync::Semaphore>,
 }
 
 struct LanShare {
@@ -300,6 +397,8 @@ pub(super) struct Control {
     public: PublicGateway,
     auth: Arc<Mutex<Auth>>,
     runtime: tokio::runtime::Runtime,
+    host_name: Arc<str>,
+    login_workers: Arc<tokio::sync::Semaphore>,
 }
 
 fn suggested_address() -> Option<Ipv4Addr> {
@@ -336,9 +435,13 @@ impl Control {
     }
 
     pub(super) fn new(manager: Arc<host::Manager>, ports: &'static [u16]) -> Result<Self> {
-        let auth = Auth::load(&manager.home).unwrap_or_else(|error| {
+        let mut auth = Auth::load(&manager.home).unwrap_or_else(|error| {
             eprintln!("无法读取分享设备：{error:#}");
             Auth::default()
+        });
+        auth.password = password::Password::load(&manager.home).unwrap_or_else(|error| {
+            eprintln!("无法读取局域网密码配置：{error:#}");
+            None
         });
         let control = Self {
             manager,
@@ -346,6 +449,18 @@ impl Control {
             web: Mutex::default(),
             public: Arc::default(),
             auth: Arc::new(Mutex::new(auth)),
+            host_name: hostname::get()
+                .ok()
+                .map(|name| {
+                    name.to_string_lossy()
+                        .chars()
+                        .filter(|c| !c.is_control())
+                        .take(72)
+                        .collect::<String>()
+                })
+                .unwrap_or_default()
+                .into(),
+            login_workers: Arc::new(tokio::sync::Semaphore::new(2)),
             runtime: tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
                 .enable_all()
@@ -548,6 +663,8 @@ impl Control {
             auth: self.auth.clone(),
             closed: CancellationToken::new(),
             upstream: proxy::Credentials::new(access)?,
+            host_name: self.host_name.clone(),
+            login_workers: self.login_workers.clone(),
         }))
     }
 
@@ -601,8 +718,38 @@ impl Control {
         let home = &self.manager.home;
         let mut web = self.web.lock().unwrap();
         let mut pairing_urls = Vec::new();
+        let mut pairing_expires_at = None;
+        let mut lan_password = None;
         match command {
             Command::Status => {}
+            Command::LanPasswordSet {
+                password,
+                recoverable,
+            } => {
+                let configured = password::Password::install(home, &password, recoverable)?;
+                let previous = {
+                    let mut auth = self.auth.lock().unwrap();
+                    auth.attempts.clear();
+                    auth.password.replace(configured)
+                };
+                if let Some(previous) = previous {
+                    previous.delete_credential(home);
+                }
+            }
+            Command::LanPasswordReveal => {
+                let password = self.auth.lock().unwrap().password.clone();
+                lan_password = Some(password.context("尚未设置局域网密码")?.reveal(home)?);
+            }
+            Command::LanPasswordDisable => {
+                let mut auth = self.auth.lock().unwrap();
+                password::Password::disable(home)?;
+                auth.attempts.clear();
+                let previous = auth.password.take();
+                drop(auth);
+                if let Some(previous) = previous {
+                    previous.delete_credential(home);
+                }
+            }
             Command::Enable { address } => {
                 anyhow::ensure!(
                     address != Some(Ipv4Addr::UNSPECIFIED),
@@ -676,6 +823,7 @@ impl Control {
                     .iter()
                     .map(|gateway| format!("{}/?auth={code}", gateway.origin))
                     .collect();
+                pairing_expires_at = Some(now() + PAIR_AGE.as_secs());
             }
             Command::DesktopSession { instance } => {
                 let local = web.local.as_ref().with_context(|| {
@@ -719,7 +867,11 @@ impl Control {
             }
             Command::TunnelConfigure { hostname, token } => {
                 let mut config = tunnel::Config::load(home)?;
+                let previous = config.hostname().map(str::to_owned);
                 config.configure(&hostname, token)?;
+                if previous.as_deref() != config.hostname() {
+                    self.auth.lock().unwrap().publish_invite(home, None)?;
+                }
                 config.save(home)?;
             }
             Command::TunnelStart { mode } => {
@@ -737,25 +889,43 @@ impl Control {
                 config.save(home)?;
                 self.stop_tunnel(&mut web);
             }
-            Command::TunnelPair => {
-                let url = web
-                    .tunnel
-                    .status(home, web.local_address())
-                    .url
-                    .context("请先开启公网隧道")?;
+            Command::TunnelPair { long_lived } => {
+                let status = web.tunnel.status(home, web.local_address());
+                let url = status.url.context("请先开启公网隧道")?;
+                let named = status.mode == Some(tunnel::Mode::Named);
+                anyhow::ensure!(!long_lived || named, "24 小时邀请仅用于具名隧道");
+                anyhow::ensure!(
+                    !named || url.strip_prefix("https://") == status.hostname.as_deref(),
+                    "请重启具名隧道以应用新的公开域名"
+                );
                 let code = Uuid::new_v4();
-                self.auth
-                    .lock()
-                    .unwrap()
-                    .pairing
-                    .insert(Access::Public, (code, Instant::now() + PAIR_AGE));
+                let age = if long_lived {
+                    LONG_INVITE_AGE
+                } else {
+                    PAIR_AGE
+                };
+                let expires_at = now() + age.as_secs();
+                let mut auth = self.auth.lock().unwrap();
+                if named {
+                    auth.publish_invite(
+                        home,
+                        Some(NamedInvite {
+                            origin: url.clone(),
+                            hash: digest(&code.to_string()),
+                            expires_at,
+                        }),
+                    )?;
+                } else {
+                    auth.pairing
+                        .insert(Access::Public, (code, Instant::now() + age));
+                }
+                pairing_expires_at = Some(expires_at);
                 pairing_urls.push(format!("{url}/?auth={code}"));
             }
+            Command::TunnelRevoke => self.auth.lock().unwrap().publish_invite(home, None)?,
         }
-        let mut devices: Vec<_> = self
-            .auth
-            .lock()
-            .unwrap()
+        let auth = self.auth.lock().unwrap();
+        let mut devices: Vec<_> = auth
             .sessions
             .values()
             .filter(|session| session.device.expires_at > now())
@@ -776,6 +946,14 @@ impl Control {
             lan_addresses,
             pairing_url: pairing_urls.first().cloned(),
             pairing_urls,
+            pairing_expires_at,
+            tunnel_invite_expires_at: auth
+                .named_invite
+                .as_ref()
+                .filter(|invite| invite.expires_at > now())
+                .map(|invite| invite.expires_at),
+            lan_password_enabled: auth.password.is_some(),
+            lan_password,
             devices,
             tunnel: Some(web.tunnel.status(home, web.local_address())),
         })
@@ -789,10 +967,10 @@ impl Gateway {
         public: Option<PublicGateway>,
     ) {
         loop {
-            let socket = tokio::select! {
+            let (socket, peer) = tokio::select! {
                 _ = self.closed.cancelled() => return,
                 incoming = listener.accept() => match incoming {
-                    Ok((socket, _)) => socket,
+                    Ok(connection) => connection,
                     Err(error) => {
                         eprintln!("分享入口无法接受连接：{error}");
                         tokio::time::sleep(Duration::from_millis(250)).await;
@@ -814,7 +992,7 @@ impl Gateway {
                             public.lock().unwrap().clone()
                         })
                         .unwrap_or_else(|| gateway.clone());
-                    async move { Ok::<_, Infallible>(target.handle(request).await) }
+                    async move { Ok::<_, Infallible>(target.handle(request, peer.ip()).await) }
                 });
                 let connection = http1::Builder::new()
                     .timer(TokioTimer::new())
@@ -829,7 +1007,7 @@ impl Gateway {
         }
     }
 
-    async fn handle(&self, request: Request<Incoming>) -> Response<Body> {
+    async fn handle(&self, request: Request<Incoming>, peer: IpAddr) -> Response<Body> {
         if self.closed.is_cancelled() {
             return response(StatusCode::SERVICE_UNAVAILABLE, "分享入口已关闭");
         }
@@ -897,6 +1075,12 @@ impl Gateway {
             );
         }
         if request.method() == Method::GET && path == "/_wingmate" {
+            if self.access == Access::Lan {
+                return json(serde_json::json!({
+                    "product": "wingmate", "transport": "lan", "name": self.host_name.as_ref(),
+                    "password": self.auth.lock().unwrap().password.is_some(),
+                }));
+            }
             return json(serde_json::json!({"product": "wingmate", "transport": self.access}));
         }
         let session = headers
@@ -917,6 +1101,25 @@ impl Gateway {
                     .cloned()
             })
             .filter(Session::active);
+        if request.method() == Method::GET && path == "/_wingmate/session" {
+            return if session.is_some() {
+                response(StatusCode::NO_CONTENT, "")
+            } else {
+                response(StatusCode::UNAUTHORIZED, "")
+            };
+        }
+        if request.method() == Method::POST && path == "/_wingmate/login" {
+            if self.access != Access::Lan {
+                return response(StatusCode::NOT_FOUND, "此入口不接受局域网密码");
+            }
+            if headers.get(header::ORIGIN).is_none() {
+                return response(StatusCode::FORBIDDEN, "不接受此来源的请求");
+            }
+            if session.is_some() {
+                return response(StatusCode::NO_CONTENT, "");
+            }
+            return self.login(request.into_body(), peer).await;
+        }
         if request.method() == Method::GET
             && path == "/_wingmate/desktop"
             && self.access == Access::Local
@@ -928,6 +1131,9 @@ impl Gateway {
                 return html(StatusCode::OK, PAIR_PAGE);
             }
             if root_navigation && (wants_html || query == Some("pair=1")) {
+                if self.access == Access::Lan && self.auth.lock().unwrap().password.is_some() {
+                    return html(StatusCode::UNAUTHORIZED, include_str!("gateway/login.html"));
+                }
                 return html(StatusCode::UNAUTHORIZED, PAIR_PAGE);
             }
             return response(StatusCode::UNAUTHORIZED, "请从主机获取新的配对链接");
@@ -1016,6 +1222,69 @@ impl Gateway {
                 StatusCode::CONFLICT,
                 "后台操作未完成，请确认主机当前状态后重试",
             ),
+        }
+    }
+
+    async fn login(&self, body: Incoming, peer: IpAddr) -> Response<Body> {
+        let Some(bytes) = bounded(body, password::MAX_BYTES)
+            .await
+            .filter(|body| !body.is_empty())
+        else {
+            return response(StatusCode::BAD_REQUEST, "密码无效");
+        };
+        let Ok(permit) = self.login_workers.clone().try_acquire_owned() else {
+            return response(StatusCode::TOO_MANY_REQUESTS, "尝试次数过多，请稍后重试");
+        };
+        let hash = {
+            let mut auth = self.auth.lock().unwrap();
+            let Some(hash) = auth.password.as_ref().map(|password| password.hash.clone()) else {
+                return response(StatusCode::NOT_FOUND, "请从主机获取配对链接");
+            };
+            let now = Instant::now();
+            auth.attempts
+                .retain(|_, (started, _)| now.duration_since(*started) < Duration::from_secs(60));
+            if auth.attempts.len() >= 512 && !auth.attempts.contains_key(&peer) {
+                return response(StatusCode::TOO_MANY_REQUESTS, "尝试次数过多，请稍后重试");
+            }
+            let (_, count) = auth.attempts.entry(peer).or_insert((now, 0));
+            if *count >= 5 {
+                return response(StatusCode::TOO_MANY_REQUESTS, "尝试次数过多，请稍后重试");
+            }
+            *count += 1;
+            hash
+        };
+        let Ok((hash, valid)) = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let valid = password::matches(&hash, &bytes);
+            (hash, valid)
+        })
+        .await
+        else {
+            return response(StatusCode::INTERNAL_SERVER_ERROR, "无法验证密码");
+        };
+        let mut auth = self.auth.lock().unwrap();
+        if self.closed.is_cancelled() {
+            return response(StatusCode::SERVICE_UNAVAILABLE, "分享入口已关闭");
+        }
+        if !valid
+            || !auth
+                .password
+                .as_ref()
+                .is_some_and(|password| password.hash == hash)
+        {
+            return response(StatusCode::UNAUTHORIZED, "密码错误，请重试");
+        }
+        match auth.create_session(&self.manager.home, Access::Lan, None) {
+            Ok(token) => {
+                auth.attempts.remove(&peer);
+                let mut reply = response(StatusCode::NO_CONTENT, "");
+                self.set_cookie(&mut reply, token);
+                reply
+            }
+            Err(error) => {
+                eprintln!("无法保存局域网设备：{error:#}");
+                response(StatusCode::INTERNAL_SERVER_ERROR, "无法保存配对设备")
+            }
         }
     }
 

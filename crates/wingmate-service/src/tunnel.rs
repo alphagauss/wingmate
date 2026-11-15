@@ -59,6 +59,10 @@ fn hostname(value: &str) -> Option<String> {
 }
 
 impl Config {
+    pub(crate) fn hostname(&self) -> Option<&str> {
+        self.named.as_ref().map(|named| named.hostname.as_str())
+    }
+
     fn path(home: &Path) -> PathBuf {
         home.join("tunnel/config.json")
     }

@@ -6,12 +6,19 @@ import org.junit.Test
 
 class ConnectionTargetTest {
     @Test
-    fun scansThePrimaryPortBeforeBackups() {
+    fun scansThePrimaryAndBackupPortsForEachHost() {
         val release = lanCandidates("192.168.1.8", debug = false).toList()
-        assertEquals(listOf("8746", "8747", "8748"), release.map { it.substringAfterLast(':') }.distinct())
+        assertEquals(listOf("http://192.168.1.1:8746", "http://192.168.1.1:8747", "http://192.168.1.1:8748", "http://192.168.1.2:8746"), release.take(4))
         assertEquals(3 * 253, release.size)
         assertEquals(false, release.any { it.startsWith("http://192.168.1.8:") })
         assertEquals("http://192.168.1.254:8749", lanCandidates("192.168.1.8", debug = true).last())
+    }
+
+    @Test
+    fun identifiesGatewayCookiesByTransportAndPort() {
+        assertEquals("wingmate_share_8747", sessionCookieName("http://192.168.1.8:8747"))
+        assertEquals("wingmate_share_80", sessionCookieName("http://192.168.1.8"))
+        assertEquals("wingmate_public", sessionCookieName("https://example.org"))
     }
 
     @Test

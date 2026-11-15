@@ -42,21 +42,25 @@ fn spawn(home: &Path) -> Result<Child> {
 
 fn tunnel_host(home: &Path, binary: &Path, origin: &Path) -> Result<Host> {
     let directory = tempfile::tempdir_in(home)?;
+    let child = spawn_tunnel(directory.path(), binary, origin)?;
+    Ok(Host {
+        child,
+        home: directory,
+    })
+}
+
+fn spawn_tunnel(home: &Path, binary: &Path, origin: &Path) -> Result<Child> {
     let mut command = Command::new(env!("CARGO_BIN_EXE_wingmate-service"));
     wingmate_service::runtime::quiet(&mut command);
-    let child = command
+    Ok(command
         .arg("--home")
-        .arg(directory.path())
+        .arg(home)
         .env("CLOUDFLARED_PATH", binary)
         .env("TEST_TUNNEL_ORIGIN", origin)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()?;
-    Ok(Host {
-        child,
-        home: directory,
-    })
+        .spawn()?)
 }
 
 fn tunnel_ready(endpoint: &host::Endpoint) -> Result<String> {
@@ -148,9 +152,10 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
             .status(),
         401
     );
-    let pairing = host::share(&endpoint, &Share::TunnelPair)?
+    let pairing = host::share(&endpoint, &Share::TunnelPair { long_lived: false })?
         .pairing_url
         .unwrap();
+    assert!(host::share(&endpoint, &Share::TunnelPair { long_lived: true }).is_err());
     let code = pairing.strip_prefix(&format!("{public}/?auth=")).unwrap();
     let exchange = |origin: &str| {
         client
@@ -243,6 +248,57 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
         421
     );
     assert_eq!(identity(Some(named))?["transport"], "public");
+    let named_origin = format!("https://{named}");
+    let create_invite =
+        |endpoint: &host::Endpoint| host::share(endpoint, &Share::TunnelPair { long_lived: true });
+    let invite = create_invite(&endpoint)?;
+    let expiry = invite.pairing_expires_at.unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    assert!((86_395..=86_400).contains(&expiry.saturating_sub(now)));
+    assert_eq!(invite.tunnel_invite_expires_at, Some(expiry));
+    let link = invite.pairing_url.unwrap();
+    let code = link.split_once("?auth=").unwrap().1;
+    assert!(!fs::read_to_string(service.home.path().join("share-devices.json"))?.contains(code));
+    host::call(&endpoint, "shutdown", None)?;
+    assert!(service.child.wait()?.success());
+    service.child = spawn_tunnel(service.home.path(), &binary, &origin_path)?;
+    let endpoint = wait(service.home.path())?;
+    assert_eq!(tunnel_ready(&endpoint)?, named_origin);
+    assert_eq!(
+        host::share(&endpoint, &Share::Status)?.tunnel_invite_expires_at,
+        Some(expiry)
+    );
+    let redeem = |code: &str| {
+        client
+            .post(format!("{loopback}/?auth"))
+            .header("Host", named)
+            .header("Origin", &named_origin)
+            .body(code.to_owned())
+            .send()
+    };
+    assert_eq!(redeem(code)?.status(), 204);
+    assert_eq!(redeem(code)?.status(), 401);
+    assert!(host::share(&endpoint, &Share::Status)?
+        .tunnel_invite_expires_at
+        .is_none());
+    let second = create_invite(&endpoint)?.pairing_url.unwrap();
+    host::share(&endpoint, &Share::TunnelRevoke)?;
+    assert_eq!(
+        redeem(second.split_once("?auth=").unwrap().1)?.status(),
+        401
+    );
+    assert_eq!(
+        client
+            .post(format!("{loopback}/_wingmate/login"))
+            .header("Host", named)
+            .header("Origin", &named_origin)
+            .body("unused-password")
+            .send()?
+            .status(),
+        404
+    );
     host::share(&endpoint, &Share::TunnelStop)?;
     assert_eq!(identity(None)?["transport"], "local");
     assert_eq!(
@@ -252,6 +308,102 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
     host::call(&endpoint, "shutdown", None)?;
     assert!(service.child.wait()?.success());
     assert!(TcpListener::bind(local).is_ok());
+    Ok(())
+}
+
+#[test]
+fn lan_password_issues_a_revocable_session_and_is_limited_to_lan() -> Result<()> {
+    use host::ShareCommand as Share;
+    let _serial = TEST_HOSTS.lock().unwrap_or_else(|error| error.into_inner());
+    let home = tempfile::tempdir()?;
+    let child = spawn(home.path())?;
+    let mut guard = Host { child, home };
+    let endpoint = wait(guard.home.path())?;
+    let client = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(5))
+        .build()?;
+    let password = "sample-strong-password";
+    let configured = host::share(
+        &endpoint,
+        &Share::LanPasswordSet {
+            password: password.into(),
+            recoverable: false,
+        },
+    )?;
+    assert!(configured.lan_password_enabled);
+    assert!(configured.lan_password.is_none());
+    assert!(!fs::read_to_string(guard.home.path().join("lan-password.json"))?.contains(password));
+    assert!(host::share(&endpoint, &Share::LanPasswordReveal).is_err());
+    let local = format!("http://{}", configured.local_address.unwrap());
+    let address = configured
+        .suggested_address
+        .context("缺少测试用局域网地址")?;
+    let lan = format!(
+        "http://{}",
+        host::share(
+            &endpoint,
+            &Share::Enable {
+                address: Some(address)
+            }
+        )?
+        .address
+        .unwrap()
+    );
+    let login = |target: &str, origin: &str, password: &str| {
+        client
+            .post(format!("{target}/_wingmate/login"))
+            .header("Origin", origin)
+            .body(password.to_owned())
+            .send()
+    };
+    assert_eq!(login(&local, &local, password)?.status(), 404);
+    assert_eq!(login(&lan, &local, password)?.status(), 403);
+    assert_eq!(login(&lan, &lan, "wrong-password")?.status(), 401);
+    let reply = login(&lan, &lan, password)?;
+    assert_eq!(reply.status(), 204);
+    let cookie = reply.headers()["set-cookie"]
+        .to_str()?
+        .split(';')
+        .next()
+        .unwrap();
+    let session = || {
+        client
+            .get(format!("{lan}/_wingmate/session"))
+            .header("Cookie", cookie)
+            .send()
+    };
+    assert_eq!(session()?.status(), 204);
+    host::call(&endpoint, "shutdown", None)?;
+    assert!(guard.child.wait()?.success());
+    guard.child = spawn(guard.home.path())?;
+    let endpoint = wait(guard.home.path())?;
+    let status = host::share(&endpoint, &Share::Status)?;
+    assert!(status.lan_password_enabled);
+    assert_eq!(session()?.status(), 204);
+    host::share(
+        &endpoint,
+        &Share::Revoke {
+            id: status.devices[0].id,
+        },
+    )?;
+    assert_eq!(session()?.status(), 401);
+    for _ in 0..5 {
+        assert_eq!(login(&lan, &lan, "wrong-password")?.status(), 401);
+    }
+    assert_eq!(login(&lan, &lan, password)?.status(), 429);
+    let replacement = "replacement-password";
+    host::share(
+        &endpoint,
+        &Share::LanPasswordSet {
+            password: replacement.into(),
+            recoverable: false,
+        },
+    )?;
+    assert_eq!(login(&lan, &lan, password)?.status(), 401);
+    assert_eq!(login(&lan, &lan, replacement)?.status(), 204);
+    host::share(&endpoint, &Share::LanPasswordDisable)?;
+    assert_eq!(login(&lan, &lan, replacement)?.status(), 404);
     Ok(())
 }
 fn wait(home: &Path) -> Result<host::Endpoint> {

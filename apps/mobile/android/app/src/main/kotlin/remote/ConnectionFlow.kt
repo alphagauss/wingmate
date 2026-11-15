@@ -2,6 +2,7 @@ package dev.wingmate.mobile.remote
 
 import android.app.Activity
 import android.content.Intent
+import android.webkit.CookieManager
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import dev.wingmate.mobile.i18n.ConnectionStrings
@@ -45,21 +46,75 @@ internal class ConnectionFlow(
             return
         }
         Thread {
-            val available = probeConnection(target.origin, 5000)
+            val resolved = resolveConnection(activity, target, 5000)
             activity.runOnUiThread {
-                if (generation != attempt || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
-                if (!available) {
+                if (!current(generation)) return@runOnUiThread
+                if (resolved == null) {
                     onNotice(labels["connection.connectionFailed"])
                     return@runOnUiThread
                 }
                 onNotice(null)
-                launch(target)
+                launch(if (resolved.origin == target.origin) target else resolved.target, resolved.previousOrigin)
             }
         }.start()
     }
 
-    fun launch(target: ConnectionTarget) {
-        store.remember(target.origin)
+    fun select(host: DiscoveredHost, onResult: (String?) -> Unit) {
+        select({ host }) { message, _ -> onResult(message) }
+    }
+
+    fun select(entry: SavedConnection, onResult: (String?, DiscoveredHost?) -> Unit) {
+        select({ ConnectionTarget.parse(entry.origin)?.let { resolveConnection(activity, it) } }, onResult)
+    }
+
+    private fun select(resolve: () -> DiscoveredHost?, onResult: (String?, DiscoveredHost?) -> Unit) {
+        onConnectionRequested()
+        val generation = ++attempt
+        Thread {
+            val host = runCatching { resolve() }.getOrNull()
+            val session = runCatching { host != null && (host.origin.startsWith("https:") || hasLanSession(host.origin)) }
+            activity.runOnUiThread {
+                if (!current(generation)) return@runOnUiThread
+                when {
+                    host == null || session.isFailure -> onResult(labels["connection.connectionFailed"], null)
+                    session.getOrDefault(false) -> launch(host.target, host.previousOrigin)
+                    host.identity.password -> onResult(null, host)
+                    else -> onResult(labels["connection.pairRequired"], host)
+                }
+            }
+        }.start()
+    }
+
+    fun login(host: DiscoveredHost, password: String, onError: (String) -> Unit) {
+        val generation = ++attempt
+        Thread {
+            val reply = runCatching { submitLanPassword(host.origin, password) }.getOrNull()
+            activity.runOnUiThread {
+                if (!current(generation)) return@runOnUiThread
+                val cookie = reply?.cookie
+                if (reply?.status == 204 && cookie != null) {
+                    val cookies = CookieManager.getInstance()
+                    cookies.setCookie(host.origin, cookie) { stored ->
+                        if (!current(generation)) return@setCookie
+                        if (stored) {
+                            cookies.flush()
+                            launch(host.target, host.previousOrigin)
+                        } else onError(labels["connection.connectionFailed"])
+                    }
+                } else onError(labels[when (reply?.status) {
+                    400, 401 -> "connection.passwordIncorrect"
+                    404 -> "connection.pairRequired"
+                    429 -> "connection.passwordRateLimited"
+                    else -> "connection.connectionFailed"
+                }])
+            }
+        }.start()
+    }
+
+    private fun current(generation: Int) = generation == attempt && !activity.isFinishing && !activity.isDestroyed
+
+    private fun launch(target: ConnectionTarget, previousOrigin: String) {
+        store.remember(target.origin, previousOrigin)
         val intent = Intent(activity, WorkbenchActivity::class.java).putExtra("link", target.link)
         activity.startActivity(intent)
         if (activity is WorkbenchActivity) activity.finish()

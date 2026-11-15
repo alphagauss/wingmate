@@ -118,6 +118,10 @@ fn open(webview: &Webview, desktop: &Desktop) -> Result<(), String> {
         if matches!(event, WindowEvent::Focused(false)) {
             let _ = floating.destroy();
         }
+        if matches!(event, WindowEvent::Destroyed) {
+            let desktop = floating.state::<Arc<Desktop>>();
+            super::remote::cancel_scan(&desktop, floating.label(), None);
+        }
     });
     if let Err(error) = panel.set_position(PhysicalPosition::new(
         position.x + (left * scale).round() as i32,
