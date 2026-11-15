@@ -1,4 +1,4 @@
-use super::{bridge, connection_panel, Desktop};
+use super::{connection_panel, Desktop};
 use anyhow::{Context, Result};
 use std::{
     net::Ipv4Addr,
@@ -107,7 +107,7 @@ pub(super) async fn connect_remote(
     };
     let client = client.build().map_err(|_| "无法初始化远程连接")?;
     let response = client
-        .get(format!("{origin}/_wingmate/identity"))
+        .get(format!("{origin}/_wingmate"))
         .send()
         .await
         .map_err(|_| "无法连接远程主机")?;
@@ -243,8 +243,8 @@ pub(super) async fn local_share(
         let current = desktop.connection.lock().unwrap();
         let state = current.workspace().ok_or("本机后台尚未连接")?;
         if webview.label() != desktop.window_label
-            || instance.as_deref() != Some(state.instance.as_str())
-            || bridge::origin(state).as_deref() != Some(&url.origin().ascii_serialization())
+            || instance.as_deref() != Some(state.state.instance.as_str())
+            || state.origin != url.origin().ascii_serialization()
         {
             return Err("此页面不能管理本机分享".into());
         }

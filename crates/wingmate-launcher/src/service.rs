@@ -60,6 +60,22 @@ pub fn share(home: &Path, command: &ShareCommand) -> Result<ShareStatus> {
     host::share(&endpoint, command)
 }
 
+pub fn desktop_session(home: &Path, service: &str, instance: &str) -> Result<String> {
+    let endpoint = host::endpoint(home)?.context("管理服务已退出")?;
+    anyhow::ensure!(
+        endpoint.instance == service,
+        "管理服务实例已更换，请重新连接"
+    );
+    host::share(
+        &endpoint,
+        &ShareCommand::DesktopSession {
+            instance: instance.into(),
+        },
+    )?
+    .pairing_url
+    .context("管理服务未提供桌面连接凭据")
+}
+
 pub fn dsh_entry(home: &Path, state: &Snapshot) -> Result<std::path::PathBuf> {
     crate::runtime::installed_dsh_entry(home, state.runtime_revision.as_deref())
 }
@@ -79,9 +95,11 @@ fn ensure_host(home: &Path) -> Result<host::Endpoint> {
         command.process_group(0);
     }
     wingmate_service::runtime::isolate_standard_pipes()?;
+    command.arg("--home").arg(home);
+    if crate::IS_DEV {
+        command.arg("--dev");
+    }
     let mut child = command
-        .arg("--home")
-        .arg(home)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log.try_clone()?))
         .stderr(Stdio::from(log))

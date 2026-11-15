@@ -15,7 +15,6 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
-pub(crate) const NAMED_PORT: u16 = 3089;
 const BINARY: &str = if cfg!(windows) {
     "cloudflared.exe"
 } else {
@@ -130,12 +129,6 @@ impl Progress {
 
 pub(crate) type State = Arc<Mutex<Status>>;
 
-pub(crate) struct Listener {
-    pub(crate) address: SocketAddrV4,
-    pub(crate) closed: CancellationToken,
-    pub(crate) task: tokio::task::JoinHandle<()>,
-}
-
 #[derive(Default)]
 pub(crate) struct Tunnel {
     active: Option<Active>,
@@ -158,14 +151,14 @@ impl Drop for Active {
 }
 
 impl Tunnel {
-    pub(crate) fn status(&self, home: &Path) -> Status {
+    pub(crate) fn status(&self, home: &Path, address: Option<SocketAddrV4>) -> Status {
         let mut status = self
             .active
             .as_ref()
             .map(|run| run.state.lock().unwrap().clone())
             .unwrap_or_default();
         status.error = status.error.or_else(|| self.error.clone());
-        status.named_service = Some(format!("http://127.0.0.1:{NAMED_PORT}"));
+        status.named_service = address.map(|address| format!("http://{address}"));
         match Config::load(home) {
             Ok(config) => {
                 status.mode = config.enabled;
@@ -191,28 +184,20 @@ impl Tunnel {
         config: Config,
         mode: Mode,
         state: State,
-        listener: Listener,
+        address: SocketAddrV4,
+        closed: CancellationToken,
     ) {
         let worker_state = state.clone();
-        let closed = listener.closed.clone();
-        let runtime = tokio::runtime::Handle::current();
+        let worker_closed = closed.clone();
         let worker = thread::spawn(move || {
-            let result = run(
-                &home,
-                config,
-                mode,
-                &worker_state,
-                &listener.closed,
-                listener.address,
-            );
-            listener.closed.cancel();
+            let result = run(&home, config, mode, &worker_state, &worker_closed, address);
+            worker_closed.cancel();
             {
                 let mut status = worker_state.lock().unwrap();
                 status.url = None;
                 status.progress = None;
                 status.error = result.err().map(|error| format!("{error:#}"));
             }
-            let _ = runtime.block_on(listener.task);
         });
         self.active = Some(Active {
             state,

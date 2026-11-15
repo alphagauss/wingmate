@@ -216,10 +216,11 @@ try {
   checks.push('停止等待运行锁释放及 DSH 退出');
   assert.equal((await cli('service-status')).instance, host.instance);
   assert.equal((await cli('share-status')).address, null);
-  const { address } = await cli('share-enable', true, '127.0.0.1');
-  const gateway = 'http://' + address;
+  const { local_address } = await cli('share-status');
+  assert.ok(local_address);
+  const gateway = 'http://' + local_address;
   assert.equal((await fetch(gateway)).status, 401);
-  const { pairing_url } = await cli('share-pair');
+  const { pairing_url } = await cli('share-pair-local');
   const link = new URL(pairing_url);
   assert.equal(link.pathname, '/');
   assert.equal(link.hash, '');
@@ -307,9 +308,8 @@ try {
     socket.terminate();
   }
   assert.equal((await manage('stop', remoteStarted.instance)).status, 401);
-  await cli('share-disable');
   await cli('stop');
-  checks.push('局域网网关复用真实 DSH 工作台、插件、文件传输和长连接，停机后可从原地址启动并撤销设备');
+  checks.push('本机网关复用真实 DSH 工作台、插件、文件传输和长连接，停机后可从原地址启动并撤销设备');
   await cli('service-restart');
   const replacementHost = await cli('service-status');
   assert.notEqual(replacementHost.instance, host.instance);

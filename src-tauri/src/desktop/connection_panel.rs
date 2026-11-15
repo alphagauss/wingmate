@@ -1,4 +1,4 @@
-use super::{bridge, titlebar::Theme, Desktop};
+use super::{titlebar::Theme, Desktop};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
@@ -17,10 +17,12 @@ const MAX_HEIGHT: u32 = 560;
 pub(super) fn local_entry(webview: &Webview, desktop: &Desktop) -> Result<(), String> {
     let url = webview.url().map_err(|error| error.to_string())?;
     let current = desktop.connection.lock().unwrap();
-    let workspace = current.workspace().and_then(bridge::origin);
+    let workspace = current
+        .workspace()
+        .map(|workspace| workspace.origin.as_str());
     if webview.label() != desktop.window_label
         || (!desktop.page.is_home(&url)
-            && workspace.as_deref() != Some(&url.origin().ascii_serialization()))
+            && workspace != Some(url.origin().ascii_serialization().as_str()))
     {
         return Err("此页面不能操作 Wingmate 连接".into());
     }
@@ -185,7 +187,7 @@ pub(super) fn open_tunnel_settings(
         .lock()
         .unwrap()
         .workspace()
-        .and_then(bridge::origin)
+        .map(|workspace| workspace.origin.clone())
         .ok_or("请先启动本机 DSH，再配置具名隧道")?;
     if main
         .url()

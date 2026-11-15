@@ -165,9 +165,9 @@ async function updateShare(action) {
   // A new pairing invalidates the previous code even if its reply fails to arrive.
   if (action === 'pair') shareResult.hidden = true;
   const status = await invoke('local_share', { command: { action } });
-  localWebStatus.textContent = status.local_address ? '本机浏览器' : '本机 Web 入口不可用';
+  localWebStatus.textContent = status.local_address ? `本机浏览器 · ${status.local_address}` : '本机 Web 入口不可用';
   localPair.hidden = !status.local_address;
-  shareStatus.textContent = status.address ? '局域网分享已开启' : '局域网分享已关闭';
+  shareStatus.textContent = status.web_error ?? (status.address ? `局域网分享 · ${status.address}` : '局域网分享已关闭');
   shareEnable.hidden = Boolean(status.address);
   sharePair.hidden = !status.address;
   renderPairings(status.pairings ?? []);
@@ -382,10 +382,11 @@ function renderTunnel() {
   tunnelAddress.textContent = tunnel?.url ?? '';
   tunnelAddress.title = tunnelAddress.textContent;
   tunnelAddress.hidden = !running;
+  const originHint = tunnel?.named_service ? `Cloudflare Service URL 使用 ${tunnel.named_service}。` : '';
   tunnelHint.textContent = needsSettings ? '先在 Wingmate 后台服务详情页填写域名和 Tunnel Token。'
     : switching ? '切换会断开现有公网连接。'
     : mode === 'quick' ? '连接器重启后会分配新地址，需要重新配对。'
-    : running ? '重启隧道会短暂断开公网连接。' : '';
+    : originHint;
   tunnelHint.hidden = !tunnelHint.textContent;
   tunnelStart.hidden = !tunnel || Boolean(progress) || needsSettings || (running && !switching && mode === 'quick');
   tunnelStart.textContent = switching ? '切换并重启' : running ? '重启隧道' : '开启隧道';

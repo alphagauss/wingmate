@@ -132,6 +132,7 @@ impl Credentials {
         }
         let mut reply = tokio::select! {
             biased;
+            _ = closed.cancelled() => return Ok(response(StatusCode::SERVICE_UNAVAILABLE, "分享入口已关闭")),
             _ = session.ended() => return Ok(response(StatusCode::UNAUTHORIZED, "连接已撤销或过期")),
             result = async { sender.send_request(request).await } => result?,
         };
@@ -140,6 +141,7 @@ impl Credentials {
             let client = client_upgrade.context("上游意外升级连接")?;
             let server = hyper::upgrade::on(&mut reply);
             let session = session.clone();
+            let closed = closed.clone();
             tokio::spawn(async move {
                 let tunnel = async {
                     let (client, server) = tokio::try_join!(client, server)?;
@@ -188,12 +190,13 @@ impl Credentials {
             }
         }
         let frames = futures_util::stream::unfold(
-            (body, session),
-            |(mut body, session)| async move {
+            (body, session, closed),
+            |(mut body, session, closed)| async move {
                 tokio::select! {
                     biased;
+                    _ = closed.cancelled() => None,
                     _ = session.ended() => None,
-                    frame = body.frame() => frame.map(|frame| (frame.map_err(anyhow::Error::from), (body, session))),
+                    frame = body.frame() => frame.map(|frame| (frame.map_err(anyhow::Error::from), (body, session, closed))),
                 }
             },
         );

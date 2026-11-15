@@ -1,6 +1,6 @@
 //! 将 DSH 请求的新窗口和授权流程转交给系统浏览器。
 
-use super::{bridge, desktop_window, Desktop};
+use super::{desktop_window, Desktop};
 use std::{
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -26,7 +26,7 @@ fn workspace_instance(app: &AppHandle) -> Option<String> {
     let desktop = app.state::<Arc<Desktop>>();
     let connection = desktop.connection.lock().unwrap();
     let workspace = connection.workspace()?;
-    (bridge::origin(workspace)? == origin.ascii_serialization()).then(|| workspace.instance.clone())
+    (workspace.origin == origin.ascii_serialization()).then(|| workspace.state.instance.clone())
 }
 
 fn is_external_https(url: &Url) -> bool {

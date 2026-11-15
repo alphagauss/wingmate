@@ -1,6 +1,7 @@
 package dev.wingmate.mobile.remote
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import org.json.JSONArray
@@ -87,7 +88,7 @@ internal class ConnectionStore(context: Context) {
 internal fun probeConnection(origin: String, timeout: Int = 3000): Boolean = runCatching {
     val target = URI(origin)
     val lan = target.scheme == "http"
-    val endpoint = target.resolve("/_wingmate/identity").toURL()
+    val endpoint = target.resolve("/_wingmate").toURL()
     val connection = (if (lan) endpoint.openConnection(Proxy.NO_PROXY) else endpoint.openConnection()) as HttpURLConnection
     try {
         connection.instanceFollowRedirects = false
@@ -114,52 +115,63 @@ internal fun probeConnection(origin: String, timeout: Int = 3000): Boolean = run
 
 internal class NoLanNetwork : Exception()
 
-internal fun discoverConnection(
+internal fun lanCandidates(ip: String, debug: Boolean): Sequence<String> {
+    val ports = if (debug) 8746..8749 else 8746..8748
+    val subnet = ip.substringBeforeLast('.')
+    return ports.asSequence().flatMap { port ->
+        (1..254).asSequence().map { "$subnet.$it" }.filterNot { it == ip }.map { "http://$it:$port" }
+    }
+}
+
+internal fun discoverConnections(
     context: Context,
     history: List<SavedConnection>,
     historyOnly: Boolean
-): String? {
+): List<String> {
     if (historyOnly) {
-        return history.firstOrNull()?.origin?.takeIf { probeConnection(it) }
+        return listOfNotNull(history.firstOrNull()?.origin?.takeIf { probeConnection(it) })
     }
     val parallel = 40
     val workers = Executors.newFixedThreadPool(parallel)
     try {
-        val known = workers.invokeAll(history.map { entry ->
-            Callable { entry.origin.takeIf { probeConnection(it) } }
+        val historyAddresses = history.map { it.origin }.filter { URI(it).scheme == "http" }.toSet()
+        val known = workers.invokeAll(historyAddresses.map { origin ->
+            Callable { origin.takeIf { probeConnection(it) } }
         }, 3, TimeUnit.SECONDS)
-        known.firstNotNullOfOrNull { if (it.isCancelled) null else it.get() }?.let { return it }
+        val found = known.mapNotNull { if (it.isCancelled) null else it.get() }.toMutableList()
         val network = context.getSystemService(ConnectivityManager::class.java)
-        val active = network.activeNetwork ?: throw NoLanNetwork()
-        val capabilities = network.getNetworkCapabilities(active) ?: throw NoLanNetwork()
-        if (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
-            !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
-        ) throw NoLanNetwork()
-        val ip = network.getLinkProperties(active)?.linkAddresses
-            ?.firstOrNull { it.address is Inet4Address }?.address?.hostAddress ?: throw NoLanNetwork()
-        val ports = history.map { URI(it.origin) }.filter { it.scheme == "http" }
-            .map { it.port.takeIf { port -> port > 0 } ?: 80 }
-        val subnet = ip.substringBeforeLast('.')
-        val addresses = (ports + listOf(3088, 3080)).distinct().asSequence().flatMap { port ->
-            (1..254).asSequence().map { "$subnet.$it" }.filterNot { it == ip }.map { "http://$it:$port" }
-        }.iterator()
-        val results = ExecutorCompletionService<String?>(workers)
+        val active = network.activeNetwork?.takeIf { candidate ->
+            network.getNetworkCapabilities(candidate)?.let {
+                it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || it.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+            } == true
+        }
+        val ip = active?.let { network.getLinkProperties(it) }?.linkAddresses
+            ?.firstOrNull { it.address is Inet4Address }?.address?.hostAddress
+        if (ip == null) return found.ifEmpty { throw NoLanNetwork() }
+        val debug = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        val addresses = lanCandidates(ip, debug).filterNot { it in historyAddresses }.withIndex().iterator()
+        val results = ExecutorCompletionService<IndexedValue<String>?>(workers)
         fun probeNext() {
             val address = addresses.next()
-            results.submit(Callable { address.takeIf { probeConnection(it, 600) } })
+            results.submit(Callable { address.takeIf { probeConnection(it.value, 600) } })
         }
-        repeat(parallel) { probeNext() }
-        var inFlight = parallel
+        var inFlight = 0
+        while (inFlight < parallel && addresses.hasNext()) {
+            probeNext()
+            inFlight++
+        }
+        val discovered = mutableListOf<IndexedValue<String>>()
         val started = System.nanoTime()
         val budget = TimeUnit.SECONDS.toNanos(17)
         while (inFlight > 0) {
             val remaining = budget - (System.nanoTime() - started)
             if (remaining <= 0) break
             val completed = results.poll(remaining, TimeUnit.NANOSECONDS) ?: break
-            completed.get()?.let { return it }
+            completed.get()?.let { discovered.add(it) }
             if (addresses.hasNext()) probeNext() else inFlight--
         }
-        return null
+        found.addAll(discovered.sortedBy { it.index }.map { it.value })
+        return found
     } finally {
         workers.shutdownNow()
     }

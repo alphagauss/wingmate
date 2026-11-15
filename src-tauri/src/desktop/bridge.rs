@@ -2,7 +2,6 @@ use super::Desktop;
 use std::sync::Arc;
 use tauri::{ipc::CapabilityBuilder, AppHandle, Manager, Url, WebviewWindow};
 use wingmate_launcher::integration::{dsh_command as cli, login_startup as startup};
-use wingmate_launcher::service::Snapshot;
 
 #[tauri::command]
 pub(super) fn open_dsh_home(
@@ -57,11 +56,6 @@ pub(super) async fn dsh_command(
         .map_err(|error| format!("无法配置终端命令：{error:#}"))
 }
 
-pub(super) fn origin(state: &Snapshot) -> Option<String> {
-    let url = Url::parse(state.url.as_deref()?).ok()?;
-    Some(url.origin().ascii_serialization())
-}
-
 pub(super) fn authorize(app: &AppHandle, origin: &str) -> tauri::Result<()> {
     app.add_capability(
         CapabilityBuilder::new("wingmate-workspace")
@@ -76,11 +70,22 @@ pub(super) fn authorize(app: &AppHandle, origin: &str) -> tauri::Result<()> {
     )
 }
 
-pub(super) fn expose(window: &WebviewWindow, url: &Url, state: &Snapshot, service_update: bool) {
-    let Some(origin) = origin(state) else { return };
-    if url.origin().ascii_serialization() != origin {
+pub(super) fn expose(
+    window: &WebviewWindow,
+    url: &Url,
+    workspace: &super::Workspace,
+    service_update: bool,
+) {
+    let origin = &workspace.origin;
+    if &url.origin().ascii_serialization() != origin || url.path() == "/_wingmate/desktop" {
         return;
     }
+    let state = &workspace.state;
+    let dsh_origin = state
+        .url
+        .as_deref()
+        .and_then(|url| Url::parse(url).ok())
+        .map(|url| url.origin().ascii_serialization());
     let version = state.runtime.strip_prefix("dsh-").unwrap_or(&state.runtime);
     let data = serde_json::json!([
         origin,
@@ -92,11 +97,12 @@ pub(super) fn expose(window: &WebviewWindow, url: &Url, state: &Snapshot, servic
         startup::SUPPORTED,
         cli::SUPPORTED,
         !cfg!(windows),
+        dsh_origin,
     ]);
     // Old settings pages only know the version field.
     // Recheck in the document: navigation can change between PageLoad and eval.
     let _ = window.eval(&format!(
-        r#"(([origin, instance, dshVersion, dshHome, runtimeUpdate, serviceUpdate, canRegisterStartup, canRegisterDsh, showConnectionShortcut]) => {{
+        r#"(([origin, instance, dshVersion, dshHome, runtimeUpdate, serviceUpdate, canRegisterStartup, canRegisterDsh, showConnectionShortcut, dshOrigin]) => {{
             if (window !== window.top || location.origin !== origin || window.__WINGMATE_BACKEND__) return;
             const invoke = window.__TAURI_INTERNALS__.invoke;
             Object.defineProperty(window, '__WINGMATE_BACKEND__', {{ value: Object.freeze({{
@@ -105,6 +111,7 @@ pub(super) fn expose(window: &WebviewWindow, url: &Url, state: &Snapshot, servic
                 runtimeUpdate,
                 serviceUpdate,
                 dshHome,
+                dshOrigin,
                 openDshHome: dshHome ? () => invoke('open_dsh_home', {{ instance }}) : undefined,
                 loginStartup: canRegisterStartup ? enabled => invoke('login_startup', {{ instance, enabled }}) : undefined,
                 dshCommand: canRegisterDsh ? enabled => invoke('dsh_command', {{ instance, enabled }}) : undefined,

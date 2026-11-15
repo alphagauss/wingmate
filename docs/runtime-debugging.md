@@ -35,18 +35,20 @@ $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9223'
 pnpm.cmd dev
 ```
 
-保持启动终端运行，在另一终端的同一工作副本检查后台和目标。主窗口连接后台后会切到 `status` 返回的 DSH Web 来源。首页和浮窗使用启动日志中的开发服务器地址，默认端口为 `1430`。排除 `about:blank` 等临时授权窗口，导航后按当前来源重新确认目标。
+保持启动终端运行，在另一终端的同一工作副本检查后台和目标。主窗口连接后台后会切到 `service-status` 返回的 `web_address`，开发网关使用 `8749`。首页和浮窗使用启动日志中的开发服务器地址，默认端口为 `1430`。排除 `about:blank` 等临时授权窗口，导航后按当前来源重新确认目标。
 
 ```powershell
 $state = & .\target\debug\wingmate.exe status | ConvertFrom-Json
 $state | Select-Object phase, instance, engine_pid, runtime, runtime_revision, url
+$service = & .\target\debug\wingmate.exe service-status | ConvertFrom-Json
+$service | Select-Object web_address
 
 $pages = (Invoke-RestMethod http://127.0.0.1:9223/json) |
   Where-Object type -eq 'page'
 $pages | Select-Object id, @{Name='Origin'; Expression={ ([uri]$_.url).GetLeftPart('Authority') }}
 ```
 
-用 CDP 客户端连接所选目标的 `webSocketDebuggerUrl`。以下探针使用项目要求的 Node 内置 WebSocket，可直接检查页面和桥接。检查工作台时将 `$origin` 改为 `$state.url`。
+用 CDP 客户端连接所选目标的 `webSocketDebuggerUrl`。以下探针使用项目要求的 Node 内置 WebSocket，可直接检查页面和桥接。检查工作台时将 `$origin` 改为 `"http://$($service.web_address)"`。
 
 ```powershell
 $origin = 'http://127.0.0.1:1430'

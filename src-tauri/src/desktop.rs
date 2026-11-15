@@ -7,7 +7,7 @@ mod startup_page;
 mod titlebar;
 mod window_state;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use startup_page::{CardStatus, StartupPage};
 use std::{
     cell::Cell,
@@ -44,8 +44,14 @@ fn set_dock_icon() -> Result<()> {
 enum View {
     #[default]
     Home,
-    Workspace(Snapshot),
+    Workspace(Workspace),
     UpdateAvailable(RestartTarget),
+}
+
+#[derive(Clone)]
+struct Workspace {
+    state: Snapshot,
+    origin: String,
 }
 
 enum Observation {
@@ -95,7 +101,7 @@ impl ConnectionState {
         self.exit_pending && self.active_operations == 0
     }
 
-    fn workspace(&self) -> Option<&Snapshot> {
+    fn workspace(&self) -> Option<&Workspace> {
         match &self.view {
             View::Workspace(state) => Some(state),
             _ => None,
@@ -113,44 +119,46 @@ impl ConnectionState {
             .origin()
             .ascii_serialization();
         let state = self.workspace().ok_or("后台尚未连接")?;
-        if state.instance != instance || bridge::origin(state).as_deref() != Some(&origin) {
+        if state.state.instance != instance || state.origin != origin {
             return Err("后台实例已更换，请重新连接".into());
         }
-        Ok(state)
+        Ok(&state.state)
     }
 
     fn open_workspace(
         &mut self,
         app: &tauri::AppHandle,
-        page: &StartupPage,
+        desktop: &Desktop,
+        service_instance: &str,
         state: Snapshot,
     ) -> Result<()> {
-        let url = state
-            .url
-            .as_deref()
-            .and_then(|url| Url::parse(url).ok())
-            .ok_or_else(|| anyhow::anyhow!("后台未提供可用的工作台地址"))?;
+        let link = service::desktop_session(&desktop.home, service_instance, &state.instance)?;
+        let url = Url::parse(&link).context("后台未提供可用的工作台地址")?;
+        anyhow::ensure!(
+            url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port().is_some(),
+            "本机工作台地址无效"
+        );
         let origin = url.origin().ascii_serialization();
         if !self.authorized_origins.contains(&origin) {
             bridge::authorize(app, &origin)?;
-            self.authorized_origins.insert(origin);
+            self.authorized_origins.insert(origin.clone());
         }
-        self.view = View::Workspace(state);
-        page.open_workspace(app, url);
+        self.view = View::Workspace(Workspace { state, origin });
+        desktop.page.open_workspace(app, url);
         Ok(())
     }
 
     fn connect(
         &mut self,
         app: &tauri::AppHandle,
-        page: &StartupPage,
+        desktop: &Desktop,
         host: HostStatus,
-        desired_service: &str,
         continued: bool,
     ) {
+        let page = &desktop.page;
         let target = RestartTarget::from_status(&host);
         self.last = Some(target.clone());
-        self.service_update = host.revision != desired_service;
+        self.service_update = host.revision != desktop.service_revision;
         let runtime_update = host
             .business
             .as_ref()
@@ -166,13 +174,13 @@ impl ConnectionState {
                 ),
             );
         } else if let Some(state) = host.business {
-            if self
-                .workspace()
-                .is_some_and(|workspace| workspace.instance == state.instance)
-            {
+            if self.workspace().is_some_and(|workspace| {
+                workspace.state.instance == state.instance
+                    && Some(&workspace.origin) == web_origin(&host.web_address).as_ref()
+            }) {
                 return;
             }
-            if let Err(error) = self.open_workspace(app, page, state) {
+            if let Err(error) = self.open_workspace(app, desktop, &host.instance, state) {
                 self.view = View::Home;
                 page.show(
                     app,
@@ -194,7 +202,7 @@ impl ConnectionState {
     ) {
         let page = &desktop.page;
         match outcome {
-            Ok(Some(state)) => self.connect(app, page, state, &desktop.service_revision, continued),
+            Ok(Some(state)) => self.connect(app, desktop, state, continued),
             Ok(None) => {
                 page.show(app, CardStatus::stopped());
                 self.last = None;
@@ -233,7 +241,9 @@ impl ConnectionState {
                         .last
                         .as_ref()
                         .is_some_and(|target| target.matches(&host))
-                    {
+                        && self.workspace().is_none_or(|workspace| {
+                            Some(&workspace.origin) == web_origin(&host.web_address).as_ref()
+                        }) {
                         Observation::KeepPage {
                             disconnected: false,
                         }
@@ -269,6 +279,10 @@ impl ConnectionState {
             _ => Observation::ShowHome(CardStatus::stopped()),
         }
     }
+}
+
+fn web_origin(address: &Option<std::net::SocketAddrV4>) -> Option<String> {
+    address.map(|address| format!("http://{address}"))
 }
 
 enum Operation {
@@ -614,13 +628,7 @@ pub fn run(home: PathBuf) -> Result<()> {
                         Observation::Ignore => continue,
                         Observation::KeepPage { disconnected } => disconnected,
                         Observation::Connect(state) => {
-                            current.connect(
-                                &handle,
-                                &desktop.page,
-                                state,
-                                &desktop.service_revision,
-                                false,
-                            );
+                            current.connect(&handle, &desktop, state, false);
                             false
                         }
                         Observation::ShowHome(status) => {
@@ -651,7 +659,7 @@ pub fn run(home: PathBuf) -> Result<()> {
 mod tests {
     use super::{
         CardStatus, ConnectionState, HostStatus, Observation, RestartTarget, Snapshot,
-        StartupStage, View,
+        StartupStage, View, Workspace,
     };
 
     const SERVICE: &str = "current-service-revision";
@@ -664,6 +672,7 @@ mod tests {
             pid: 1,
             revision: SERVICE.into(),
             business,
+            web_address: Some("127.0.0.1:8749".parse().unwrap()),
         }
     }
 
@@ -688,11 +697,18 @@ mod tests {
         }
     }
 
+    fn workspace(instance: &str) -> View {
+        View::Workspace(Workspace {
+            state: snapshot(instance, "running"),
+            origin: "http://127.0.0.1:8749".into(),
+        })
+    }
+
     #[test]
     fn transient_disconnect_and_recovery_keep_the_current_workspace() {
         let mut connection = ConnectionState {
             last: Some(target("current")),
-            view: View::Workspace(snapshot("current", "running")),
+            view: workspace("current"),
             ..ConnectionState::default()
         };
         let revision = connection.observation_revision().unwrap();
@@ -721,7 +737,13 @@ mod tests {
                 disconnected: false
             }
         ));
-        assert_eq!(connection.workspace().unwrap().instance, "current");
+        assert_eq!(connection.workspace().unwrap().state.instance, "current");
+        let mut fallback = host(Some(snapshot("current", "running")));
+        fallback.web_address = Some("127.0.0.1:8747".parse().unwrap());
+        assert!(matches!(
+            connection.observe(revision, Ok(Some(fallback)), SERVICE),
+            Observation::Connect(_)
+        ));
         assert!(matches!(
             connection.observe(revision, Ok(Some(host(Some(snapshot("replacement", "running"))))), SERVICE),
             Observation::Connect(state) if state.business.as_ref().is_some_and(|business| business.instance == "replacement")
@@ -793,12 +815,15 @@ mod tests {
 
         connection.busy = false;
         connection.last = Some(target("replacement"));
-        connection.view = View::Workspace(snapshot("replacement", "running"));
+        connection.view = workspace("replacement");
         assert!(matches!(
             connection.observe(revision, Ok(None), SERVICE),
             Observation::Ignore
         ));
-        assert_eq!(connection.workspace().unwrap().instance, "replacement");
+        assert_eq!(
+            connection.workspace().unwrap().state.instance,
+            "replacement"
+        );
     }
 
     #[test]

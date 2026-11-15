@@ -4,11 +4,14 @@ use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::{BufRead, BufReader, Write},
-    net::{Ipv4Addr, TcpStream},
+    net::{Ipv4Addr, TcpListener, TcpStream},
     path::Path,
     process::{Child, Command, Stdio},
+    sync::Mutex,
     time::{Duration, Instant},
 };
+
+static TEST_HOSTS: Mutex<()> = Mutex::new(());
 use wingmate_service::{
     engine, host,
     runtime::{Runtime, DSH_ENTRY, WEB_PATCH},
@@ -74,6 +77,7 @@ fn tunnel_ready(endpoint: &host::Endpoint) -> Result<String> {
 #[test]
 fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
     use host::{ShareCommand as Share, TunnelMode};
+    let _serial = TEST_HOSTS.lock().unwrap_or_else(|error| error.into_inner());
 
     let temp = tempfile::tempdir()?;
     let binary = temp.path().join(if cfg!(windows) {
@@ -108,7 +112,20 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
     let public = tunnel_ready(&endpoint)?;
     let loopback = fs::read_to_string(&origin_path)?;
     let authority = public.trim_start_matches("https://");
-    assert_eq!(client.get(&loopback).send()?.status(), 421);
+    let local = host::share(&endpoint, &Share::Status)?
+        .local_address
+        .unwrap();
+    assert_eq!(loopback, format!("http://{local}"));
+    assert_eq!(client.get(&loopback).send()?.status(), 401);
+    let identity = |host: Option<&str>| -> Result<serde_json::Value> {
+        let mut request = client.get(format!("{loopback}/_wingmate"));
+        if let Some(host) = host {
+            request = request.header("Host", host);
+        }
+        Ok(request.send()?.error_for_status()?.json()?)
+    };
+    assert_eq!(identity(None)?["transport"], "local");
+    assert_eq!(identity(Some(authority))?["transport"], "public");
     let manifest = client
         .get(format!("{loopback}/manifest.webmanifest"))
         .header("Host", authority)
@@ -217,14 +234,24 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
         },
     )?;
     assert_eq!(tunnel_ready(&endpoint)?, format!("https://{named}"));
-    assert!(client
-        .get(&loopback)
-        .header("Host", authority)
-        .send()
-        .is_err());
+    assert_eq!(
+        client
+            .get(&loopback)
+            .header("Host", authority)
+            .send()?
+            .status(),
+        421
+    );
+    assert_eq!(identity(Some(named))?["transport"], "public");
+    host::share(&endpoint, &Share::TunnelStop)?;
+    assert_eq!(identity(None)?["transport"], "local");
+    assert_eq!(
+        client.get(&loopback).header("Host", named).send()?.status(),
+        421
+    );
     host::call(&endpoint, "shutdown", None)?;
     assert!(service.child.wait()?.success());
-    assert!(std::net::TcpListener::bind("127.0.0.1:3089").is_ok());
+    assert!(TcpListener::bind(local).is_ok());
     Ok(())
 }
 fn wait(home: &Path) -> Result<host::Endpoint> {
@@ -328,17 +355,30 @@ process.on('SIGTERM', () => process.exit(0));
 #[test]
 fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> Result<()> {
     use host::ShareCommand::{Disable, Enable, Pair, Revoke, Status};
+    let _serial = TEST_HOSTS.lock().unwrap_or_else(|error| error.into_inner());
     let home = tempfile::tempdir()?;
     runtime(home.path())?;
     let child = spawn(home.path())?;
-    let guard = Host { child, home };
+    let mut guard = Host { child, home };
     let endpoint = wait(guard.home.path())?;
     let share = |command| host::share(&endpoint, &command);
-    assert!(share(Status)?.address.is_none());
-    let enabled = share(Enable {
-        address: Some(Ipv4Addr::LOCALHOST),
-    })?;
+    let initial = share(Status)?;
+    assert!(initial.address.is_none());
+    let ip = initial
+        .suggested_address
+        .context("缺少测试用内网 IPv4 地址")?;
+    let primary = initial.local_address.context("缺少本机 Web 入口")?;
+    let occupied = TcpListener::bind((ip, primary.port()))?;
+    let enabled = share(Enable { address: Some(ip) })?;
     let address = enabled.address.unwrap();
+    assert!(host::WEB_PORTS.contains(&address.port()));
+    assert_ne!(address.port(), primary.port());
+    assert_eq!(enabled.local_address.unwrap().port(), address.port());
+    let named_service = format!("http://127.0.0.1:{}", address.port());
+    assert_eq!(
+        enabled.tunnel.unwrap().named_service.as_deref(),
+        Some(named_service.as_str())
+    );
     assert_eq!(enabled.lan_addresses, vec![address]);
     let origin = format!("http://{address}");
     let url = |path: &str| format!("{origin}{path}");
@@ -347,6 +387,12 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(5))
         .build()?;
+    let identity: serde_json::Value = client
+        .get(url("/_wingmate"))
+        .send()?
+        .error_for_status()?
+        .json()?;
+    assert_eq!(identity["transport"], "lan");
     assert_eq!(client.get(url("/")).send()?.status(), 401);
     assert_eq!(
         client
@@ -358,6 +404,7 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
     );
     let pairing = share(Pair)?;
     let link = pairing.pairing_url.unwrap();
+    share(Enable { address: Some(ip) })?;
     assert_eq!(pairing.pairing_urls, vec![link.clone()]);
     let prefix = url("/?auth=");
     let code = link.strip_prefix(&prefix).context("配对链接格式错误")?;
@@ -509,12 +556,25 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
     host::call(&endpoint, "stop", restarted["instance"].as_str())?;
     share(Disable)?;
     assert!(share(Status)?.address.is_none());
+    host::call(&endpoint, "shutdown", None)?;
+    assert!(guard.child.wait()?.success());
+    drop(occupied);
+    guard.child = spawn(guard.home.path())?;
+    let restored = wait(guard.home.path())?;
+    assert_eq!(
+        host::call(&restored, "status", None)?
+            .web_address
+            .unwrap()
+            .port(),
+        address.port()
+    );
     Ok(())
 }
 
 #[test]
 fn loopback_web_keeps_its_own_pairing_when_lan_is_disabled() -> Result<()> {
-    use host::ShareCommand::{Disable, Enable, Pair, PairLocal, Status};
+    use host::ShareCommand::{DesktopSession, Disable, Enable, Pair, PairLocal, Status};
+    let _serial = TEST_HOSTS.lock().unwrap_or_else(|error| error.into_inner());
     let home = tempfile::tempdir()?;
     runtime(home.path())?;
     let child = spawn(home.path())?;
@@ -528,6 +588,7 @@ fn loopback_web_keeps_its_own_pairing_when_lan_is_disabled() -> Result<()> {
     let local = format!("http://{address}");
     let client = reqwest::blocking::Client::builder()
         .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(5))
         .build()?;
     let status = |cookie: &str| {
@@ -541,11 +602,16 @@ fn loopback_web_keeps_its_own_pairing_when_lan_is_disabled() -> Result<()> {
     let prefix = format!("{local}/?auth=");
     let code = link.strip_prefix(&prefix).context("本机配对链接格式错误")?;
     let lan_address = share(Enable {
-        address: Some(Ipv4Addr::LOCALHOST),
+        address: Some(
+            initial
+                .suggested_address
+                .context("缺少测试用内网 IPv4 地址")?,
+        ),
     })?
     .address
     .context("缺少局域网入口")?;
     assert_ne!(address, lan_address);
+    assert_eq!(address.port(), lan_address.port());
     let lan = format!("http://{lan_address}");
     let lan_link = share(Pair)?.pairing_url.context("缺少局域网配对链接")?;
     let (_, lan_code) = lan_link
@@ -593,7 +659,39 @@ fn loopback_web_keeps_its_own_pairing_when_lan_is_disabled() -> Result<()> {
     assert_eq!(url.host_str(), Some("127.0.0.1"));
     assert_ne!(url.port(), Some(address.port()));
     assert!(url.query().is_none());
-    host::call(&endpoint, "stop", started["instance"].as_str())?;
+    assert!(share(DesktopSession {
+        instance: "stale".into()
+    })
+    .is_err());
+    let instance = started["instance"].as_str().unwrap();
+    let ticket = || -> Result<String> {
+        share(DesktopSession {
+            instance: instance.into(),
+        })?
+        .pairing_url
+        .context("缺少桌面连接凭据")
+    };
+    let desktop = ticket()?;
+    let redeemed = client.get(&desktop).send()?;
+    assert_eq!(redeemed.status(), 303);
+    assert_eq!(redeemed.headers()["location"], "/");
+    let desktop_cookie = redeemed.headers()["set-cookie"]
+        .to_str()?
+        .split(';')
+        .next()
+        .unwrap();
+    assert_eq!(status(desktop_cookie)?.status(), 200);
+    assert_eq!(client.get(&desktop).send()?.status(), 401);
+    let reused = client
+        .get(ticket()?)
+        .header("Cookie", desktop_cookie)
+        .send()?;
+    assert_eq!(reused.status(), 303);
+    assert!(!reused.headers().contains_key("set-cookie"));
+    assert_eq!(share(Status)?.devices.len(), 2);
+    let stale = ticket()?;
+    host::call(&endpoint, "stop", Some(instance))?;
+    assert_eq!(client.get(&stale).send()?.status(), 409);
     host::call(&endpoint, "shutdown", None)?;
     assert!(guard.child.wait()?.success());
     guard.child = spawn(guard.home.path())?;
@@ -608,6 +706,7 @@ fn loopback_web_keeps_its_own_pairing_when_lan_is_disabled() -> Result<()> {
 
 #[test]
 fn host_owns_management_independently_of_business_and_clients() -> Result<()> {
+    let _serial = TEST_HOSTS.lock().unwrap_or_else(|error| error.into_inner());
     let home = tempfile::tempdir()?;
     runtime(home.path())?;
     let child = spawn(home.path())?;

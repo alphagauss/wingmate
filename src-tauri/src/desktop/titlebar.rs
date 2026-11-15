@@ -1,7 +1,6 @@
-use super::{bridge, connection_panel, Desktop, StartupPage};
+use super::{connection_panel, Desktop, StartupPage, Workspace};
 use std::{cell::Cell, sync::Arc, time::Duration};
 use tauri::{Manager, Url, Webview, WebviewWindow, Window, WindowEvent};
-use wingmate_launcher::service::Snapshot;
 
 #[derive(Clone)]
 pub(super) struct Source {
@@ -10,7 +9,7 @@ pub(super) struct Source {
 }
 
 impl Source {
-    fn new(url: &Url, page: &StartupPage, workspace: Option<&Snapshot>) -> Option<Self> {
+    fn new(url: &Url, page: &StartupPage, workspace: Option<&Workspace>) -> Option<Self> {
         if page.is_home(url) {
             return Some(Self {
                 address: url.as_str().to_owned(),
@@ -19,8 +18,8 @@ impl Source {
         }
         let workspace = workspace?;
         let source = Self {
-            address: bridge::origin(workspace)?,
-            instance: Some(workspace.instance.clone()),
+            address: workspace.origin.clone(),
+            instance: Some(workspace.state.instance.clone()),
         };
         source.matches(url).then_some(source)
     }
@@ -69,7 +68,7 @@ impl Frame {
         &mut self,
         url: &Url,
         page: &StartupPage,
-        workspace: Option<&Snapshot>,
+        workspace: Option<&Workspace>,
     ) -> Option<&Source> {
         if !cfg!(windows) {
             return None;

@@ -10,6 +10,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import dev.wingmate.mobile.R
@@ -17,7 +18,8 @@ import dev.wingmate.mobile.i18n.ConnectionStrings
 import dev.wingmate.mobile.remote.ConnectionFlow
 import dev.wingmate.mobile.remote.ConnectionTarget
 import dev.wingmate.mobile.remote.NoLanNetwork
-import dev.wingmate.mobile.remote.discoverConnection
+import dev.wingmate.mobile.remote.SavedConnection
+import dev.wingmate.mobile.remote.discoverConnections
 import dev.wingmate.mobile.settings.LocalEngineSettings
 import dev.wingmate.mobile.theme.ConnectionUi
 import dev.wingmate.mobile.theme.dp
@@ -125,13 +127,19 @@ internal class ConnectionHome(
         progress = if (recentOnly) "connection.checkingHistory" else "connection.scanning"
         discovery = Thread {
             val worker = Thread.currentThread()
-            val result = runCatching { discoverConnection(activity, connections.store.entries(), recentOnly) }
+            val result = runCatching {
+                val history = connections.store.entries()
+                val saved = history.associateBy { it.origin }
+                discoverConnections(activity, history, recentOnly).mapNotNull { origin ->
+                    ConnectionTarget.parse(origin)?.let { it to (saved[origin] ?: SavedConnection(origin)).label }
+                }
+            }
             activity.runOnUiThread {
                 if (discovery !== worker) return@runOnUiThread
                 discovery = null
                 progress = null
-                val target = result.getOrNull()?.let { ConnectionTarget.parse(it) }
-                if (target == null) {
+                val targets = result.getOrNull().orEmpty()
+                if (targets.isEmpty()) {
                     notice = labels[when {
                         result.exceptionOrNull() is NoLanNetwork -> "connection.noNetwork"
                         result.isFailure -> "connection.scanFailed"
@@ -140,7 +148,17 @@ internal class ConnectionHome(
                     }]
                 }
                 render()
-                if (target != null) connections.launch(target)
+                when (targets.size) {
+                    0 -> Unit
+                    1 -> connections.launch(targets.single().first)
+                    else -> {
+                        AlertDialog.Builder(activity)
+                            .setTitle(labels["connection.autoScan"])
+                            .setItems(targets.map { it.second }.toTypedArray()) { _, index -> connections.launch(targets[index].first) }
+                            .setNegativeButton(labels["common.cancel"], null)
+                            .show()
+                    }
+                }
             }
         }.also { it.start() }
         render()

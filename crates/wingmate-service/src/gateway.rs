@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     convert::Infallible,
-    fs,
+    fs, io,
     net::{IpAddr, Ipv4Addr, SocketAddrV4, UdpSocket},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -41,6 +41,9 @@ pub enum Command {
     Disable,
     Pair,
     PairLocal,
+    DesktopSession {
+        instance: String,
+    },
     Revoke {
         id: Uuid,
     },
@@ -59,6 +62,7 @@ pub enum Command {
 pub struct ShareStatus {
     pub address: Option<SocketAddrV4>,
     pub local_address: Option<SocketAddrV4>,
+    pub web_error: Option<String>,
     pub suggested_address: Option<Ipv4Addr>,
     #[serde(default)]
     pub lan_addresses: Vec<SocketAddrV4>,
@@ -139,7 +143,13 @@ fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>> {
 #[derive(Default)]
 struct Auth {
     pairing: HashMap<Access, (Uuid, Instant)>,
+    desktop_tickets: HashMap<Uuid, DesktopTicket>,
     sessions: HashMap<String, Session>,
+}
+
+struct DesktopTicket {
+    instance: String,
+    deadline: Instant,
 }
 
 impl Auth {
@@ -196,6 +206,17 @@ impl Auth {
         {
             return Ok(None);
         }
+        let token = self.create_session(home, access, public_origin)?;
+        self.pairing.remove(&access);
+        Ok(Some(token))
+    }
+
+    fn create_session(
+        &mut self,
+        home: &Path,
+        access: Access,
+        public_origin: Option<&str>,
+    ) -> Result<Uuid> {
         let token = Uuid::new_v4();
         let key = session_key(token, public_origin);
         let paired_at = now();
@@ -215,14 +236,12 @@ impl Auth {
                 revoked: CancellationToken::new(),
             },
         );
-        self.pairing.remove(&access);
-        Ok(Some(token))
+        Ok(token)
     }
 }
 
 struct Gateway {
-    home: PathBuf,
-    endpoint: Arc<host::Endpoint>,
+    manager: Arc<host::Manager>,
     address: SocketAddrV4,
     access: Access,
     origin: String,
@@ -234,7 +253,6 @@ struct Gateway {
 }
 
 struct LanShare {
-    bind: SocketAddrV4,
     gateways: Vec<Arc<Gateway>>,
 }
 
@@ -246,13 +264,41 @@ impl LanShare {
     }
 }
 
-pub(super) struct Control {
-    home: PathBuf,
-    endpoint: Arc<host::Endpoint>,
-    lan: Mutex<Option<LanShare>>,
+type PublicGateway = Arc<Mutex<Option<Arc<Gateway>>>>;
+
+#[derive(Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+struct WebConfig {
+    port: Option<u16>,
+    lan: Option<Ipv4Addr>,
+}
+
+#[derive(Default)]
+struct Web {
+    config: WebConfig,
     local: Option<Arc<Gateway>>,
+    lan: Option<LanShare>,
+    tunnel: tunnel::Tunnel,
+    error: Option<String>,
+}
+
+impl Web {
+    fn local_address(&self) -> Option<SocketAddrV4> {
+        self.local.as_ref().map(|gateway| gateway.address)
+    }
+}
+
+struct Bindings {
+    local: Arc<Gateway>,
+    lan: Option<LanShare>,
+    listeners: Vec<(Arc<Gateway>, tokio::net::TcpListener)>,
+}
+
+pub(super) struct Control {
+    manager: Arc<host::Manager>,
+    ports: &'static [u16],
+    web: Mutex<Web>,
+    public: PublicGateway,
     auth: Arc<Mutex<Auth>>,
-    tunnel: Mutex<tunnel::Tunnel>,
     runtime: tokio::runtime::Runtime,
 }
 
@@ -285,195 +331,275 @@ fn lan_addresses() -> Vec<Ipv4Addr> {
 }
 
 impl Control {
-    pub(super) fn new(home: PathBuf, endpoint: Arc<host::Endpoint>) -> Result<Self> {
-        let auth = Arc::new(Mutex::new(Auth::load(&home).unwrap_or_else(|error| {
+    pub(super) fn local_address(&self) -> Option<SocketAddrV4> {
+        self.web.lock().unwrap().local_address()
+    }
+
+    pub(super) fn new(manager: Arc<host::Manager>, ports: &'static [u16]) -> Result<Self> {
+        let auth = Auth::load(&manager.home).unwrap_or_else(|error| {
             eprintln!("无法读取分享设备：{error:#}");
             Auth::default()
-        })));
-        let mut control = Self {
-            home,
-            endpoint,
-            lan: Mutex::new(None),
-            local: None,
-            auth,
-            tunnel: Mutex::default(),
+        });
+        let control = Self {
+            manager,
+            ports,
+            web: Mutex::default(),
+            public: Arc::default(),
+            auth: Arc::new(Mutex::new(auth)),
             runtime: tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
                 .enable_all()
                 .build()?,
         };
-        let restore = || -> Result<()> {
-            if let Some(address) =
-                read::<Option<SocketAddrV4>>(&control.home.join("share-listener.json"))?.flatten()
-            {
-                control.enable(&mut control.lan.lock().unwrap(), address, &lan_addresses())?;
+        {
+            let mut web = control.web.lock().unwrap();
+            match read::<WebConfig>(&control.config_path()) {
+                Ok(Some(config)) => web.config = config,
+                Ok(None) => {}
+                Err(error) => web.error = Some(format!("无法读取 Web 配置：{error:#}")),
             }
-            Ok(())
-        };
-        if let Err(error) = restore() {
-            eprintln!("无法恢复分享入口：{error:#}");
-        }
-        match control.start_local() {
-            Ok(gateway) => control.local = Some(gateway),
-            Err(error) => eprintln!("无法启动本机 Web 入口：{error:#}"),
-        }
-        let restore_tunnel = || -> Result<()> {
-            let config = tunnel::Config::load(&control.home)?;
-            if let Some(mode) = config.enabled {
-                config.check(mode)?;
-                let mut active = control.tunnel.lock().unwrap();
-                control.start_tunnel(&mut active, config, mode)?;
+            let lan = web.config.lan;
+            let restored = (|| -> Result<Option<Bindings>> {
+                let Some(bind) = lan else {
+                    return Ok(None);
+                };
+                let interfaces = lan_addresses();
+                control
+                    .select(&web, Self::lan_interfaces(&bind, &interfaces)?)
+                    .map(Some)
+            })();
+            let bindings = match restored {
+                Ok(Some(bindings)) => Ok(bindings),
+                Ok(None) => control.select(&web, &[]),
+                Err(error) => {
+                    web.error = Some(format!("无法恢复局域网分享：{error:#}"));
+                    control.select(&web, &[])
+                }
+            };
+            match bindings.and_then(|bindings| {
+                control.save_config(
+                    &mut web,
+                    WebConfig {
+                        port: Some(bindings.local.address.port()),
+                        lan,
+                    },
+                )?;
+                Ok(bindings)
+            }) {
+                Ok(bindings) => control.activate(&mut web, bindings),
+                Err(error) => web.error = Some(format!("{error:#}")),
             }
-            Ok(())
-        };
-        if let Err(error) = restore_tunnel() {
-            eprintln!("无法恢复公网隧道：{error:#}");
-            control.tunnel.lock().unwrap().failed(error);
+            if let Some(error) = &web.error {
+                eprintln!("{error}");
+            }
+            control.restore_tunnel(&mut web);
         }
         Ok(control)
     }
 
-    fn start_local(&self) -> Result<Arc<Gateway>> {
-        let path = self.home.join("local-web-port.json");
-        let port = read::<u16>(&path).unwrap_or_else(|error| {
-            eprintln!("无法读取本机 Web 端口：{error:#}");
-            None
-        });
-        let bind = |port| {
-            self.bind(
-                SocketAddrV4::new(Ipv4Addr::LOCALHOST, port),
-                Access::Local,
-                None,
-            )
-        };
-        let (gateway, listener) = port
-            .and_then(|port| bind(port).ok())
-            .map_or_else(|| bind(0), Ok)?;
-        if port != Some(gateway.address.port()) {
-            host::publish(&path, &gateway.address.port())?;
-        }
-        self.runtime.spawn(gateway.clone().serve(listener));
-        Ok(gateway)
+    fn config_path(&self) -> PathBuf {
+        self.manager.home.join("web.json")
     }
 
-    fn enable(
-        &self,
-        active: &mut Option<LanShare>,
-        bind: SocketAddrV4,
-        local_addresses: &[Ipv4Addr],
-    ) -> Result<()> {
-        anyhow::ensure!(
-            !bind.ip().is_multicast() && !bind.ip().is_broadcast(),
-            "请选择一个本机 IPv4 地址"
-        );
-        // The saved unspecified address records automatic mode. Each listener binds a concrete IP.
-        let addresses = if bind.ip().is_unspecified() {
-            local_addresses
-        } else {
-            std::slice::from_ref(bind.ip())
-        };
-        anyhow::ensure!(!addresses.is_empty(), "未找到可用的局域网 IPv4 地址");
-        if active.as_ref().is_some_and(|share| {
-            bind.ip() == share.bind.ip()
-                && (bind.port() == 0 || bind.port() == share.bind.port())
-                && share
-                    .gateways
-                    .iter()
-                    .map(|gateway| gateway.address.ip())
-                    .eq(addresses)
-        }) {
-            return Ok(());
-        }
-        // Reserve the same port on every selected interface before replacing an active share.
-        let mut port = bind.port();
-        let mut listeners = Vec::new();
-        for &ip in addresses {
-            let (gateway, listener) = self
-                .bind(SocketAddrV4::new(ip, port), Access::Lan, None)
-                .with_context(|| format!("无法在 {ip} 开启局域网分享"))?;
-            port = gateway.address.port();
-            listeners.push((gateway, listener));
-        }
-        let bind = SocketAddrV4::new(*bind.ip(), port);
-        host::publish(&self.home.join("share-listener.json"), &bind)?;
-        let mut auth = self.auth.lock().unwrap();
-        auth.pairing.remove(&Access::Lan);
-        let share = LanShare {
-            bind,
-            gateways: listeners
-                .iter()
-                .map(|(gateway, _)| gateway.clone())
-                .collect(),
-        };
-        if let Some(old) = active.replace(share) {
-            old.close();
-        }
-        for (gateway, listener) in listeners {
-            self.runtime.spawn(gateway.serve(listener));
+    fn save_config(&self, web: &mut Web, config: WebConfig) -> Result<()> {
+        if config != web.config {
+            host::publish(&self.config_path(), &config).context("无法保存 Web 配置")?;
+            web.config = config;
         }
         Ok(())
     }
 
-    fn bind(
+    fn lan_interfaces<'a>(
+        bind: &'a Ipv4Addr,
+        interfaces: &'a [Ipv4Addr],
+    ) -> Result<&'a [Ipv4Addr]> {
+        anyhow::ensure!(
+            !bind.is_loopback() && !bind.is_multicast() && !bind.is_broadcast(),
+            "请选择一个内网 IPv4 地址"
+        );
+        let addresses = if bind.is_unspecified() {
+            interfaces
+        } else {
+            std::slice::from_ref(bind)
+        };
+        anyhow::ensure!(!addresses.is_empty(), "未找到可用的局域网 IPv4 地址");
+        Ok(addresses)
+    }
+
+    fn select(&self, web: &Web, addresses: &[Ipv4Addr]) -> Result<Bindings> {
+        let current = web
+            .local_address()
+            .map(|address| address.port())
+            .or(web.config.port.filter(|port| self.ports.contains(port)));
+        let ports = current.into_iter().chain(
+            self.ports
+                .iter()
+                .copied()
+                .filter(|port| Some(*port) != current),
+        );
+        let mut conflicts = Vec::new();
+        for port in ports {
+            match self.prepare(web, port, addresses) {
+                Ok(bindings) => return Ok(bindings),
+                Err(error)
+                    if error.downcast_ref::<io::Error>().is_some_and(|error| {
+                        matches!(
+                            error.kind(),
+                            io::ErrorKind::AddrInUse | io::ErrorKind::PermissionDenied
+                        )
+                    }) =>
+                {
+                    conflicts.push(format!("{error:#}"))
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        anyhow::bail!("没有可用的 Web 端口（{}）", conflicts.join("；"))
+    }
+
+    fn prepare(&self, web: &Web, port: u16, addresses: &[Ipv4Addr]) -> Result<Bindings> {
+        let mut listeners = Vec::new();
+        let mut bind = |ip, access, existing: Option<&Arc<Gateway>>| -> Result<_> {
+            let address = SocketAddrV4::new(ip, port);
+            if let Some(gateway) = existing.filter(|gateway| gateway.address == address) {
+                return Ok(gateway.clone());
+            }
+            let socket = std::net::TcpListener::bind(address)
+                .with_context(|| format!("无法监听 {address}"))?;
+            socket.set_nonblocking(true)?;
+            let _enter = self.runtime.enter();
+            let socket = tokio::net::TcpListener::from_std(socket)?;
+            let gateway = self.gateway(address, access, None)?;
+            listeners.push((gateway.clone(), socket));
+            Ok(gateway)
+        };
+        let local = bind(Ipv4Addr::LOCALHOST, Access::Local, web.local.as_ref())?;
+        let mut gateways = Vec::new();
+        for &ip in addresses {
+            let existing = web.lan.as_ref().and_then(|share| {
+                share
+                    .gateways
+                    .iter()
+                    .find(|gateway| *gateway.address.ip() == ip)
+            });
+            gateways.push(bind(ip, Access::Lan, existing)?);
+        }
+        let lan = (!gateways.is_empty()).then_some(LanShare { gateways });
+        Ok(Bindings {
+            local,
+            lan,
+            listeners,
+        })
+    }
+
+    fn activate(&self, web: &mut Web, bindings: Bindings) {
+        let switched = web
+            .local_address()
+            .is_some_and(|address| address != bindings.local.address);
+        if switched {
+            self.stop_tunnel(web);
+            self.auth.lock().unwrap().desktop_tickets.clear();
+        }
+        if let Some(old) = web.local.replace(bindings.local) {
+            if switched {
+                old.closed.cancel();
+            }
+        }
+        if let Some(old) = std::mem::replace(&mut web.lan, bindings.lan) {
+            for gateway in old.gateways {
+                let reused = web.lan.as_ref().is_some_and(|share| {
+                    share
+                        .gateways
+                        .iter()
+                        .any(|next| Arc::ptr_eq(next, &gateway))
+                });
+                if !reused {
+                    gateway.closed.cancel();
+                }
+            }
+        }
+        for (gateway, listener) in bindings.listeners {
+            let public = (gateway.access == Access::Local).then(|| self.public.clone());
+            self.runtime.spawn(gateway.serve(listener, public));
+        }
+        if switched {
+            self.auth.lock().unwrap().pairing.remove(&Access::Local);
+            self.restore_tunnel(web);
+        }
+    }
+
+    fn gateway(
         &self,
-        bind: SocketAddrV4,
+        address: SocketAddrV4,
         access: Access,
         public: Option<tunnel::State>,
-    ) -> Result<(Arc<Gateway>, tokio::net::TcpListener)> {
-        let listener = std::net::TcpListener::bind(bind).context("无法监听 Web 入口")?;
-        listener.set_nonblocking(true)?;
-        let address = SocketAddrV4::new(*bind.ip(), listener.local_addr()?.port());
-        let _enter = self.runtime.enter();
-        let listener = tokio::net::TcpListener::from_std(listener)?;
-        let gateway = Arc::new(Gateway {
-            home: self.home.clone(),
-            endpoint: self.endpoint.clone(),
+    ) -> Result<Arc<Gateway>> {
+        Ok(Arc::new(Gateway {
+            manager: self.manager.clone(),
             address,
             access,
             origin: format!("http://{address}"),
+            cookie: if access == Access::Public {
+                "wingmate_public".into()
+            } else {
+                format!("wingmate_share_{}", address.port())
+            },
             public,
-            cookie: format!("wingmate_share_{}", address.port()),
             auth: self.auth.clone(),
             closed: CancellationToken::new(),
             upstream: proxy::Credentials::new(access)?,
-        });
-        Ok((gateway, listener))
+        }))
+    }
+
+    fn restore_tunnel(&self, web: &mut Web) {
+        let result = (|| -> Result<()> {
+            let config = tunnel::Config::load(&self.manager.home)?;
+            if let Some(mode) = config.enabled {
+                config.check(mode)?;
+                self.start_tunnel(web, config, mode)?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            eprintln!("无法恢复公网隧道：{error:#}");
+            web.tunnel.failed(error);
+        }
+    }
+
+    fn stop_tunnel(&self, web: &mut Web) {
+        self.public.lock().unwrap().take();
+        web.tunnel.stop();
+        self.auth.lock().unwrap().pairing.remove(&Access::Public);
     }
 
     fn start_tunnel(
         &self,
-        active: &mut tunnel::Tunnel,
+        web: &mut Web,
         config: tunnel::Config,
         mode: tunnel::Mode,
     ) -> Result<()> {
-        active.stop();
-        self.auth.lock().unwrap().pairing.remove(&Access::Public);
+        self.stop_tunnel(web);
+        let address = web
+            .local_address()
+            .context("本机 Web 入口不可用，无法启动公网隧道")?;
         let state = tunnel::starting();
-        let port = if mode == tunnel::Mode::Named {
-            tunnel::NAMED_PORT
-        } else {
-            0
-        };
-        let (gateway, listener) = self
-            .bind(
-                SocketAddrV4::new(Ipv4Addr::LOCALHOST, port),
-                Access::Public,
-                Some(state.clone()),
-            )
-            .context("无法监听公网隧道回源端口")?;
-        let _enter = self.runtime.enter();
-        let listener = tunnel::Listener {
-            address: gateway.address,
-            closed: gateway.closed.clone(),
-            task: self.runtime.spawn(gateway.serve(listener)),
-        };
-        active.start(self.home.clone(), config, mode, state, listener);
+        let gateway = self.gateway(address, Access::Public, Some(state.clone()))?;
+        web.tunnel.start(
+            self.manager.home.clone(),
+            config,
+            mode,
+            state,
+            address,
+            gateway.closed.clone(),
+        );
+        *self.public.lock().unwrap() = Some(gateway);
         Ok(())
     }
 
     pub(super) fn call(&self, command: Command) -> Result<ShareStatus> {
         let local_addresses = lan_addresses();
-        let mut active = self.lan.lock().unwrap();
+        let home = &self.manager.home;
+        let mut web = self.web.lock().unwrap();
         let mut pairing_urls = Vec::new();
         match command {
             Command::Status => {}
@@ -482,29 +608,63 @@ impl Control {
                     address != Some(Ipv4Addr::UNSPECIFIED),
                     "请选择一个本机 IPv4 地址"
                 );
-                self.enable(
-                    &mut active,
-                    SocketAddrV4::new(address.unwrap_or(Ipv4Addr::UNSPECIFIED), 0),
-                    &local_addresses,
+                let bind = address.unwrap_or(Ipv4Addr::UNSPECIFIED);
+                let interfaces = Self::lan_interfaces(&bind, &local_addresses)?;
+                let bindings = self.select(&web, interfaces)?;
+                self.save_config(
+                    &mut web,
+                    WebConfig {
+                        port: Some(bindings.local.address.port()),
+                        lan: Some(bind),
+                    },
                 )?;
+                let unchanged = web.lan.as_ref().is_some_and(|share| {
+                    share
+                        .gateways
+                        .iter()
+                        .map(|gateway| gateway.address)
+                        .eq(bindings
+                            .lan
+                            .iter()
+                            .flat_map(|share| &share.gateways)
+                            .map(|gateway| gateway.address))
+                });
+                if !unchanged {
+                    self.auth.lock().unwrap().pairing.remove(&Access::Lan);
+                }
+                web.error = None;
+                let local_was_down = web.local.is_none();
+                self.activate(&mut web, bindings);
+                if local_was_down {
+                    self.restore_tunnel(&mut web);
+                }
             }
             Command::Disable => {
-                host::publish(
-                    &self.home.join("share-listener.json"),
-                    &Option::<SocketAddrV4>::None,
-                )?;
+                let config = WebConfig {
+                    lan: None,
+                    ..web.config
+                };
+                self.save_config(&mut web, config)?;
                 let mut auth = self.auth.lock().unwrap();
-                if let Some(share) = active.take() {
+                if let Some(share) = web.lan.take() {
                     share.close();
+                }
+                if web.local.is_some() {
+                    web.error = None;
                 }
                 auth.pairing.remove(&Access::Lan);
             }
             Command::Pair | Command::PairLocal => {
                 let gateways = match command {
                     Command::PairLocal => {
-                        std::slice::from_ref(self.local.as_ref().context("本机 Web 入口不可用")?)
+                        std::slice::from_ref(web.local.as_ref().context("本机 Web 入口不可用")?)
                     }
-                    _ => active.as_ref().context("请先开启分享")?.gateways.as_slice(),
+                    _ => web
+                        .lan
+                        .as_ref()
+                        .context("请先开启分享")?
+                        .gateways
+                        .as_slice(),
                 };
                 let code = Uuid::new_v4();
                 self.auth
@@ -517,9 +677,38 @@ impl Control {
                     .map(|gateway| format!("{}/?auth={code}", gateway.origin))
                     .collect();
             }
+            Command::DesktopSession { instance } => {
+                let local = web.local.as_ref().with_context(|| {
+                    web.error
+                        .clone()
+                        .unwrap_or_else(|| "本机 Web 入口不可用".into())
+                })?;
+                anyhow::ensure!(
+                    engine::status(home)?.is_some_and(|state| {
+                        state.phase == "running" && state.instance == instance
+                    }),
+                    "业务后台实例已更换，请重新连接"
+                );
+                let ticket = Uuid::new_v4();
+                let mut auth = self.auth.lock().unwrap();
+                let now = Instant::now();
+                auth.desktop_tickets
+                    .retain(|_, ticket| ticket.deadline > now);
+                auth.desktop_tickets.insert(
+                    ticket,
+                    DesktopTicket {
+                        instance,
+                        deadline: now + Duration::from_secs(30),
+                    },
+                );
+                pairing_urls.push(format!(
+                    "{}/_wingmate/desktop?ticket={ticket}",
+                    local.origin
+                ));
+            }
             Command::Revoke { id } => {
                 let mut auth = self.auth.lock().unwrap();
-                auth.save(&self.home, Some(id), None)?;
+                auth.save(home, Some(id), None)?;
                 auth.sessions.retain(|_, session| {
                     if session.device.id != id {
                         return true;
@@ -529,32 +718,31 @@ impl Control {
                 });
             }
             Command::TunnelConfigure { hostname, token } => {
-                let _active = self.tunnel.lock().unwrap();
-                let mut config = tunnel::Config::load(&self.home)?;
+                let mut config = tunnel::Config::load(home)?;
                 config.configure(&hostname, token)?;
-                config.save(&self.home)?;
+                config.save(home)?;
             }
             Command::TunnelStart { mode } => {
-                let mut active = self.tunnel.lock().unwrap();
-                let mut config = tunnel::Config::load(&self.home)?;
+                let mut config = tunnel::Config::load(home)?;
                 config.check(mode)?;
                 config.enabled = Some(mode);
-                config.save(&self.home)?;
-                if let Err(error) = self.start_tunnel(&mut active, config, mode) {
-                    active.failed(error);
+                config.save(home)?;
+                if let Err(error) = self.start_tunnel(&mut web, config, mode) {
+                    web.tunnel.failed(error);
                 }
             }
             Command::TunnelStop => {
-                let mut active = self.tunnel.lock().unwrap();
-                let mut config = tunnel::Config::load(&self.home)?;
+                let mut config = tunnel::Config::load(home)?;
                 config.enabled = None;
-                config.save(&self.home)?;
-                active.stop();
-                self.auth.lock().unwrap().pairing.remove(&Access::Public);
+                config.save(home)?;
+                self.stop_tunnel(&mut web);
             }
             Command::TunnelPair => {
-                let active = self.tunnel.lock().unwrap();
-                let url = active.status(&self.home).url.context("请先开启公网隧道")?;
+                let url = web
+                    .tunnel
+                    .status(home, web.local_address())
+                    .url
+                    .context("请先开启公网隧道")?;
                 let code = Uuid::new_v4();
                 self.auth
                     .lock()
@@ -574,26 +762,32 @@ impl Control {
             .map(|session| session.device.clone())
             .collect();
         devices.sort_by_key(|device| (device.paired_at, device.id));
-        let lan_addresses: Vec<_> = active
+        let lan_addresses: Vec<_> = web
+            .lan
             .as_ref()
             .into_iter()
             .flat_map(|share| share.gateways.iter().map(|gateway| gateway.address))
             .collect();
         Ok(ShareStatus {
             address: lan_addresses.first().copied(),
-            local_address: self.local.as_ref().map(|gateway| gateway.address),
+            local_address: web.local_address(),
+            web_error: web.error.clone(),
             suggested_address: local_addresses.first().copied(),
             lan_addresses,
             pairing_url: pairing_urls.first().cloned(),
             pairing_urls,
             devices,
-            tunnel: Some(self.tunnel.lock().unwrap().status(&self.home)),
+            tunnel: Some(web.tunnel.status(home, web.local_address())),
         })
     }
 }
 
 impl Gateway {
-    async fn serve(self: Arc<Self>, listener: tokio::net::TcpListener) {
+    async fn serve(
+        self: Arc<Self>,
+        listener: tokio::net::TcpListener,
+        public: Option<PublicGateway>,
+    ) {
         loop {
             let socket = tokio::select! {
                 _ = self.closed.cancelled() => return,
@@ -607,9 +801,20 @@ impl Gateway {
                 },
             };
             let gateway = self.clone();
+            let public = public.clone();
             tokio::spawn(async move {
-                let service = service_fn(|request| async {
-                    Ok::<_, Infallible>(gateway.handle(request).await)
+                let service = service_fn(|request: Request<Incoming>| {
+                    let target = public
+                        .as_ref()
+                        .and_then(|public| {
+                            let host = request.headers().get(header::HOST)?.to_str().ok()?;
+                            if gateway.origin.strip_prefix("http://") == Some(host) {
+                                return None;
+                            }
+                            public.lock().unwrap().clone()
+                        })
+                        .unwrap_or_else(|| gateway.clone());
+                    async move { Ok::<_, Infallible>(target.handle(request).await) }
                 });
                 let connection = http1::Builder::new()
                     .timer(TokioTimer::new())
@@ -625,6 +830,9 @@ impl Gateway {
     }
 
     async fn handle(&self, request: Request<Incoming>) -> Response<Body> {
+        if self.closed.is_cancelled() {
+            return response(StatusCode::SERVICE_UNAVAILABLE, "分享入口已关闭");
+        }
         let headers = request.headers();
         let public = self
             .public
@@ -688,7 +896,7 @@ impl Gateway {
                 ),
             );
         }
-        if request.method() == Method::GET && path == "/_wingmate/identity" {
+        if request.method() == Method::GET && path == "/_wingmate" {
             return json(serde_json::json!({"product": "wingmate", "transport": self.access}));
         }
         let session = headers
@@ -709,6 +917,12 @@ impl Gateway {
                     .cloned()
             })
             .filter(Session::active);
+        if request.method() == Method::GET
+            && path == "/_wingmate/desktop"
+            && self.access == Access::Local
+        {
+            return self.desktop_session(query, session).await;
+        }
         let Some(session) = session else {
             if pairing_link {
                 return html(StatusCode::OK, PAIR_PAGE);
@@ -726,7 +940,8 @@ impl Gateway {
                 .insert(header::LOCATION, header::HeaderValue::from_static("/"));
             return reply;
         }
-        if path.starts_with("/_wingmate/") && path != "/_wingmate/status" {
+        if (path == "/_wingmate" || path.starts_with("/_wingmate/")) && path != "/_wingmate/status"
+        {
             return match (request.method(), path) {
                 (&Method::GET, "/_wingmate/recovery") => recovery(),
                 (&Method::GET, "/_wingmate/home.js") => content(
@@ -743,8 +958,8 @@ impl Gateway {
                 _ => response(StatusCode::NOT_FOUND, ""),
             };
         }
-        let home = self.home.clone();
-        let snapshot = tokio::task::spawn_blocking(move || engine::status(&home)).await;
+        let manager = self.manager.clone();
+        let snapshot = tokio::task::spawn_blocking(move || engine::status(&manager.home)).await;
         let Ok(Ok(snapshot)) = snapshot else {
             return response(StatusCode::BAD_GATEWAY, "无法读取业务后台状态");
         };
@@ -785,18 +1000,14 @@ impl Gateway {
             ("stop" | "restart", Some(instance)) if !instance.is_empty() => {}
             _ => return response(StatusCode::BAD_REQUEST, "管理操作或实例无效"),
         }
-        let endpoint = self.endpoint.clone();
+        let manager = self.manager.clone();
         let closed = self.closed.clone();
         let result = tokio::task::spawn_blocking(move || -> Result<host::Status> {
             anyhow::ensure!(
                 !closed.is_cancelled() && session.active(),
                 "连接已撤销或过期"
             );
-            host::call(
-                &endpoint,
-                &command.action,
-                command.expected_instance.as_deref(),
-            )
+            manager.execute(command)
         })
         .await;
         match result {
@@ -830,25 +1041,12 @@ impl Gateway {
             if self.closed.is_cancelled() {
                 return response(StatusCode::SERVICE_UNAVAILABLE, "分享入口已关闭");
             }
-            auth.exchange(&self.home, self.access, code, public_origin)
+            auth.exchange(&self.manager.home, self.access, code, public_origin)
         };
         match token {
             Ok(Some(token)) => {
                 let mut reply = response(StatusCode::NO_CONTENT, "");
-                reply.headers_mut().insert(
-                    header::SET_COOKIE,
-                    format!(
-                        "{}={token}; Path=/; Max-Age={SESSION_AGE}; HttpOnly; SameSite=Strict{}",
-                        self.cookie,
-                        if public_origin.is_some() {
-                            "; Secure"
-                        } else {
-                            ""
-                        }
-                    )
-                    .parse()
-                    .unwrap(),
-                );
+                self.set_cookie(&mut reply, token);
                 reply
             }
             Ok(None) => response(StatusCode::UNAUTHORIZED, "配对链接已失效，请从主机重新获取"),
@@ -857,6 +1055,68 @@ impl Gateway {
                 response(StatusCode::INTERNAL_SERVER_ERROR, "无法保存配对设备")
             }
         }
+    }
+
+    async fn desktop_session(
+        &self,
+        query: Option<&str>,
+        session: Option<Session>,
+    ) -> Response<Body> {
+        let Some(ticket) = query
+            .and_then(|query| query.strip_prefix("ticket="))
+            .and_then(|value| Uuid::parse_str(value).ok())
+        else {
+            return response(StatusCode::BAD_REQUEST, "桌面连接凭据无效");
+        };
+        let pending = self.auth.lock().unwrap().desktop_tickets.remove(&ticket);
+        let Some(pending) = pending.filter(|pending| pending.deadline > Instant::now()) else {
+            return response(StatusCode::UNAUTHORIZED, "桌面连接凭据已失效");
+        };
+        let manager = self.manager.clone();
+        match tokio::task::spawn_blocking(move || engine::status(&manager.home)).await {
+            Ok(Ok(Some(state)))
+                if state.phase == "running" && state.instance == pending.instance => {}
+            Ok(Ok(_)) => return response(StatusCode::CONFLICT, "业务后台实例已更换，请重新连接"),
+            _ => return response(StatusCode::BAD_GATEWAY, "无法读取业务后台状态"),
+        }
+        let mut auth = self.auth.lock().unwrap();
+        if self.closed.is_cancelled() {
+            return response(StatusCode::SERVICE_UNAVAILABLE, "本机 Web 入口已关闭");
+        }
+        let mut reply = response(StatusCode::SEE_OTHER, "");
+        reply
+            .headers_mut()
+            .insert(header::LOCATION, header::HeaderValue::from_static("/"));
+        if session.is_some_and(|session| session.active()) {
+            return reply;
+        }
+        match auth.create_session(&self.manager.home, Access::Local, None) {
+            Ok(token) => {
+                self.set_cookie(&mut reply, token);
+                reply
+            }
+            Err(error) => {
+                eprintln!("无法建立桌面会话：{error:#}");
+                response(StatusCode::INTERNAL_SERVER_ERROR, "无法建立桌面会话")
+            }
+        }
+    }
+
+    fn set_cookie(&self, reply: &mut Response<Body>, token: Uuid) {
+        let secure = if self.access == Access::Public {
+            "; Secure"
+        } else {
+            ""
+        };
+        reply.headers_mut().insert(
+            header::SET_COOKIE,
+            format!(
+                "{}={token}; Path=/; Max-Age={SESSION_AGE}; HttpOnly; SameSite=Strict{secure}",
+                self.cookie
+            )
+            .parse()
+            .unwrap(),
+        );
     }
 
     fn business_status(&self, snapshot: Option<&engine::Snapshot>) -> Response<Body> {

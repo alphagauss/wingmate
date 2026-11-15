@@ -6,6 +6,15 @@ import org.junit.Test
 
 class ConnectionTargetTest {
     @Test
+    fun scansThePrimaryPortBeforeBackups() {
+        val release = lanCandidates("192.168.1.8", debug = false).toList()
+        assertEquals(listOf("8746", "8747", "8748"), release.map { it.substringAfterLast(':') }.distinct())
+        assertEquals(3 * 253, release.size)
+        assertEquals(false, release.any { it.startsWith("http://192.168.1.8:") })
+        assertEquals("http://192.168.1.254:8749", lanCandidates("192.168.1.8", debug = true).last())
+    }
+
+    @Test
     fun acceptsGatewayLinksAndManualAddresses() {
         val lan = "http://192.168.1.8:3210"
         val tunnel = "https://wingmate-test.trycloudflare.com"

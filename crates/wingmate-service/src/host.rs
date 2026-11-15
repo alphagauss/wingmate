@@ -10,7 +10,8 @@ use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
     io::Read,
-    path::Path,
+    net::SocketAddrV4,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -19,8 +20,9 @@ use std::{
 };
 
 const PRODUCT: &str = "wingmate-service";
-// 已发行服务使用这套发现格式和 /rpc 的 status、stop、shutdown 完成跨版本交接。
 const PROTOCOL: u32 = 1;
+pub const WEB_PORTS: &[u16] = &[8746, 8747, 8748];
+pub const DEV_WEB_PORTS: &[u16] = &[8749];
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Endpoint {
@@ -41,6 +43,7 @@ pub struct Status {
     pub pid: u32,
     pub revision: String,
     pub business: Option<Snapshot>,
+    pub web_address: Option<SocketAddrV4>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -156,12 +159,67 @@ pub fn publish(path: &Path, value: &impl Serialize) -> Result<()> {
     Ok(())
 }
 
-pub fn run(home: &Path) -> Result<()> {
+pub(super) struct Manager {
+    pub(super) home: PathBuf,
+    endpoint: Endpoint,
+    stopping: AtomicBool,
+    mutations: Mutex<()>,
+}
+
+impl Manager {
+    pub(super) fn execute(&self, command: Request) -> Result<Status> {
+        let home = &self.home;
+        if command.action != "status" {
+            let _mutation = self
+                .mutations
+                .try_lock()
+                .map_err(|_| anyhow::anyhow!("后台操作正在进行，请稍后重试"))?;
+            anyhow::ensure!(!self.stopping.load(Ordering::Acquire), "管理服务正在退出");
+            match command.action.as_str() {
+                "start" => {
+                    engine::start(home)?;
+                }
+                "stop" => match command.expected_instance.as_deref() {
+                    Some(instance) => engine::stop_instance(home, instance)?,
+                    None => engine::stop(home)?,
+                },
+                "restart" => match command.expected_instance.as_deref() {
+                    Some(instance) => {
+                        engine::restart_instance_with_progress(home, instance, |_| {}, |_| {})?;
+                    }
+                    None => {
+                        engine::restart(home)?;
+                    }
+                },
+                "shutdown" => {
+                    let _operation = engine::operation_lock(home)?;
+                    anyhow::ensure!(
+                        engine::status(home)?.is_none(),
+                        "请先停止业务后台，再退出管理服务"
+                    );
+                    self.stopping.store(true, Ordering::Release);
+                }
+                _ => anyhow::bail!("未知管理操作"),
+            }
+        }
+        Ok(Status {
+            product: self.endpoint.product.clone(),
+            protocol: PROTOCOL,
+            instance: self.endpoint.instance.clone(),
+            pid: self.endpoint.pid,
+            revision: self.endpoint.revision.clone(),
+            business: engine::status(home)?,
+            web_address: None,
+        })
+    }
+}
+
+pub fn run(home: &Path, ports: &'static [u16]) -> Result<()> {
     fs::create_dir_all(home)?;
     let _owner = try_lock(home)?.context("管理服务已经运行")?;
     let server =
         Arc::new(tiny_http::Server::http("127.0.0.1:0").map_err(|e| anyhow::anyhow!("{e}"))?);
-    let endpoint = Arc::new(Endpoint {
+    let endpoint = Endpoint {
         product: PRODUCT.into(),
         protocol: PROTOCOL,
         instance: uuid::Uuid::new_v4().to_string(),
@@ -169,22 +227,20 @@ pub fn run(home: &Path) -> Result<()> {
         revision: revision(&std::env::current_exe()?)?,
         port: server.server_addr().to_ip().unwrap().port(),
         token: uuid::Uuid::new_v4().to_string(),
+    };
+    let manager = Arc::new(Manager {
+        home: home.to_owned(),
+        endpoint,
+        stopping: AtomicBool::new(false),
+        mutations: Mutex::new(()),
     });
-    let stopping = Arc::new(AtomicBool::new(false));
-    let mutations = Arc::new(Mutex::new(()));
-    let gateway = Arc::new(gateway::Control::new(home.to_owned(), endpoint.clone())?);
+    let gateway = Arc::new(gateway::Control::new(manager.clone(), ports)?);
     let mut workers = Vec::new();
     for _ in 0..4 {
-        let (server, endpoint, stopping, mutations, gateway, home) = (
-            server.clone(),
-            endpoint.clone(),
-            stopping.clone(),
-            mutations.clone(),
-            gateway.clone(),
-            home.to_owned(),
-        );
+        let (server, manager, gateway) = (server.clone(), manager.clone(), gateway.clone());
         workers.push(std::thread::spawn(move || -> Result<()> {
-            while !stopping.load(Ordering::Acquire) {
+            let endpoint = &manager.endpoint;
+            while !manager.stopping.load(Ordering::Acquire) {
                 let Some(mut request) = server.recv_timeout(Duration::from_millis(200))? else {
                     continue;
                 };
@@ -222,52 +278,9 @@ pub fn run(home: &Path) -> Result<()> {
                         let state = gateway.call(serde_json::from_str(&body)?)?;
                         return Ok(serde_json::to_string(&state)?);
                     }
-                    let command: Request = serde_json::from_str(&body)?;
-                    if command.action != "status" {
-                        let _mutation = mutations
-                            .try_lock()
-                            .map_err(|_| anyhow::anyhow!("后台操作正在进行，请稍后重试"))?;
-                        anyhow::ensure!(!stopping.load(Ordering::Acquire), "管理服务正在退出");
-                        match command.action.as_str() {
-                            "start" => {
-                                engine::start(&home)?;
-                            }
-                            "stop" => match command.expected_instance.as_deref() {
-                                Some(instance) => engine::stop_instance(&home, instance)?,
-                                None => engine::stop(&home)?,
-                            },
-                            "restart" => match command.expected_instance.as_deref() {
-                                Some(instance) => {
-                                    engine::restart_instance_with_progress(
-                                        &home,
-                                        instance,
-                                        |_| {},
-                                        |_| {},
-                                    )?;
-                                }
-                                None => {
-                                    engine::restart(&home)?;
-                                }
-                            },
-                            "shutdown" => {
-                                let _operation = engine::operation_lock(&home)?;
-                                anyhow::ensure!(
-                                    engine::status(&home)?.is_none(),
-                                    "请先停止业务后台，再退出管理服务"
-                                );
-                                stopping.store(true, Ordering::Release);
-                            }
-                            _ => anyhow::bail!("未知管理操作"),
-                        }
-                    }
-                    Ok(serde_json::to_string(&Status {
-                        product: endpoint.product.clone(),
-                        protocol: PROTOCOL,
-                        instance: endpoint.instance.clone(),
-                        pid: endpoint.pid,
-                        revision: endpoint.revision.clone(),
-                        business: engine::status(&home)?,
-                    })?)
+                    let mut state = manager.execute(serde_json::from_str(&body)?)?;
+                    state.web_address = gateway.local_address();
+                    Ok(serde_json::to_string(&state)?)
                 })();
                 let (code, body) = match result {
                     Ok(body) => (200, body),
@@ -285,7 +298,7 @@ pub fn run(home: &Path) -> Result<()> {
             Ok(())
         }));
     }
-    publish(&home.join("host.json"), endpoint.as_ref())?;
+    publish(&home.join("host.json"), &manager.endpoint)?;
     for worker in workers {
         worker
             .join()

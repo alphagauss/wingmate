@@ -99,8 +99,8 @@ window.__ModuleLoader__.load({
         h('h2', { style: detailHeading }, '具名隧道'),
         h('div', { style: { ...actionsStyle, ...detailStyle } },
           '在 Cloudflare 发布路由中填写 Service URL',
-          h('code', { style: valueStyle }, tunnel.named_service),
-          h(Button, { size: 'sm', variant: 'outline', onClick: async () => {
+          h('code', { style: valueStyle }, tunnel.named_service ?? '本机 Web 入口不可用'),
+          tunnel.named_service && h(Button, { size: 'sm', variant: 'outline', onClick: async () => {
             try {
               await navigator.clipboard.writeText(tunnel.named_service);
               setNotice('已复制回源地址。');
@@ -211,26 +211,14 @@ window.__ModuleLoader__.load({
       const [pending, setPending] = useState(false);
       const [error, setError] = useState('');
       const [copyStatus, setCopyStatus] = useState('');
-      const [localAddress, setLocalAddress] = useState(undefined);
       const connectionText = useRef(null);
-      const dshOrigin = bridge ? window.location.origin : remote?.dsh_origin;
-      const connectionAddress = bridge ? localAddress : remote && window.location.origin;
+      const dshOrigin = bridge?.dshOrigin ?? remote?.dsh_origin;
+      const connectionAddress = (bridge || remote) && window.location.origin;
       const updating = action?.kind === 'update';
       const stopping = action?.kind === 'stop';
       const canConfirm = updating ? bridge?.update : stopping ? canManage : canRestart;
       const updates = [bridge?.serviceUpdate && 'Wingmate 管理服务', bridge?.runtimeUpdate && 'DSH 运行包']
         .filter(Boolean).join('和');
-
-      useEffect(() => {
-        if (!bridge) return;
-        let active = true;
-        bridge.share({ action: 'status' })
-          .then(status => {
-            if (active) setLocalAddress(status.local_address ? 'http://' + status.local_address : null);
-          })
-          .catch(() => { if (active) setLocalAddress(null); });
-        return () => { active = false; };
-      }, [bridge]);
 
       async function openDshHome() {
         setError('');
@@ -315,9 +303,7 @@ window.__ModuleLoader__.load({
             size: 'sm', variant: 'outline', icon: h(IconCopyOutlineRegular), onClick: copyConnectionAddress,
           }, '复制地址'),
         },
-          connectionAddress
-            ? h('code', { ref: connectionText, style: valueStyle }, connectionAddress)
-            : h('div', { style: detailStyle }, localAddress === undefined ? '正在读取本机地址…' : '本机 Web 入口不可用'),
+          h('code', { ref: connectionText, style: valueStyle }, connectionAddress),
           copyStatus && h('span', { role: 'status', style: detailStyle }, copyStatus),
         ),
         bridge && h('div', null,
