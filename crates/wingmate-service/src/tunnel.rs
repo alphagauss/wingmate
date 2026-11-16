@@ -265,25 +265,23 @@ impl Process {
     fn monitor(
         &mut self,
         closed: &CancellationToken,
-        mut on_line: impl FnMut(&str),
-        mut check: impl FnMut() -> Result<()>,
+        mut poll: impl FnMut(Option<&str>) -> Result<()>,
     ) -> Result<ExitStatus> {
         loop {
             ensure!(!closed.is_cancelled(), "公网隧道已停止");
-            check()?;
             match self.lines.recv_timeout(Duration::from_millis(100)) {
-                Ok(line) => on_line(&line),
+                Ok(line) => poll(Some(&line))?,
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    thread::sleep(Duration::from_millis(100))
+                    thread::sleep(Duration::from_millis(100));
+                    poll(None)?;
                 }
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Timeout) => poll(None)?,
             }
             if let Some(status) = self.child.try_wait()? {
                 // All output from the exited child precedes EOF.
                 while let Ok(line) = self.lines.recv_timeout(Duration::from_millis(100)) {
-                    check()?;
                     ensure!(!closed.is_cancelled(), "公网隧道已停止");
-                    on_line(&line);
+                    poll(Some(&line))?;
                 }
                 return Ok(status);
             }
@@ -313,14 +311,11 @@ fn available(binary: &std::ffi::OsStr, closed: &CancellationToken) -> bool {
     let deadline = Instant::now() + Duration::from_secs(5);
     Process::spawn(Command::new(binary).arg("--version").stdin(Stdio::null()))
         .and_then(|mut process| {
-            process.monitor(
-                closed,
-                |line| version |= line.starts_with("cloudflared version "),
-                || {
-                    ensure!(Instant::now() < deadline, "cloudflared 版本检查超时");
-                    Ok(())
-                },
-            )
+            process.monitor(closed, |line| {
+                ensure!(Instant::now() < deadline, "cloudflared 版本检查超时");
+                version |= line.is_some_and(|line| line.starts_with("cloudflared version "));
+                Ok(())
+            })
         })
         .is_ok_and(|status| status.success() && version)
 }
@@ -349,10 +344,6 @@ fn resolve(home: &Path, state: &State, closed: &CancellationToken) -> Result<OsS
         .filter(|node| node.is_absolute() && node.is_file())
         .unwrap_or_else(|| "node".into());
     fs::create_dir_all(&directory)?;
-    fs::write(
-        directory.join("LICENSE.desktop"),
-        include_bytes!("tunnel/LICENSE.desktop"),
-    )?;
     let staging = tempfile::tempdir_in(&directory)?;
     let mut download = Process::spawn(
         Command::new(node)
@@ -370,25 +361,29 @@ fn resolve(home: &Path, state: &State, closed: &CancellationToken) -> Result<OsS
         .unwrap()
         .write_all(include_bytes!("tunnel/download.mjs"))?;
     let mut error = None;
-    let result = download.monitor(
-        closed,
-        |line| {
+    let result = download.monitor(closed, |line| {
+        if let Some(line) = line {
             if let Ok(progress) = serde_json::from_str::<Progress>(line) {
-                if progress.stage != "installed" {
-                    state.lock().unwrap().progress = Some(progress);
-                }
+                state.lock().unwrap().progress = Some(progress);
             } else {
                 error = Some(line.chars().take(1500).collect::<String>());
             }
-        },
-        || Ok(()),
-    )?;
+        }
+        Ok(())
+    })?;
+    let downloaded = staging.path().join(BINARY);
     ensure!(
-        result.success() && staging.path().join(BINARY).is_file(),
+        result.success() && downloaded.is_file(),
         "{}",
         error.as_deref().unwrap_or("cloudflared 下载失败")
     );
-    fs::rename(staging.path().join(BINARY), &installed)?;
+    state.lock().unwrap().progress = Some(Progress::stage("verify"));
+    ensure!(
+        available(downloaded.as_os_str(), closed),
+        "cloudflared --version 自检失败"
+    );
+    ensure!(!closed.is_cancelled(), "公网隧道已停止");
+    fs::rename(downloaded, &installed)?;
     Ok(installed.into_os_string())
 }
 
@@ -423,9 +418,12 @@ fn run(
     let binary = resolve(home, state, closed)?;
     ensure!(!closed.is_cancelled(), "公网隧道已停止");
     state.lock().unwrap().progress = Some(Progress::stage("connect"));
+    let readiness = tempfile::tempdir()?;
+    let pidfile = readiness.path().join("cloudflared.pid");
     let mut command = Command::new(binary);
     command
-        .args(["tunnel", "--no-autoupdate"])
+        .args(["tunnel", "--no-autoupdate", "--pidfile"])
+        .arg(&pidfile)
         .stdin(Stdio::null())
         .env_remove("TUNNEL_TOKEN")
         .env_remove("TUNNEL_TOKEN_FILE");
@@ -440,37 +438,28 @@ fn run(
             Some(format!("https://{}", named.hostname))
         }
     };
-    let mut registered = false;
     let mut published = false;
     let deadline = Instant::now() + Duration::from_secs(60);
     let mut process = Process::spawn(&mut command).context("无法启动 cloudflared")?;
-    let result = process.monitor(
-        closed,
-        |line| {
-            if published {
-                return;
-            }
-            if mode == Mode::Quick && url.is_none() {
-                url = quick_url(line);
-            }
-            registered |= line.contains("Registered tunnel connection");
-            if registered {
-                if let Some(url) = url.take() {
-                    let mut status = state.lock().unwrap();
-                    status.url = Some(url);
-                    status.progress = None;
-                    published = true;
-                }
-            }
-        },
-        || {
-            ensure!(
-                Instant::now() < deadline || state.lock().unwrap().url.is_some(),
-                "cloudflared 未能连接 Cloudflare，请检查网络和隧道配置"
-            );
-            Ok(())
-        },
-    )?;
+    let result = process.monitor(closed, |line| {
+        if published {
+            return Ok(());
+        }
+        ensure!(
+            Instant::now() < deadline,
+            "cloudflared 未能连接 Cloudflare，请检查网络和隧道配置"
+        );
+        if mode == Mode::Quick && url.is_none() {
+            url = line.and_then(quick_url);
+        }
+        if let Some(url) = url.take_if(|_| pidfile.is_file()) {
+            let mut status = state.lock().unwrap();
+            status.url = Some(url);
+            status.progress = None;
+            published = true;
+        }
+        Ok(())
+    })?;
     anyhow::bail!("cloudflared 已退出（{result}），请检查网络和隧道配置")
 }
 

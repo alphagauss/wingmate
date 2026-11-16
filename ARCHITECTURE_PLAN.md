@@ -136,12 +136,12 @@ Android 两种构建组合共用界面与连接逻辑：远程版不包含本地
 
 | 项目与参考提交 | 本机副本 | 优先查阅与复用范围 |
 | --- | --- | --- |
-| [deepseek-harness-desktop](https://github.com/dsh-tauri/deepseek-harness-desktop/tree/fa55bd68883e) | `D:/opensource/deepseek-harness-desktop` | `packages/builtin-plugin-remote/src/host/service/` 的网关和隧道，`apps/native/` 的 WebView 配对与原生交互。原项目宿主服务机制需替换为 Wingmate 边界；不引入其整套 Electron 桌面。 |
+| [deepseek-harness-desktop](https://github.com/dsh-tauri/deepseek-harness-desktop/tree/fa55bd68883e) | `D:/opensource/deepseek-harness-desktop` | 早期调研网关、隧道和移动端交互。当前实现见[服务模块](crates/wingmate-service/README.md#web-入口)和 [Android 模块](apps/mobile/README.md#上游来源)。 |
 | [ds-harness-remote](https://github.com/liguobao/ds-harness-remote/tree/7d4d73baee7b) | `D:/opensource/ds-harness-remote` | `packages/plugin/src/codex/`、`acp/` 的工作台投影与能力处理，以及 `typert-gateway-switch.ts`。不把账号服务、专用加密业务通道和远程工作台整体并入。 |
 | [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI/tree/de73c6f3e5fa) | `D:/opensource/dsh-TUI` | `docs/agent-backend-design.md`、`src/agent/`、`src/backends/` 的后端契约与驱动，及终端界面。原版会在自身进程装配后端，移植时要改成共享后台客户端。 |
 | [dsh-Go](https://github.com/ccch1mneyyy/dsh-Go/tree/8f31b2ed8c3f) | `D:/opensource/dsh-Go` | `docs/architecture.md`、`runtime/`、Android Kotlin 运行时层的安装升级、PRoot、进程和前台服务。只选择需要的能力，不引入 Flutter 聊天和手机操控等额外产品范围。 |
 
-前三个项目根许可证使用 MIT 文本。deepseek-harness-desktop 另有禁止商业二次开发的附加条款，当前采用范围见[项目许可](README.md#上游项目与许可)。dsh-Go 根许可证为 AGPLv3，D1 应核对实际采用文件及所带依赖的许可与发行要求。参考目录缺失时可按上述仓库和提交重新获取；正式构建不得依赖这些本机绝对路径。
+前三个项目根许可证使用 MIT 文本。deepseek-harness-desktop 另有禁止商业二次开发的附加条款，早期 APK 的移植来源见[历史记录](docs/records/2026-11-12-android-remote.md)。dsh-Go 根许可证为 AGPLv3，D1 应核对实际采用文件及所带依赖的许可与发行要求。参考目录缺失时可按上述仓库和提交重新获取；正式构建不得依赖这些本机绝对路径。
 
 外部 Agent 优先使用现成 ACP 适配器。A1 复用 ds-harness-remote 的网关与工作台投影逻辑，并按锁定的 DSH 发布版调整事件格式。Claude 暂缓，后续按需验证其 ACP 适配器。采用来源、许可与实际验证保存在所属模块及验证记录。
 
@@ -208,7 +208,7 @@ SSH 留待局域网交付后单独定案。候选方式是在服务器执行 `wi
 
 ### B3 Cloudflare 公网隧道
 
-已在 B2 的通用网关上接入官方 `cloudflared`，移植 Desktop 的下载校验和两种模式的启动逻辑。隧道由独立管理服务持有。主机端配置、按需下载和配对规则见[服务模块](crates/wingmate-service/README.md#公网隧道)，浮层与配置入口见[桌面连接面板](apps/desktop/README.md)。
+已在 B2 的通用网关上接入官方 `cloudflared`。Wingmate 按 Cloudflare 发布信息和公开命令行接口实现下载校验与两种模式的启动，隧道由独立管理服务持有。主机端配置、按需下载和配对规则见[服务模块](crates/wingmate-service/README.md#公网隧道)，浮层与配置入口见[桌面连接面板](apps/desktop/README.md)。
 
 构建时下载并携带目标平台的 `cloudflared` 留到后续发行任务。具名域名由 Cloudflare 控制台配置，测试域名另行验收。
 

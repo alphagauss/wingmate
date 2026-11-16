@@ -50,7 +50,7 @@
 
 首次开启会查找 `CLOUDFLARED_PATH`、系统 PATH 和管理目录下的 `tunnel/bin/`。缺少可用程序时，使用系统 Node 按平台下载官方连接器，校验 SHA-256 和版本输出后保存到该目录，供两种模式复用。自动下载覆盖 Windows x64、macOS x64/ARM64、Linux x64/ARM64，其他平台可手动提供可执行文件。
 
-[`src/tunnel/download.mjs`](src/tunnel/download.mjs) 中的下载逻辑移植自 deepseek-harness-desktop `fa55bd68883e`，适用上游 MIT 文本及禁止商业二次开发的附加条款。[MIT 文本](src/tunnel/LICENSE.desktop) · [上游附加条款](https://github.com/dsh-tauri/deepseek-harness-desktop/blob/fa55bd68883e/LICENSE.details)
+下载器从 Cloudflare 的 GitHub Release 读取资产地址、大小和 SHA-256 摘要。官方地址不可用时可从第三方镜像下载，仍按同一大小限制写入并校验摘要。连接器在首次连通后写出 PID 文件，管理服务据此发布公网地址。[Cloudflare 下载文档](https://developers.cloudflare.com/tunnel/downloads/) · [GitHub Release API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release) · [连接器启动参数](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/run-parameters/#pidfile)
 
 ## 数据与管理边界
 
