@@ -1,20 +1,20 @@
-//! 发行组件的释放；常驻进程一律从管理目录的副本运行。
+//! 发行可执行文件的校验和发布。调用方持有 bootstrap.lock。
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
-    io::Write,
+    io::{self, Write},
     path::{Path, PathBuf},
 };
+use tempfile::NamedTempFile;
+use wingmate_service::host;
 include!(concat!(env!("OUT_DIR"), "/binaries.rs"));
-
-const SHORT_HASH: usize = 6;
 
 pub fn service_revision() -> Result<String> {
     if let Some((_, hash)) = SERVICE_ARCHIVE {
         Ok(hash.to_owned())
     } else {
-        wingmate_service::host::revision(
+        host::revision(
             &Path::new(BINARY_DIRECTORY)
                 .join(format!("wingmate-service{}", std::env::consts::EXE_SUFFIX)),
         )
@@ -22,7 +22,29 @@ pub fn service_revision() -> Result<String> {
     }
 }
 
-pub fn install(home: &Path, desktop: bool) -> Result<PathBuf> {
+pub(crate) struct PreparedBinary {
+    pub revision: String,
+    pub binary: PathBuf,
+    replacement: Option<NamedTempFile>,
+}
+
+impl PreparedBinary {
+    #[cfg(feature = "desktop")]
+    pub fn replaces_file(&self) -> bool {
+        self.replacement.is_some()
+    }
+
+    pub fn publish(self) -> Result<PathBuf> {
+        if let Some(file) = self.replacement {
+            file.persist(&self.binary)
+                .map_err(|error| error.error)
+                .with_context(|| format!("无法替换 {}", self.binary.display()))?;
+        }
+        Ok(self.binary)
+    }
+}
+
+pub(crate) fn prepare(home: &Path, desktop: bool) -> Result<PreparedBinary> {
     let (name, embedded, parent) = if desktop {
         ("wingmate-desktop", DESKTOP_ARCHIVE, "desktops")
     } else {
@@ -30,7 +52,7 @@ pub fn install(home: &Path, desktop: bool) -> Result<PathBuf> {
     };
     let filename = format!("{name}{}", std::env::consts::EXE_SUFFIX);
     let local_bytes;
-    let (bytes, hash) = if let Some((compressed, hash)) = embedded {
+    let (bytes, revision) = if let Some((compressed, hash)) = embedded {
         (compressed, hash.to_owned())
     } else {
         local_bytes = fs::read(Path::new(BINARY_DIRECTORY).join(&filename))
@@ -44,111 +66,47 @@ pub fn install(home: &Path, desktop: bool) -> Result<PathBuf> {
         parent.symlink_metadata()?.is_dir(),
         "组件根目录不是普通目录"
     );
-    let directory = parent.join(&hash[..SHORT_HASH]);
-    let binary = directory.join(&filename);
-    if directory.exists() {
-        anyhow::ensure!(
-            directory.symlink_metadata()?.is_dir()
-                && fs::read_to_string(directory.join(".wingmate-component"))? == name,
-            "无法确认组件目录归属"
-        );
-        anyhow::ensure!(
-            binary.is_file() && wingmate_service::host::revision(&binary)? == hash,
-            "组件指纹不匹配，请停止对应进程并移走 {} 后重试",
-            directory.display()
-        );
-        return Ok(binary);
+    let binary = parent.join(filename);
+    let mut prepared = PreparedBinary {
+        binary,
+        revision,
+        replacement: None,
+    };
+    match prepared.binary.symlink_metadata() {
+        Ok(metadata) => {
+            anyhow::ensure!(metadata.is_file(), "组件路径不是普通文件");
+            if host::revision(&prepared.binary)? == prepared.revision {
+                return Ok(prepared);
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
     }
-    let stage = tempfile::tempdir_in(&parent)?;
-    let staged_binary = stage.path().join(&filename);
-    let mut file = fs::File::create(&staged_binary)?;
+
+    let mut stage = NamedTempFile::new_in(&parent)?;
     if embedded.is_some() {
-        zstd::stream::copy_decode(bytes, &mut file).with_context(|| format!("解压 {name} 失败"))?;
+        zstd::stream::copy_decode(bytes, stage.as_file_mut())
+            .with_context(|| format!("解压 {name} 失败"))?;
     } else {
-        file.write_all(bytes)?;
+        stage.write_all(bytes)?;
     }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(fs::Permissions::from_mode(0o755))?;
-    }
-    drop(file);
-    if embedded.is_some() {
-        anyhow::ensure!(
-            wingmate_service::host::revision(&staged_binary)? == hash,
-            "解压后的 {name} 指纹不匹配"
-        );
-    }
-    fs::write(stage.path().join(".wingmate-component"), name)?;
-    fs::rename(stage.path(), directory)?;
-    Ok(binary)
-}
-
-pub(crate) fn cleanup_services(home: &Path, revision: &str) -> Result<()> {
-    cleanup(
-        home,
-        &home.join("services").join(&revision[..SHORT_HASH]),
-        "services",
-        "wingmate-service",
-        |_| Ok(false),
-    )
-}
-
-#[cfg(feature = "desktop")]
-pub(crate) fn cleanup_desktops(home: &Path, active: &Path) -> Result<()> {
-    let keep = active.parent().context("桌面组件目录无效")?;
-    cleanup(home, keep, "desktops", "wingmate-desktop", |directory| {
-        for entry in fs::read_dir(directory)? {
-            let entry = entry?;
-            if entry.file_type()?.is_file()
-                && entry.path().extension().and_then(|value| value.to_str()) == Some("lock")
-                && locked(&entry.path())?
-            {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    })
-}
-
-fn cleanup(
-    home: &Path,
-    keep: &Path,
-    parent: &str,
-    component: &str,
-    in_use: impl Fn(&Path) -> Result<bool>,
-) -> Result<()> {
-    let parent = home.join(parent);
-    if !parent.exists() {
-        return Ok(());
+        stage
+            .as_file()
+            .set_permissions(fs::Permissions::from_mode(0o755))?;
     }
     anyhow::ensure!(
-        parent.symlink_metadata()?.is_dir(),
-        "组件根目录不是普通目录"
+        host::revision(stage.path())? == prepared.revision,
+        "待安装的 {name} 指纹不匹配"
     );
-    for entry in fs::read_dir(&parent)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if entry.path() != keep
-            && entry.file_type()?.is_dir()
-            && name.len() == SHORT_HASH
-            && name.bytes().all(|b| b.is_ascii_hexdigit())
-            && fs::read_to_string(entry.path().join(".wingmate-component"))
-                .is_ok_and(|value| value == component)
-            && !in_use(&entry.path())?
-        {
-            fs::remove_dir_all(entry.path())?;
-        }
-    }
-    Ok(())
+    prepared.replacement = Some(stage);
+    Ok(prepared)
 }
 
-fn lease_path(binary: &Path, pid: u32) -> Result<PathBuf> {
-    Ok(binary
-        .parent()
-        .context("桌面组件目录无效")?
-        .join(format!("{pid}.lock")))
+fn lease_path(directory: &Path, pid: u32) -> PathBuf {
+    directory.join(format!("{pid}.lock"))
 }
 
 pub fn desktop_lease(home: &Path) -> Result<Option<File>> {
@@ -159,7 +117,7 @@ pub fn desktop_lease(home: &Path) -> Result<Option<File>> {
     let Ok(root) = home.join("desktops").canonicalize() else {
         return Ok(None);
     };
-    if directory.canonicalize()?.parent() != Some(&root) {
+    if directory.canonicalize()? != root {
         return Ok(None);
     }
     let lock = OpenOptions::new()
@@ -167,31 +125,67 @@ pub fn desktop_lease(home: &Path) -> Result<Option<File>> {
         .write(true)
         .create(true)
         .truncate(false)
-        .open(lease_path(&binary, std::process::id())?)?;
+        .open(lease_path(directory, std::process::id()))?;
     fs2::FileExt::lock_exclusive(&lock)?;
-    anyhow::ensure!(
-        directory.join(".wingmate-component").is_file(),
-        "桌面组件已被回收，请重新打开 Wingmate"
-    );
     Ok(Some(lock))
 }
 
 #[cfg(feature = "desktop")]
-pub(crate) fn desktop_ready(binary: &Path, pid: u32) -> Result<bool> {
-    locked(&lease_path(binary, pid)?)
+pub(crate) fn desktop_pids(home: &Path) -> Result<Vec<u32>> {
+    let mut pids = Vec::new();
+    for entry in fs::read_dir(home.join("desktops"))? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().is_none_or(|value| value != "lock") || !entry.file_type()?.is_file() {
+            continue;
+        }
+        if let Some(pid) = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .and_then(|value| value.parse::<u32>().ok())
+        {
+            if locked(&path)? {
+                pids.push(pid);
+            } else {
+                fs::remove_file(path)?;
+            }
+        }
+    }
+    Ok(pids)
+}
+
+pub fn desktop_reopen_requested(home: &Path) -> Result<bool> {
+    locked(&home.join("desktops/reopen.lock"))
 }
 
 #[cfg(feature = "desktop")]
+pub(crate) fn desktop_reopen_lock(home: &Path) -> Result<File> {
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(home.join("desktops/reopen.lock"))?;
+    fs2::FileExt::try_lock_exclusive(&lock).context("桌面正在重开")?;
+    Ok(lock)
+}
+
+#[cfg(feature = "desktop")]
+pub(crate) fn desktop_ready(binary: &Path, pid: u32) -> Result<bool> {
+    let directory = binary.parent().context("桌面组件目录无效")?;
+    locked(&lease_path(directory, pid))
+}
+
 fn locked(path: &Path) -> Result<bool> {
     let file = match OpenOptions::new().read(true).write(true).open(path) {
         Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error.into()),
     };
     match fs2::FileExt::try_lock_exclusive(&file) {
         Ok(()) => Ok(false),
         Err(error)
-            if error.kind() == std::io::ErrorKind::WouldBlock
+            if error.kind() == io::ErrorKind::WouldBlock
                 || error.raw_os_error() == fs2::lock_contended_error().raw_os_error() =>
         {
             Ok(true)

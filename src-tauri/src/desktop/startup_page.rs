@@ -1,7 +1,7 @@
 use super::desktop_window;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Url, WebviewWindow};
-use wingmate_launcher::service::StartupStage;
+use wingmate_launcher::service::{RestartTarget, StartupStage};
 
 #[derive(Clone, PartialEq, Eq, serde::Serialize)]
 pub(super) struct CardStatus {
@@ -10,6 +10,7 @@ pub(super) struct CardStatus {
     waiting: bool,
     error: Option<String>,
     actions: &'static str,
+    target: Option<RestartTarget>,
 }
 
 impl CardStatus {
@@ -20,6 +21,7 @@ impl CardStatus {
             waiting: true,
             error: None,
             actions: "",
+            target: None,
         }
     }
 
@@ -56,6 +58,7 @@ impl CardStatus {
             waiting: false,
             error: Some(error),
             actions: "retry",
+            target: None,
         }
     }
 
@@ -66,25 +69,72 @@ impl CardStatus {
             waiting: false,
             error: None,
             actions: "start",
+            target: None,
         }
     }
 
-    pub(super) fn update_available(service: bool, runtime: bool, running: bool) -> Self {
+    pub(super) fn update_available(
+        service: bool,
+        runtime: bool,
+        desktop: bool,
+        target: Option<RestartTarget>,
+    ) -> Self {
+        let desktop_only = desktop && !service && !runtime;
+        let running = target
+            .as_ref()
+            .is_some_and(|target| target.business.is_some());
         Self {
-            message: match (service, runtime) {
-                (true, true) => "管理服务和 DSH 运行包待更新",
-                (true, false) => "管理服务待更新",
+            message: match (service, runtime, desktop) {
+                (false, false, true) => "桌面程序待更新",
+                (_, _, true) => "桌面和后台组件待更新",
+                (true, true, false) => "管理服务和 DSH 运行包待更新",
+                (true, false, false) => "管理服务待更新",
                 _ => "DSH 运行包待更新",
             },
-            hint: if running {
+            hint: if desktop_only {
+                "更新桌面时，后台继续运行。"
+            } else if running {
                 "可继续使用当前后台，或重启并更新。"
             } else {
                 "可用当前管理服务启动 DSH，或先更新管理服务。"
             },
             waiting: false,
             error: None,
-            actions: if running { "update" } else { "update-idle" },
+            actions: if desktop_only {
+                "update-desktop"
+            } else if running {
+                "update"
+            } else {
+                "update-idle"
+            },
+            target,
         }
+    }
+
+    pub(super) fn reopening(backend_updated: bool) -> Self {
+        Self::waiting(
+            if backend_updated {
+                "后台已就绪，即将重开窗口…"
+            } else {
+                "即将重开窗口…"
+            },
+            "",
+        )
+    }
+
+    pub(super) fn reopen_failure(error: String) -> Self {
+        Self {
+            message: "无法重开窗口",
+            hint: "",
+            waiting: false,
+            error: Some(error),
+            actions: "retry-reopen",
+            target: None,
+        }
+    }
+
+    pub(super) fn can_retry_reopen(&self) -> bool {
+        self.actions == "retry-reopen"
     }
 }
 
@@ -188,6 +238,7 @@ impl StartupPage {
                             waiting: false,
                             error: None,
                             actions: "retry",
+                            target: None,
                         },
                         true,
                     );

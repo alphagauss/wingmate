@@ -9,15 +9,18 @@ const errorText = document.getElementById('error');
 const start = document.getElementById('start');
 const update = document.getElementById('update');
 const showRestart = document.getElementById('show-restart');
+const confirmUpdate = confirmation.querySelector('[data-backend-action="restart"]');
 const connectLocal = document.getElementById('connect-local');
 const local = window.__WINGMATE_LOCAL_HOME__ === true;
+let updateRequest;
+let confirmedUpdate;
 
 function showActionError(error) {
   actionError.textContent = String(error);
   actionError.hidden = false;
 }
 
-window.renderWingmateHome = ({ message, hint, waiting, error, actions }) => {
+window.renderWingmateHome = ({ message, hint, waiting, error, actions, target }) => {
   messageText.textContent = message;
   hintText.textContent = hint;
   hintText.hidden = !hint;
@@ -25,17 +28,22 @@ window.renderWingmateHome = ({ message, hint, waiting, error, actions }) => {
   details.hidden = error === null;
   if (error === null) details.open = false;
   errorText.textContent = error ?? '';
-  start.hidden = actions !== 'retry' && actions !== 'start';
-  start.textContent = actions === 'retry' ? '重试' : '启动后台';
+  const retry = actions === 'retry' || actions === 'retry-reopen';
+  start.hidden = !retry && actions !== 'start';
+  start.textContent = retry ? '重试' : '启动后台';
+  start.dataset.backendAction = actions === 'retry-reopen' ? 'retry-reopen' : 'start';
   const idleUpdate = actions === 'update-idle';
-  update.hidden = actions !== 'update' && !idleUpdate;
+  const desktopUpdate = actions === 'update-desktop';
+  update.hidden = actions !== 'update' && !idleUpdate && !desktopUpdate;
+  updateRequest = { action: desktopUpdate ? 'update-desktop' : 'restart', expected: target };
   if (!update.hidden) {
     update.querySelector('[data-backend-action="continue"]').textContent = idleUpdate ? '继续并启动' : '继续使用';
-    showRestart.textContent = idleUpdate ? '更新并启动' : '重启并更新';
-    document.getElementById('restart-title').textContent = idleUpdate ? '更新管理服务并启动后台？' : '重启并更新后台？';
-    document.getElementById('restart-hint').textContent = idleUpdate ? '已启用的远程连接会短暂中断。' : '这会中断正在运行的任务。';
-    confirmation.querySelector('[data-backend-action="restart"]').textContent = idleUpdate ? '确认更新' : '确认重启';
+    showRestart.textContent = desktopUpdate ? '更新桌面' : idleUpdate ? '更新并启动' : '重启并更新';
+    document.getElementById('restart-title').textContent = desktopUpdate ? '更新桌面？' : idleUpdate ? '更新管理服务并启动后台？' : '重启并更新后台？';
+    document.getElementById('restart-hint').textContent = desktopUpdate ? '后台任务会继续运行。' : idleUpdate ? '已启用的远程连接会短暂中断。' : '这会中断正在运行的任务。';
+    confirmUpdate.textContent = desktopUpdate || idleUpdate ? '确认更新' : '确认重启';
   }
+  if (confirmation.open && (update.hidden || JSON.stringify(confirmedUpdate) !== JSON.stringify(updateRequest))) confirmation.close();
   actionError.hidden = true;
   for (const button of controls) button.disabled = waiting;
 };
@@ -105,7 +113,10 @@ if (local) {
   refresh();
 }
 
-showRestart.addEventListener('click', () => confirmation.showModal());
+showRestart.addEventListener('click', () => {
+  confirmedUpdate = updateRequest;
+  confirmation.showModal();
+});
 // The modal makes elements outside it inert, including the custom window controls.
 confirmation.addEventListener('toggle', () => {
   const titlebar = document.querySelector('[data-wingmate-titlebar]');
@@ -114,11 +125,12 @@ confirmation.addEventListener('toggle', () => {
 
 for (const control of local ? document.querySelectorAll('[data-backend-action]') : []) {
   control.addEventListener('click', async () => {
+    const request = control === confirmUpdate ? confirmedUpdate : { action: control.dataset.backendAction };
     if (confirmation.open) confirmation.close();
     actionError.hidden = true;
     for (const button of controls) button.disabled = true;
     try {
-      await window.__TAURI_INTERNALS__.invoke('home_backend', { action: control.dataset.backendAction });
+      await window.__TAURI_INTERNALS__.invoke('home_backend', request);
     } catch (error) {
       showActionError(error);
       for (const button of controls) button.disabled = false;

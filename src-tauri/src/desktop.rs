@@ -45,7 +45,8 @@ enum View {
     #[default]
     Home,
     Workspace(Workspace),
-    UpdateAvailable(RestartTarget),
+    UpdateAvailable(Option<RestartTarget>),
+    ReopenFailed,
 }
 
 #[derive(Clone)]
@@ -69,6 +70,7 @@ struct ConnectionState {
     revision: u64,
     last: Option<RestartTarget>,
     service_update: bool,
+    desktop_update: bool,
     view: View,
     authorized_origins: HashSet<String>,
     titlebar_theme: titlebar::Theme,
@@ -156,21 +158,23 @@ impl ConnectionState {
         continued: bool,
     ) {
         let page = &desktop.page;
-        let target = RestartTarget::from_status(&host);
-        self.last = Some(target.clone());
+        self.last = Some(RestartTarget::from_status(&host));
         self.service_update = host.revision != desktop.service_revision;
         let runtime_update = host
             .business
             .as_ref()
-            .is_some_and(|state| state.runtime_revision.as_deref() != RUNTIME_REVISION);
-        if !continued && (self.service_update || runtime_update) {
-            self.view = View::UpdateAvailable(target);
+            .is_some_and(|state| state.runtime_revision != desktop.runtime_revision);
+        let backend_update = self.service_update || runtime_update;
+        if !continued && (backend_update || self.desktop_update) {
+            let target = self.last.clone().filter(|_| backend_update);
+            self.view = View::UpdateAvailable(target.clone());
             page.show(
                 app,
                 CardStatus::update_available(
                     self.service_update,
                     runtime_update,
-                    host.business.is_some(),
+                    self.desktop_update,
+                    target,
                 ),
             );
         } else if let Some(state) = host.business {
@@ -201,16 +205,28 @@ impl ConnectionState {
         outcome: Result<Option<HostStatus>, CardStatus>,
     ) {
         let page = &desktop.page;
+        if continued && outcome.is_ok() {
+            self.desktop_update = false;
+        }
         match outcome {
             Ok(Some(state)) => self.connect(app, desktop, state, continued),
             Ok(None) => {
-                page.show(app, CardStatus::stopped());
                 self.last = None;
-                self.view = View::Home;
+                if self.desktop_update {
+                    self.view = View::UpdateAvailable(None);
+                    page.show(app, CardStatus::update_available(false, false, true, None));
+                } else {
+                    self.view = View::Home;
+                    page.show(app, CardStatus::stopped());
+                }
             }
             Err(status) => {
+                self.view = if status.can_retry_reopen() {
+                    View::ReopenFailed
+                } else {
+                    View::Home
+                };
                 page.show(app, status);
-                self.view = View::Home;
             }
         }
         if let Some(window) = desktop_window(app) {
@@ -226,7 +242,8 @@ impl ConnectionState {
         desired_service: &str,
     ) -> Observation {
         // 操作开始前发出的轮询不能覆盖操作结果。
-        if self.observation_revision() != Some(revision) {
+        if self.observation_revision() != Some(revision) || matches!(self.view, View::ReopenFailed)
+        {
             return Observation::Ignore;
         }
         match status {
@@ -274,6 +291,13 @@ impl ConnectionState {
 
     fn observe_stopped(&mut self) -> Observation {
         self.last = None;
+        if matches!(self.view, View::UpdateAvailable(None)) {
+            return Observation::Ignore;
+        }
+        if self.desktop_update {
+            self.view = View::UpdateAvailable(None);
+            return Observation::ShowHome(CardStatus::update_available(false, false, true, None));
+        }
         match std::mem::take(&mut self.view) {
             View::Home => Observation::Ignore,
             _ => Observation::ShowHome(CardStatus::stopped()),
@@ -287,10 +311,11 @@ fn web_origin(address: &Option<std::net::SocketAddrV4>) -> Option<String> {
 
 enum Operation {
     Start,
-    Continue(RestartTarget),
+    Inspect,
+    Continue(Option<RestartTarget>),
     Stop(String),
     RestartDsh(String),
-    Update(RestartTarget),
+    Update(Option<RestartTarget>),
 }
 
 fn run_operation(
@@ -301,6 +326,7 @@ fn run_operation(
 ) -> Result<(), CardStatus> {
     let home = &desktop.home;
     let stage = Cell::new(StartupStage::Checking);
+    let reopening = Cell::new(false);
     let report = |next| {
         stage.set(next);
         desktop.page.show_progress(app, next);
@@ -330,23 +356,39 @@ fn run_operation(
                 service::restart_instance(home, instance).map(|host| ready(Ok(Some(host))))
             }
             Operation::Update(target) => {
-                service::restart_with_progress(home, Some(target), report, |state| {
-                    ready(connected(state))
-                })
-                .map(drop)
+                if target.is_some() || wingmate_launcher::IS_DEV {
+                    service::restart_with_progress(home, target.as_ref(), report, |state| {
+                        if wingmate_launcher::IS_DEV {
+                            ready(connected(state));
+                        }
+                    })?;
+                }
+                if wingmate_launcher::IS_DEV {
+                    return Ok(());
+                }
+                reopening.set(true);
+                desktop
+                    .page
+                    .show(app, CardStatus::reopening(target.is_some()));
+                service::request_desktop_reopen(home)
+            }
+            Operation::Inspect | Operation::Continue(None) => {
+                ready(Ok(service::connection_status(home)?));
+                Ok(())
             }
             Operation::Start => {
-                if let Some(host) = service::host_status(home)?.filter(|host| {
+                let host = service::host_status(home)?;
+                if host.as_ref().is_some_and(|host| {
                     host.business.is_none() && host.revision != desktop.service_revision
                 }) {
-                    ready(Ok(Some(host)));
+                    ready(Ok(host));
                     Ok(())
                 } else {
                     service::start_with_progress(home, report, |state| ready(connected(state)))
                         .map(drop)
                 }
             }
-            Operation::Continue(target) => {
+            Operation::Continue(Some(target)) => {
                 report(StartupStage::Connecting);
                 let host = service::host_status(home)?
                     .ok_or_else(|| anyhow::anyhow!("管理服务已退出，请重新检查"))?;
@@ -362,12 +404,20 @@ fn run_operation(
             }
         }
     })();
-    result.map_err(|error| CardStatus::failure(stage.get(), format!("{error:#}")))
+    result.map_err(|error| {
+        let detail = format!("{error:#}");
+        if reopening.get() {
+            CardStatus::reopen_failure(detail)
+        } else {
+            CardStatus::failure(stage.get(), detail)
+        }
+    })
 }
 
 struct Desktop {
     home: PathBuf,
     service_revision: String,
+    runtime_revision: Option<String>,
     window_label: String,
     title: &'static str,
     page: StartupPage,
@@ -407,6 +457,7 @@ fn home_backend(
     window: tauri::WebviewWindow,
     desktop: tauri::State<'_, Arc<Desktop>>,
     action: String,
+    expected: Option<RestartTarget>,
 ) -> Result<(), String> {
     if !window.url().is_ok_and(|url| desktop.page.is_home(&url)) {
         return Err("此操作只能在 Wingmate 首页执行".into());
@@ -418,14 +469,16 @@ fn home_backend(
     let app = window.app_handle();
     let operation = match action.as_str() {
         "start" => Operation::Start,
-        "continue" | "restart" => {
+        "retry-reopen" if matches!(current.view, View::ReopenFailed) => Operation::Update(None),
+        "continue" | "restart" | "update-desktop" => {
             let View::UpdateAvailable(target) = &current.view else {
                 return Err("没有待切换的后台，请重新连接".into());
             };
-            if action == "continue" {
-                Operation::Continue(target.clone())
-            } else {
-                Operation::Update(target.clone())
+            match action.as_str() {
+                "continue" => Operation::Continue(target.clone()),
+                "restart" if target.is_some() && *target == expected => Operation::Update(expected),
+                "update-desktop" if target.is_none() => Operation::Update(None),
+                _ => return Err("待更新组件已变化，请重新确认".into()),
             }
         }
         _ => return Err("未知的后台操作".into()),
@@ -452,11 +505,13 @@ fn manage_backend(
         "restart" | "update" => {
             if action == "update"
                 && !current.service_update
-                && state.runtime_revision.as_deref() == RUNTIME_REVISION
+                && state.runtime_revision == desktop.runtime_revision
             {
                 return Err("没有待切换的后台组件".into());
             }
-            Operation::Update(current.last.clone().ok_or("后台实例不可用，请重新连接")?)
+            Operation::Update(Some(
+                current.last.clone().ok_or("后台实例不可用，请重新连接")?,
+            ))
         }
         _ => return Err("未知的后台操作".into()),
     };
@@ -476,6 +531,11 @@ pub fn run(home: PathBuf) -> Result<()> {
         Err(std::env::VarError::NotPresent) => wingmate_launcher::components::service_revision()?,
         Err(error) => return Err(error.into()),
     };
+    let runtime_revision = std::env::var("WINGMATE_TARGET_RUNTIME_REVISION")
+        .ok()
+        .filter(|revision| !revision.is_empty())
+        .or_else(|| RUNTIME_REVISION.map(str::to_owned));
+    let desktop_action = std::env::var("WINGMATE_DESKTOP_ACTION").unwrap_or_default();
     let primary = window_state::PrimaryWindow::claim(&home)?;
     let window_label = if primary.is_some() {
         "main".into()
@@ -487,7 +547,10 @@ pub fn run(home: PathBuf) -> Result<()> {
     } else {
         "Wingmate"
     };
-    let mut connection = ConnectionState::default();
+    let mut connection = ConnectionState {
+        desktop_update: desktop_action == "update",
+        ..ConnectionState::default()
+    };
     connection.begin_operation();
     let context = tauri::generate_context!();
     let dev_url = context
@@ -499,6 +562,7 @@ pub fn run(home: PathBuf) -> Result<()> {
     let desktop = Arc::new(Desktop {
         home,
         service_revision,
+        runtime_revision,
         window_label,
         title,
         page: StartupPage::new(dev_url),
@@ -563,7 +627,9 @@ pub fn run(home: PathBuf) -> Result<()> {
                         drop(current);
                         if let (PageLoadEvent::Finished, Some(state)) = (event.event(), &workspace)
                         {
-                            bridge::expose(&window, event.url(), state, service_update);
+                            let runtime_update =
+                                state.state.runtime_revision != page_load.runtime_revision;
+                            bridge::expose(&window, event.url(), state, service_update, runtime_update);
                         }
                         if let Some(source) = source {
                             titlebar::expose(&window, &source, theme, navigation);
@@ -612,17 +678,25 @@ pub fn run(home: PathBuf) -> Result<()> {
                 }
                 _ => {}
             });
-            desktop.submit(handle.clone(), Operation::Start);
+            let startup = match desktop_action.as_str() {
+                "update" | "reopen" => Operation::Inspect,
+                _ => Operation::Start,
+            };
+            desktop.submit(handle.clone(), startup);
             std::thread::spawn(move || loop {
                 std::thread::sleep(Duration::from_secs(2));
-                if handle.get_webview(&desktop.window_label).is_none() {
+                let Some(window) = desktop_window(&handle) else {
+                    break;
+                };
+                if !wingmate_launcher::IS_DEV
+                    && wingmate_launcher::components::desktop_reopen_requested(&desktop.home)
+                        .unwrap_or(false)
+                {
+                    let _ = window.close();
                     break;
                 }
                 let Some(revision) = desktop.connection.lock().unwrap().observation_revision()
                 else {
-                    continue;
-                };
-                let Some(window) = desktop_window(&handle) else {
                     continue;
                 };
                 let status = service::connection_status(&desktop.home);
@@ -772,7 +846,7 @@ mod tests {
     fn only_confirmed_stop_forgets_the_last_instance() {
         let mut connection = ConnectionState {
             last: Some(target("current")),
-            view: View::UpdateAvailable(target("current")),
+            view: View::UpdateAvailable(Some(target("current"))),
             ..ConnectionState::default()
         };
         let revision = connection.observation_revision().unwrap();
@@ -782,7 +856,7 @@ mod tests {
             Observation::Ignore
         ));
         assert!(
-            matches!(connection.view, View::UpdateAvailable(ref update) if update == &target("current"))
+            matches!(connection.view, View::UpdateAvailable(Some(ref update)) if update == &target("current"))
         );
         assert!(matches!(
             connection.observe(revision, Ok(Some(host(Some(snapshot("current", "failed"))))), SERVICE),
@@ -791,7 +865,7 @@ mod tests {
         assert!(matches!(connection.view, View::Home));
         assert_eq!(connection.last, Some(target("current")));
 
-        connection.view = View::UpdateAvailable(target("current"));
+        connection.view = View::UpdateAvailable(Some(target("current")));
         assert!(matches!(
             connection.observe(revision, Ok(None), SERVICE),
             Observation::ShowHome(status) if status == CardStatus::stopped()

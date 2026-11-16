@@ -4,7 +4,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
-import { copyFile, mkdir, mkdtemp, readFile, readdir, writeFile, access, rm } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, readdir, writeFile, access, rm, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -93,8 +93,12 @@ try {
   assert.notEqual(host.pid, a.engine_pid);
   assert.equal(host.business.instance, a.instance);
   assert.ok(alive(host.pid));
-  const serviceBinary = await readFile(join(env.WINGMATE_HOME, 'services', host.revision.slice(0, 6),
-    `wingmate-service${process.platform === 'win32' ? '.exe' : ''}`));
+  const serviceName = `wingmate-service${process.platform === 'win32' ? '.exe' : ''}`;
+  const serviceDirectory = join(env.WINGMATE_HOME, 'services');
+  const servicePath = join(serviceDirectory, serviceName);
+  const serviceBinary = await readFile(servicePath);
+  const serviceModifiedAt = (await stat(servicePath)).mtimeMs;
+  assert.deepEqual(await readdir(serviceDirectory), [serviceName]);
   assert.equal(createHash('sha256').update(serviceBinary).digest('hex'), host.revision);
   assert.equal((await readFile(executable)).indexOf(serviceBinary), -1, '成品仍内嵌未压缩的管理服务');
   const componentsDirectory = fileURLToPath(new URL('../work/build/runtime/', import.meta.url));
@@ -314,7 +318,10 @@ try {
   const replacementHost = await cli('service-status');
   assert.notEqual(replacementHost.instance, host.instance);
   assert.equal(alive(host.pid), false);
-  checks.push('显式重启服务切换管理实例，业务仍为停止状态');
+  assert.equal((await stat(servicePath)).mtimeMs, serviceModifiedAt);
+  assert.equal(replacementHost.revision, host.revision);
+  assert.equal((await cli('status')).phase, 'stopped');
+  checks.push('显式重启服务切换管理实例并复用同指纹文件，业务仍为停止状态');
   if (process.platform === 'win32') {
     const crash = await cli('start');
     process.kill(crash.pid, 'SIGKILL');
@@ -343,12 +350,8 @@ try {
     assert.notEqual(textOffset, -1);
     oldBinary[textOffset] = 't'.charCodeAt(0);
     const oldServiceHash = createHash('sha256').update(oldBinary).digest('hex');
-    const oldServiceDir = join(env.WINGMATE_HOME, 'services', oldServiceHash.slice(0, 6));
-    const oldServicePath = join(oldServiceDir, 'wingmate-service.exe');
-    await mkdir(oldServiceDir);
-    await writeFile(join(oldServiceDir, '.wingmate-component'), 'wingmate-service');
-    await writeFile(oldServicePath, oldBinary);
-    previousService = spawn(oldServicePath, ['--home', env.WINGMATE_HOME], { cwd: work, env, windowsHide: true, stdio: 'ignore' });
+    await writeFile(servicePath, oldBinary);
+    previousService = spawn(servicePath, ['--home', env.WINGMATE_HOME], { cwd: work, env, windowsHide: true, stdio: 'ignore' });
     await once(previousService, 'spawn');
     const readyDeadline = Date.now() + 10_000;
     let oldHost;
@@ -362,6 +365,9 @@ try {
     const oldBusiness = await cli('start');
     assert.equal((await cli('service-status')).instance, oldHost.instance);
     assert.notEqual((await cli('service-restart', false)).code, 0);
+    assert.equal((await cli('status')).instance, oldBusiness.instance);
+    assert.deepEqual(await readFile(servicePath), oldBinary);
+    assert.deepEqual(await readdir(serviceDirectory), [serviceName]);
     const newBusiness = await cli('restart');
     const newHost = await cli('service-status');
     assert.equal(newHost.revision, host.revision);
@@ -374,13 +380,15 @@ try {
       assert.notEqual((await cli('internal-restart', false, JSON.stringify(target))).code, 0);
     }
     assert.equal((await cli('status')).instance, newBusiness.instance);
-    await assert.rejects(access(join(env.WINGMATE_HOME, 'services', oldHost.revision.slice(0, 6))), { code: 'ENOENT' });
+    assert.equal(alive(oldHost.pid), false);
+    assert.deepEqual(await readdir(serviceDirectory), [serviceName]);
+    assert.deepEqual(await readFile(servicePath), serviceBinary);
     assert.equal(newBusiness.runtime_revision, oldBusiness.runtime_revision);
     assert.equal(await readFile(reuseProbe, 'utf8'), 'keep');
     assert.equal((await cli('start')).instance, newBusiness.instance);
     assert.equal((await cli('service-status')).revision, newHost.revision);
     await cli('stop');
-    checks.push('显式重启切换新服务并回收旧组件，拒绝指向已更换实例的确认');
+    checks.push('显式重启等待旧服务退出并替换固定路径，拒绝指向已更换实例的确认');
   }
 } catch (error) {
   failure = error;

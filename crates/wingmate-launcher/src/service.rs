@@ -1,4 +1,5 @@
 //! 管理客户端及发行引导；业务进程只由独立服务操作。
+use crate::components;
 use anyhow::{Context, Result};
 pub use engine::{operation_lock, Snapshot, StartupStage};
 use std::{
@@ -87,7 +88,15 @@ fn ensure_host(home: &Path) -> Result<host::Endpoint> {
         host::call(&endpoint, "status", None)?;
         return Ok(endpoint);
     }
-    let binary = crate::components::install(home, false)?;
+    start_prepared_host(home, components::prepare(home, false)?)
+}
+
+fn start_prepared_host(
+    home: &Path,
+    prepared: components::PreparedBinary,
+) -> Result<host::Endpoint> {
+    let revision = prepared.revision.clone();
+    let binary = prepared.publish()?;
     let log = File::create(home.join("host.log"))?;
     let mut command = Command::new(&binary);
     crate::runtime::quiet(&mut command);
@@ -115,7 +124,7 @@ fn ensure_host(home: &Path) -> Result<host::Endpoint> {
         if let Ok(Some(endpoint)) = host::endpoint(home) {
             if host::call(&endpoint, "status", None).is_ok() {
                 anyhow::ensure!(
-                    endpoint.pid == child.id() && endpoint.revision == host::revision(&binary)?,
+                    endpoint.pid == child.id() && endpoint.revision == revision,
                     "启动期间管理服务实例已更换"
                 );
                 return Ok(endpoint);
@@ -166,7 +175,7 @@ fn start_local(
 ) -> Result<Snapshot> {
     let _bootstrap = bootstrap_lock(home)?;
     report(StartupStage::Checking);
-    let desired = crate::components::service_revision()?;
+    let desired = components::service_revision()?;
     let mut endpoint = if let Some(target) = expected {
         let current = host::endpoint(home)?.context("原管理服务已退出，请重新检查")?;
         anyhow::ensure!(
@@ -184,18 +193,24 @@ fn start_local(
             expected.is_none_or(|target| target.matches(&current)),
             "后台实例已更换，请重新检查"
         );
+        let replacement = if endpoint.revision != desired {
+            let binary = components::prepare(home, false)?;
+            anyhow::ensure!(binary.revision == desired, "服务构建产物已变化，请重试");
+            Some(binary)
+        } else {
+            None
+        };
         if let Some(state) = current.business {
             report(StartupStage::Stopping);
             host::call(&endpoint, "stop", Some(&state.instance))?;
         }
-        if endpoint.revision != desired {
+        if let Some(binary) = replacement {
             report(StartupStage::Stopping);
             shutdown_endpoint(home, &endpoint).context("退出旧管理服务失败")?;
             prepare(home, &report)?;
             prepared = true;
             report(StartupStage::Starting);
-            endpoint = ensure_host(home).context("启动新版管理服务失败")?;
-            anyhow::ensure!(endpoint.revision == desired, "管理服务指纹未切换");
+            endpoint = start_prepared_host(home, binary).context("启动新版管理服务失败")?;
         }
     }
     let state = if let Some(state) = host::call(&endpoint, "status", None)?.business {
@@ -239,7 +254,6 @@ fn start_local(
                     && current.runtime_revision.as_deref() == crate::RUNTIME_REVISION
             }) {
                 crate::runtime::cleanup_after_ready(home, &current);
-                crate::components::cleanup_services(home, &desired)?;
             }
             Ok(())
         })();
@@ -325,6 +339,29 @@ pub fn restart_with_progress(
 ) -> Result<Snapshot> {
     start_client(home, target, true, report, ready)
 }
+
+pub fn request_desktop_reopen(home: &Path) -> Result<()> {
+    let executable = std::env::var_os("WINGMATE_LAUNCHER").context("缺少 Wingmate 发行入口")?;
+    let log = home.join("desktop-update.log");
+    let mut command = Command::new(executable);
+    crate::runtime::quiet(&mut command);
+    let mut child = command
+        .arg("internal-reopen-desktop")
+        .env("WINGMATE_HOME", home)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::from(File::create(&log)?))
+        .spawn()?;
+    let mut reply = String::new();
+    BufReader::new(child.stdout.take().unwrap()).read_line(&mut reply)?;
+    if reply.trim() != "ready" {
+        child.wait()?;
+        let detail = std::fs::read_to_string(&log).unwrap_or_default();
+        anyhow::bail!("无法重开窗口。{}", detail.trim());
+    }
+    Ok(())
+}
+
 pub fn stop(home: &Path) -> Result<()> {
     stop_request(home, None)
 }
@@ -364,14 +401,23 @@ pub fn connection_status(home: &Path) -> Result<Option<HostStatus>> {
     );
     Ok(host)
 }
-fn shutdown_endpoint(home: &Path, endpoint: &host::Endpoint) -> Result<()> {
+fn shutdown_endpoint(_home: &Path, endpoint: &host::Endpoint) -> Result<()> {
+    #[cfg(windows)]
+    let process = crate::process_wait::open(endpoint.pid)?.context("管理服务已退出")?;
     host::call(endpoint, "shutdown", None)?;
     let deadline = Instant::now() + Duration::from_secs(10);
-    while host::try_lock(home)?.is_none() {
-        anyhow::ensure!(Instant::now() < deadline, "管理服务尚未退出");
-        std::thread::sleep(Duration::from_millis(50));
+    #[cfg(windows)]
+    {
+        crate::process_wait::wait(&process, deadline, "管理服务尚未退出")
     }
-    Ok(())
+    #[cfg(not(windows))]
+    {
+        while host::try_lock(_home)?.is_none() {
+            anyhow::ensure!(Instant::now() < deadline, "管理服务尚未退出");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        Ok(())
+    }
 }
 pub fn shutdown(home: &Path) -> Result<()> {
     let _bootstrap = bootstrap_lock(home)?;
@@ -382,15 +428,11 @@ pub fn shutdown(home: &Path) -> Result<()> {
 }
 pub fn restart_host(home: &Path) -> Result<()> {
     let _bootstrap = bootstrap_lock(home)?;
-    let desired = crate::components::service_revision()?;
+    let binary = components::prepare(home, false)?;
     if let Some(endpoint) = host::endpoint(home)? {
         shutdown_endpoint(home, &endpoint)?;
     }
-    let endpoint = ensure_host(home)?;
-    anyhow::ensure!(endpoint.revision == desired, "管理服务指纹未切换");
-    if let Err(error) = crate::components::cleanup_services(home, &desired) {
-        log_cleanup_error(home, error);
-    }
+    start_prepared_host(home, binary)?;
     Ok(())
 }
 

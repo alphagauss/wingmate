@@ -136,6 +136,8 @@ fn run() -> Result<()> {
         return Ok(());
     }
     let value = match command.as_deref() {
+        #[cfg(feature = "desktop")]
+        Some("internal-reopen-desktop") => return wingmate_launcher::reopen_desktop(&home),
         Some("start") => public_state(Some(service::start(&home)?)),
         Some("status") => public_state(service::status(&home)?),
         Some("stop") => {

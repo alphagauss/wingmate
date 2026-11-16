@@ -75,6 +75,7 @@ pub(super) fn expose(
     url: &Url,
     workspace: &super::Workspace,
     service_update: bool,
+    runtime_update: bool,
 ) {
     let origin = &workspace.origin;
     if &url.origin().ascii_serialization() != origin || url.path() == "/_wingmate/desktop" {
@@ -92,7 +93,7 @@ pub(super) fn expose(
         state.instance,
         version,
         state.dsh_home,
-        state.runtime_revision.as_deref() != super::RUNTIME_REVISION,
+        runtime_update,
         service_update,
         startup::SUPPORTED,
         cli::SUPPORTED,
