@@ -3,6 +3,7 @@ dist/
 /target/
 /src-tauri/target/
 /src-tauri/gen/
+/scripts/format-kotlin/build/
 /runtime/.cache/
 /runtime/out/
 /runtime/stage/

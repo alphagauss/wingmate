@@ -14,11 +14,15 @@
     "dev": "pnpm runtime:dev && pnpm build:frontend && tauri dev",
     "build": "node scripts/build.mjs",
     "build:frontend": "pnpm --filter @wingmate/desktop build",
+    "format": "biome format --write . && cargo fmt --all && rustfmt --edition 2021 crates/wingmate-service/tests/fixtures/cloudflared.rs && pnpm format:android formatKotlin",
+    "format:check": "biome format . && cargo fmt --all --check && rustfmt --check --edition 2021 crates/wingmate-service/tests/fixtures/cloudflared.rs && pnpm format:android checkKotlinFormat",
+    "format:android": "java -classpath apps/mobile/android/gradle/wrapper/gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain --project-dir scripts/format-kotlin --project-cache-dir ../../work/cache/format-kotlin",
     "test": "node --test scripts/runtime-files.test.mjs scripts/runtime-patches.test.mjs scripts/runtime-plugins.test.mjs scripts/smoke.test.mjs crates/wingmate-service/src/tunnel/download.test.mjs && pnpm --filter dsh-wingmate-web typecheck && pnpm --filter dsh-wingmate-backends test && pnpm --filter dsh-wingmate-file-viewer test && pnpm build:frontend && cargo test --workspace --no-default-features",
     "test:service": "cargo test -p wingmate-service",
     "test:smoke": "node scripts/smoke.mjs"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.9",
     "@tauri-apps/cli": "2.12.3",
     "tar": "^7.5.7"
   }

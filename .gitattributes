@@ -1,0 +1,15 @@
+*.cjs text eol=lf
+*.css text eol=lf
+*.cts text eol=lf
+*.html text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.jsx text eol=lf
+*.mjs text eol=lf
+*.mts text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+package-lock.json !text !eol
+runtime/android/locks/** !text !eol
+runtime/android/patches/** !text !eol
+runtime/patches/** !text !eol

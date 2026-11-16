@@ -47,6 +47,8 @@ pnpm install --frozen-lockfile
 pnpm test
 ```
 
+提交代码前执行[格式化流程](scripts/README.md#提交前格式化)。
+
 日常开发按变更范围执行静态检查和相关自动化测试，通过即可结束验证。确需运行应用验证，或排查复杂问题需要运行时证据时，用 `pnpm dev` 启动开发版。开发目录和停机步骤见[本地开发与构建](docs/runtime-debugging.md#本地开发与构建)。
 
 遇到明确的发行版问题或需要验收发行产物时，使用以下命令。无 GUI 发行使用 `pnpm build --headless`。

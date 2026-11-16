@@ -4,6 +4,16 @@
 
 构建目录和应用占用的处理见[本地开发与构建](../docs/runtime-debugging.md#本地开发与构建)。
 
+## 提交前格式化
+
+在仓库根目录运行 `pnpm format`，查看 `git diff`，再运行 `pnpm format:check` 确认格式并按变更范围执行测试。`pnpm format:check` 只检查格式，发现差异时返回非零退出码。
+
+- Biome 处理 JavaScript、TypeScript、HTML、CSS 和手写 JSON。用 `pnpm install --frozen-lockfile` 安装锁定版本。
+- `rustfmt` 处理 Rust 工作区和独立编译的测试夹具。使用当前 Rust 工具链的 `rustfmt` 组件，可用 `rustup component add rustfmt` 安装。
+- `ktfmt` 使用 Kotlin 官方风格处理 Android Kotlin 和 Gradle Kotlin 脚本。确保 `java` 可从 `PATH` 调用 JDK 17。Gradle Wrapper 会解析锁定版本的格式化器，格式化任务可独立于 Android SDK 和运行时载荷执行。
+
+格式化范围以源码为主。上游参考检出、构建产物、依赖锁文件和运行时补丁保留其原格式。
+
 ## 验证边界
 
 - 功能代码完成后，按变更范围执行静态检查和相关自动化测试。日常开发以这些检查通过为验证完成标准。仓库级自动化测试入口为 `pnpm test`。
