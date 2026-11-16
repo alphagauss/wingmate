@@ -11,27 +11,56 @@ import org.junit.Test
 class EngineUpgradeTest {
     private val base = Files.createTempDirectory("engine-upgrade").toFile()
     private val spec = EngineUpgradeSpec("a".repeat(64), "24.04.5", ENGINE_PATHS)
-    private val directories = setOf("opt/dsh", "opt/node", "opt/wingmate", "etc/dsh-app", "usr/local/lib/node_modules/pnpm")
-    private val users = listOf("usr/bin/gh", "usr/local/bin/custom", "var/lib/dpkg/status", "etc/apt/sources.list",
-        "usr/local/lib/node_modules/custom/index.js", "opt/python/lib/site-packages/custom.py", "root/.config/gh/config.yml")
+    private val directories =
+        setOf(
+            "opt/dsh",
+            "opt/node",
+            "opt/wingmate",
+            "etc/dsh-app",
+            "usr/local/lib/node_modules/pnpm",
+        )
+    private val users =
+        listOf(
+            "usr/bin/gh",
+            "usr/local/bin/custom",
+            "var/lib/dpkg/status",
+            "etc/apt/sources.list",
+            "usr/local/lib/node_modules/custom/index.js",
+            "opt/python/lib/site-packages/custom.py",
+            "root/.config/gh/config.yml",
+        )
 
-    @After fun cleanup() { base.deleteRecursively() }
-
-    private fun write(path: String, text: String = path): File = File(base, path).apply {
-        parentFile!!.mkdirs(); writeText(text)
+    @After
+    fun cleanup() {
+        base.deleteRecursively()
     }
 
-    private fun entry(tree: String, path: String): File = File(base, "$tree/$path" + if (path in directories) "/version" else "")
+    private fun write(path: String, text: String = path): File =
+        File(base, path).apply {
+            parentFile!!.mkdirs()
+            writeText(text)
+        }
+
+    private fun entry(tree: String, path: String): File =
+        File(base, "$tree/$path" + if (path in directories) "/version" else "")
 
     private fun stage() {
-        for (path in ENGINE_PATHS) entry("staging", path).apply { parentFile!!.mkdirs(); writeText("new") }
+        for (path in ENGINE_PATHS) entry("staging", path).apply {
+            parentFile!!.mkdirs()
+            writeText("new")
+        }
     }
 
-    private fun transaction(sync: () -> Unit = {}, afterStep: (String) -> Unit = {}): EngineUpgrade =
-        EngineUpgrade(base, sync, syncDirectory = {}, afterStep = afterStep)
+    private fun transaction(
+        sync: () -> Unit = {},
+        afterStep: (String) -> Unit = {},
+    ): EngineUpgrade = EngineUpgrade(base, sync, syncDirectory = {}, afterStep = afterStep)
 
     private fun installed() {
-        for (path in ENGINE_PATHS) entry("rootfs", path).apply { parentFile!!.mkdirs(); writeText("old") }
+        for (path in ENGINE_PATHS) entry("rootfs", path).apply {
+            parentFile!!.mkdirs()
+            writeText("old")
+        }
         for (path in users) write("rootfs/$path", "user:$path")
         write("rootfs.version", "old")
         stage()
@@ -48,7 +77,8 @@ class EngineUpgradeTest {
         assertFalse(File(base, "engine.upgrade").exists())
     }
 
-    @Test fun upgradesOnlyAppOwnedPathsAndKeepsPackageDatabasesToolsAndModes() {
+    @Test
+    fun upgradesOnlyAppOwnedPathsAndKeepsPackageDatabasesToolsAndModes() {
         assumeTrue(Files.getFileStore(base.toPath()).supportsFileAttributeView("posix"))
         installed()
         val gh = File(base, "rootfs/usr/bin/gh")
@@ -63,15 +93,25 @@ class EngineUpgradeTest {
         assertEquals("../../bin/gh", Files.readSymbolicLink(link.toPath()).toString())
     }
 
-    @Test fun publishedTransactionsResumeAtEveryMutationAndBeforeAndAfterTheReadyMarker() {
-        val steps = listOf("journal", "retired", "data", "marker", "committed") +
-            ENGINE_PATHS.flatMap { listOf("backup:$it", "activate:$it") }
+    @Test
+    fun publishedTransactionsResumeAtEveryMutationAndBeforeAndAfterTheReadyMarker() {
+        val steps =
+            listOf("journal", "retired", "data", "marker", "committed") +
+                ENGINE_PATHS.flatMap { listOf("backup:$it", "activate:$it") }
         for (step in steps) {
-            base.deleteRecursively(); base.mkdirs(); installed()
+            base.deleteRecursively()
+            base.mkdirs()
+            installed()
             var hit = false
-            val upgrading = transaction(afterStep = {
-                if (!hit && it == step) { hit = true; throw IOException("simulated kill") }
-            })
+            val upgrading =
+                transaction(
+                    afterStep = {
+                        if (!hit && it == step) {
+                            hit = true
+                            throw IOException("simulated kill")
+                        }
+                    },
+                )
             assertThrows(IOException::class.java) { upgrading.activate("new", spec) }
             assertTrue("step not exercised: $step", hit)
             // install() discards staging on every retry. The durable payload must
@@ -82,7 +122,8 @@ class EngineUpgradeTest {
         }
     }
 
-    @Test fun unpublishedPreparationCanBeDiscardedWithoutTouchingTheInstalledSystem() {
+    @Test
+    fun unpublishedPreparationCanBeDiscardedWithoutTouchingTheInstalledSystem() {
         installed()
         assertThrows(IOException::class.java) {
             transaction(afterStep = { if (it == "prepared") throw IOException("kill") })
@@ -97,11 +138,13 @@ class EngineUpgradeTest {
         assertCurrent()
     }
 
-    @Test fun failedDataSyncLeavesNoReadyMarkerAndTheRetryFinishes() {
+    @Test
+    fun failedDataSyncLeavesNoReadyMarkerAndTheRetryFinishes() {
         installed()
         var barriers = 0
         assertThrows(IOException::class.java) {
-            transaction(sync = { if (++barriers == 2) throw IOException("data sync") }).activate("new", spec)
+            transaction(sync = { if (++barriers == 2) throw IOException("data sync") })
+                .activate("new", spec)
         }
         assertFalse(File(base, "rootfs.version").exists())
         assertUsers()
@@ -109,7 +152,8 @@ class EngineUpgradeTest {
         assertCurrent()
     }
 
-    @Test fun missingPayloadIsRejectedBeforeRetiringTheInstalledVersion() {
+    @Test
+    fun missingPayloadIsRejectedBeforeRetiringTheInstalledVersion() {
         installed()
         entry("staging", "usr/local/bin/dsh").delete()
         assertThrows(RuntimeUpgradeBlocked::class.java) { transaction().activate("new", spec) }
@@ -118,7 +162,8 @@ class EngineUpgradeTest {
         assertUsers()
     }
 
-    @Test fun symlinkedParentsCannotRedirectAnUpgradeAndLeafLinksAreNotFollowed() {
+    @Test
+    fun symlinkedParentsCannotRedirectAnUpgradeAndLeafLinksAreNotFollowed() {
         assumeTrue(Files.getFileStore(base.toPath()).supportsFileAttributeView("posix"))
         installed()
         val outside = File(base, "outside").apply { mkdirs() }
@@ -129,7 +174,8 @@ class EngineUpgradeTest {
         assertEquals("old", File(base, "rootfs.version").readText())
     }
 
-    @Test fun missingOldAliasesCanBeAddedWithoutDroppingOtherGlobalPackages() {
+    @Test
+    fun missingOldAliasesCanBeAddedWithoutDroppingOtherGlobalPackages() {
         assumeTrue(Files.getFileStore(base.toPath()).supportsFileAttributeView("posix"))
         installed()
         entry("rootfs", "usr/local/bin/pnx").delete()
@@ -138,21 +184,32 @@ class EngineUpgradeTest {
         Files.createSymbolicLink(dsh.toPath(), java.nio.file.Path.of("../../../opt/dsh/cli"))
         transaction().activate("new", spec)
         assertUsers()
-        assertEquals("../../../opt/dsh/cli", Files.readSymbolicLink(entry("rootfs", "usr/local/bin/dsh").toPath()).toString())
+        assertEquals(
+            "../../../opt/dsh/cli",
+            Files.readSymbolicLink(entry("rootfs", "usr/local/bin/dsh").toPath()).toString(),
+        )
         assertEquals("new", entry("rootfs", "usr/local/bin/pnx").readText())
     }
 
-    @Test fun everyDirectorySyncFailureCanBeRetriedWithoutLosingEitherSystemOrPayload() {
+    @Test
+    fun everyDirectorySyncFailureCanBeRetriedWithoutLosingEitherSystemOrPayload() {
         installed()
         var calls = 0
         EngineUpgrade(base, sync = {}, syncDirectory = { calls++ }).activate("new", spec)
         for (failureAt in 1..calls) {
-            base.deleteRecursively(); base.mkdirs(); installed()
+            base.deleteRecursively()
+            base.mkdirs()
+            installed()
             var observed = 0
             assertThrows(IOException::class.java) {
-                EngineUpgrade(base, sync = {}, syncDirectory = {
-                    if (++observed == failureAt) throw IOException("directory sync")
-                }).activate("new", spec)
+                EngineUpgrade(
+                        base,
+                        sync = {},
+                        syncDirectory = {
+                            if (++observed == failureAt) throw IOException("directory sync")
+                        },
+                    )
+                    .activate("new", spec)
             }
             assertUsers()
             transaction().recover()
@@ -164,7 +221,8 @@ class EngineUpgradeTest {
         }
     }
 
-    @Test fun missingPayloadCannotMakeAnOldEntryLookLikeACompletedUpgrade() {
+    @Test
+    fun missingPayloadCannotMakeAnOldEntryLookLikeACompletedUpgrade() {
         installed()
         assertThrows(IOException::class.java) {
             transaction(afterStep = { if (it == "journal") throw IOException("kill") })
@@ -177,7 +235,8 @@ class EngineUpgradeTest {
         assertUsers()
     }
 
-    @Test fun unknownOrOverbroadManifestsCannotTakeOwnershipOfUserFiles() {
+    @Test
+    fun unknownOrOverbroadManifestsCannotTakeOwnershipOfUserFiles() {
         installed()
         for (paths in listOf(listOf("usr"), ENGINE_PATHS + "root", ENGINE_PATHS + "../outside")) {
             assertThrows(RuntimeUpgradeBlocked::class.java) {

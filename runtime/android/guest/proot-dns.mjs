@@ -8,5 +8,7 @@ import { installLookup } from './dns.mjs';
 try {
   installLookup({ resolvConf: '/etc/resolv.conf', hostsFile: '/etc/hosts' });
 } catch {
-  console.error('[dsh-app] proot DNS initialization failed; native lookup retained');
+  console.error(
+    '[dsh-app] proot DNS initialization failed; native lookup retained',
+  );
 }

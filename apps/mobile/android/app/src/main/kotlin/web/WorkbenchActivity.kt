@@ -56,47 +56,58 @@ class WorkbenchActivity : AppCompatActivity() {
     private var loadFailed = false
     private var paused = true
     private var localToken: String? = null
-    private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    private val notifications =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
     private val connections = ConnectionFlow(this)
     private var fileResult: ValueCallback<Array<Uri>>? = null
-    private val filePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        fileResult?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(it.resultCode, it.data))
-        fileResult = null
-    }
+    private val filePicker =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            fileResult?.onReceiveValue(
+                WebChromeClient.FileChooserParams.parseResult(it.resultCode, it.data),
+            )
+            fileResult = null
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         val provider = WebViewCompat.getCurrentWebViewPackage(this)
-        if (!supportsWorkbenchWebView(provider?.versionName) ||
-            !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+        if (
+            !supportsWorkbenchWebView(provider?.versionName) ||
+                !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
         ) {
             AlertDialog.Builder(this)
-                .setMessage(labels["connection.webViewUpdateRequired"].format(MIN_WORKBENCH_WEBVIEW_MAJOR))
+                .setMessage(
+                    labels["connection.webViewUpdateRequired"].format(MIN_WORKBENCH_WEBVIEW_MAJOR),
+                )
                 .setPositiveButton(android.R.string.ok, null)
                 .setOnDismissListener { finish() }
                 .show()
             return
         }
         workbench = FrameLayout(this)
-        root = FrameLayout(this).apply {
-            setBackgroundColor(ConnectionUi(this@WorkbenchActivity).background)
-            addView(workbench, FrameLayout.LayoutParams(-1, -1))
-            applyWindowInsets()
-        }
+        root =
+            FrameLayout(this).apply {
+                setBackgroundColor(ConnectionUi(this@WorkbenchActivity).background)
+                addView(workbench, FrameLayout.LayoutParams(-1, -1))
+                applyWindowInsets()
+            }
         loading = WorkbenchLoading(this, ::retry) { appSettings.open() }
         workbench.addView(loading, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                when {
-                    !::appSettings.isInitialized -> finish()
-                    appSettings.back() -> Unit
-                    webView.canGoBack() -> webView.goBack()
-                    else -> finish()
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    when {
+                        !::appSettings.isInitialized -> finish()
+                        appSettings.back() -> Unit
+                        webView.canGoBack() -> webView.goBack()
+                        else -> finish()
+                    }
                 }
-            }
-        })
+            },
+        )
         val link = intent.getStringExtra("link")
         if (link != null) {
             showWorkbench(link)
@@ -108,11 +119,12 @@ class WorkbenchActivity : AppCompatActivity() {
     }
 
     private fun startLocalWorkbench() {
-        val engine = localEngineSettings(this) { link ->
-            intent.removeExtra(START_LOCAL_WORKBENCH)
-            intent.putExtra("link", link.toString())
-            showWorkbench(link.toString(), fromStartup = true)
-        } ?: return finish()
+        val engine =
+            localEngineSettings(this) { link ->
+                intent.removeExtra(START_LOCAL_WORKBENCH)
+                intent.putExtra("link", link.toString())
+                showWorkbench(link.toString(), fromStartup = true)
+            } ?: return finish()
         engine.openWorkbench?.let { open ->
             open()
             return
@@ -143,39 +155,55 @@ class WorkbenchActivity : AppCompatActivity() {
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             WebView.setWebContentsDebuggingEnabled(true)
         }
-        webView = WebView(this).apply {
-            setBackgroundColor(ui.background)
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.allowFileAccess = false
-            webViewClient = workbenchClient(origin)
-            webChromeClient = object : WebChromeClient() {
-                override fun onShowFileChooser(
-                    view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams
-                ): Boolean {
-                    fileResult?.onReceiveValue(null)
-                    fileResult = callback
-                    try {
-                        filePicker.launch(params.createIntent())
-                    } catch (_: ActivityNotFoundException) {
-                        fileResult = null
-                        callback.onReceiveValue(null)
+        webView =
+            WebView(this).apply {
+                setBackgroundColor(ui.background)
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.allowFileAccess = false
+                webViewClient = workbenchClient(origin)
+                webChromeClient =
+                    object : WebChromeClient() {
+                        override fun onShowFileChooser(
+                            view: WebView,
+                            callback: ValueCallback<Array<Uri>>,
+                            params: FileChooserParams,
+                        ): Boolean {
+                            fileResult?.onReceiveValue(null)
+                            fileResult = callback
+                            try {
+                                filePicker.launch(params.createIntent())
+                            } catch (_: ActivityNotFoundException) {
+                                fileResult = null
+                                callback.onReceiveValue(null)
+                            }
+                            return true
+                        }
                     }
-                    return true
-                }
             }
-        }
         workbench.addView(webView, 0, FrameLayout.LayoutParams(-1, -1))
 
         root.removeView(workbench)
-        appSettings = AppSettings(this, root, workbench, connections, activeOrigin,
-            localCurrent, localEngineSettings(this, ::openLocalWorkbench))
-        bridge = WorkbenchBridge(this, webView, activeOrigin, ::ready) { theme ->
-            appSettings.applyTheme(theme)
-            loading.applyTheme(theme)
-        }
+        appSettings =
+            AppSettings(
+                this,
+                root,
+                workbench,
+                connections,
+                activeOrigin,
+                localCurrent,
+                localEngineSettings(this, ::openLocalWorkbench),
+            )
+        bridge =
+            WorkbenchBridge(this, webView, activeOrigin, ::ready) { theme ->
+                appSettings.applyTheme(theme)
+                loading.applyTheme(theme)
+            }
         root.addView(appSettings.view, FrameLayout.LayoutParams(-1, -1))
-        workbench.addManagementButton(getSharedPreferences("connection", MODE_PRIVATE), appSettings::open)
+        workbench.addManagementButton(
+            getSharedPreferences("connection", MODE_PRIVATE),
+            appSettings::open,
+        )
         if (fromStartup) loading.enter()
         webView.loadUrl(link)
     }
@@ -200,8 +228,11 @@ class WorkbenchActivity : AppCompatActivity() {
             }
             return
         }
-        startActivity(Intent(this, WorkbenchActivity::class.java)
-            .putExtra("link", link.toString()).putExtra("localAgent", true))
+        startActivity(
+            Intent(this, WorkbenchActivity::class.java)
+                .putExtra("link", link.toString())
+                .putExtra("localAgent", true),
+        )
         finish()
     }
 
@@ -210,8 +241,11 @@ class WorkbenchActivity : AppCompatActivity() {
         loading.stop()
         if (paused) return
         applyNotificationFocus()
-        if (preferences.taskNotifications && Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        if (
+            preferences.taskNotifications &&
+                Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                    PackageManager.PERMISSION_GRANTED
         ) {
             val preferences = getSharedPreferences("connection", MODE_PRIVATE)
             if (!preferences.getBoolean("notifications_requested", false)) {
@@ -237,82 +271,125 @@ class WorkbenchActivity : AppCompatActivity() {
             finish()
         } else {
             setIntent(intent)
-            if (intent.getBooleanExtra("localAgent", false) && link.getQueryParameter("token") != null) retry()
+            if (
+                intent.getBooleanExtra("localAgent", false) &&
+                    link.getQueryParameter("token") != null
+            )
+                retry()
             else applyNotificationFocus()
         }
     }
 
-    private fun workbenchClient(origin: Uri) = object : WebViewClient() {
-        private val pairingParameter = if (intent.getBooleanExtra("localAgent", false)) "token" else "auth"
-        private var clearPairingHistory = origin.getQueryParameter(pairingParameter) != null
-        private var authenticating = false
+    private fun workbenchClient(origin: Uri) =
+        object : WebViewClient() {
+            private val pairingParameter =
+                if (intent.getBooleanExtra("localAgent", false)) "token" else "auth"
+            private var clearPairingHistory = origin.getQueryParameter(pairingParameter) != null
+            private var authenticating = false
 
-        private fun sameOrigin(uri: Uri): Boolean =
-            uri.scheme == origin.scheme && uri.host == origin.host && uri.port == origin.port && uri.userInfo == null
+            private fun sameOrigin(uri: Uri): Boolean =
+                uri.scheme == origin.scheme &&
+                    uri.host == origin.host &&
+                    uri.port == origin.port &&
+                    uri.userInfo == null
 
-        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-            if (!request.isForMainFrame) return false
-            val destination = request.url
-            if (sameOrigin(destination)) {
-                authenticating = false
-                return false
+            override fun shouldOverrideUrlLoading(
+                view: WebView,
+                request: WebResourceRequest,
+            ): Boolean {
+                if (!request.isForMainFrame) return false
+                val destination = request.url
+                if (sameOrigin(destination)) {
+                    authenticating = false
+                    return false
+                }
+                if (
+                    destination.scheme == "https" &&
+                        destination.userInfo == null &&
+                        (authenticating ||
+                            (request.isRedirect &&
+                                destination.host.orEmpty().endsWith(".cloudflareaccess.com") &&
+                                destination.path.orEmpty().startsWith("/cdn-cgi/access/login/")))
+                ) {
+                    authenticating = true
+                    clearPairingHistory = true
+                    loading.stop()
+                    return false
+                }
+                if (destination.scheme in listOf("http", "https") && destination.userInfo == null) {
+                    try {
+                        startActivity(Intent(Intent.ACTION_VIEW, destination))
+                    } catch (_: ActivityNotFoundException) {
+                        Toast.makeText(
+                                this@WorkbenchActivity,
+                                labels["connection.connectionFailed"],
+                                Toast.LENGTH_SHORT,
+                            )
+                            .show()
+                    }
+                }
+                return true
             }
-            if (destination.scheme == "https" && destination.userInfo == null &&
-                (authenticating || (request.isRedirect && destination.host.orEmpty().endsWith(".cloudflareaccess.com") &&
-                    destination.path.orEmpty().startsWith("/cdn-cgi/access/login/")))
+
+            override fun onPageStarted(
+                view: WebView,
+                url: String,
+                favicon: android.graphics.Bitmap?,
             ) {
-                authenticating = true
-                clearPairingHistory = true
-                loading.stop()
-                return false
+                val current = Uri.parse(url)
+                if (!sameOrigin(current)) return
+                if (
+                    pairingParameter == "token" &&
+                        current.path == "/" &&
+                        current.getQueryParameter("token") != null
+                ) {
+                    clearPairingHistory = true
+                }
+                loadFailed = false
+                bridge.started()
+                if (!loading.entering) loading.start()
             }
-            if (destination.scheme in listOf("http", "https") && destination.userInfo == null) {
-                try {
-                    startActivity(Intent(Intent.ACTION_VIEW, destination))
-                } catch (_: ActivityNotFoundException) {
-                    Toast.makeText(this@WorkbenchActivity, labels["connection.connectionFailed"], Toast.LENGTH_SHORT).show()
+
+            override fun onPageFinished(view: WebView, url: String) {
+                val current = Uri.parse(url)
+                if (!sameOrigin(current)) return
+                bridge.finished()
+                if (clearPairingHistory && current.getQueryParameter(pairingParameter) == null) {
+                    view.clearHistory()
+                    CookieManager.getInstance().flush()
+                    clearPairingHistory = false
+                    // The Intent is retained on Activity recreation; keep only the origin after
+                    // pairing.
+                    intent.putExtra("link", origin.buildUpon().clearQuery().build().toString())
                 }
             }
-            return true
-        }
 
-        override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
-            val current = Uri.parse(url)
-            if (!sameOrigin(current)) return
-            if (pairingParameter == "token" && current.path == "/" && current.getQueryParameter("token") != null) {
-                clearPairingHistory = true
+            override fun onReceivedError(
+                view: WebView,
+                request: WebResourceRequest,
+                error: WebResourceError,
+            ) {
+                if (request.isForMainFrame) failed()
             }
-            loadFailed = false
-            bridge.started()
-            if (!loading.entering) loading.start()
-        }
 
-        override fun onPageFinished(view: WebView, url: String) {
-            val current = Uri.parse(url)
-            if (!sameOrigin(current)) return
-            bridge.finished()
-            if (clearPairingHistory && current.getQueryParameter(pairingParameter) == null) {
-                view.clearHistory()
-                CookieManager.getInstance().flush()
-                clearPairingHistory = false
-                // The Intent is retained on Activity recreation; keep only the origin after pairing.
-                intent.putExtra("link", origin.buildUpon().clearQuery().build().toString())
+            override fun onReceivedHttpError(
+                view: WebView,
+                request: WebResourceRequest,
+                response: WebResourceResponse,
+            ) {
+                if (
+                    request.isForMainFrame &&
+                        response.statusCode >= 400 &&
+                        response.statusCode != 401
+                )
+                    failed()
+            }
+
+            private fun failed() {
+                loadFailed = true
+                loading.error(labels["connection.connectionFailed"])
             }
         }
-
-        override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-            if (request.isForMainFrame) failed()
-        }
-
-        override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
-            if (request.isForMainFrame && response.statusCode >= 400 && response.statusCode != 401) failed()
-        }
-
-        private fun failed() {
-            loadFailed = true
-            loading.error(labels["connection.connectionFailed"])
-        }
-    }
 
     override fun onResume() {
         super.onResume()

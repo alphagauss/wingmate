@@ -8,13 +8,25 @@
     "./client": "./dist/client.js",
     "./package.json": "./package.json"
   },
-  "files": ["host.mjs", "dist/client.js", "cordis.patch.yml"],
-  "engines": { "dsh": "0.2.2-rc.1" },
+  "files": [
+    "host.mjs",
+    "dist/client.js",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "dsh": "0.2.2-rc.1"
+  },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
-      "inject": ["@deepseek-ai/dsh-client-ui-settings", "@deepseek-ai/dsh-client-ui-plugin-manager", "@deepseek-ai/dsh-client-ui-sidebar-documentpreview"]
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-sidebar-documentpreview"
+      ]
     }
   },
   "scripts": {

@@ -5,7 +5,9 @@ import('node:child_process').then(({ spawnSync }) => {
     env: { ...process.env, WINGMATE_HOME: home },
   });
   if (result.error?.code === 'ENOENT') {
-    console.error('Wingmate moved. Register the terminal commands again in Wingmate settings.');
+    console.error(
+      'Wingmate moved. Register the terminal commands again in Wingmate settings.',
+    );
   } else if (result.error) {
     console.error(result.error.message);
   }

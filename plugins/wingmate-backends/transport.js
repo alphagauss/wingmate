@@ -18,16 +18,22 @@
     }
     return setItem.call(this, key, value);
   };
-  if (!globalThis.__WINGMATE_AGENTS__?.some(agent => agent.id === backend)) return;
+  if (!globalThis.__WINGMATE_AGENTS__?.some((agent) => agent.id === backend))
+    return;
   const original = globalThis.__DSH_TRANSPORT__;
-  const request = original?.fetch ?? ((input, options) => fetch(input, options));
-  const connect = original?.createWebSocket ?? (url => new WebSocket(url));
+  const request =
+    original?.fetch ?? ((input, options) => fetch(input, options));
+  const connect = original?.createWebSocket ?? ((url) => new WebSocket(url));
 
   globalThis.__DSH_TRANSPORT__ = {
     ...original,
     fetch(input, options) {
-      if (typeof input !== 'string' || !input.startsWith('api/')
-          || options?.method !== 'POST' || typeof options.body !== 'string') {
+      if (
+        typeof input !== 'string' ||
+        !input.startsWith('api/') ||
+        options?.method !== 'POST' ||
+        typeof options.body !== 'string'
+      ) {
         return request(input, options);
       }
       let message;
@@ -38,23 +44,25 @@
       }
       if (message?.type !== 'client-request') return request(input, options);
       message.payload = { ...message.payload, wingmateAgent: backend };
-      return request(input, { ...options, body: JSON.stringify(message) }).then(async response => {
-        if (message.method === 'session/list') {
-          const { result } = await response.clone().json();
-          const error = result.ok ? '' : result.error.message;
-          if (error !== globalThis.__WINGMATE_AGENT_ERROR__) {
-            globalThis.__WINGMATE_AGENT_ERROR__ = error;
-            dispatchEvent(new Event('wingmate:agent-status'));
+      return request(input, { ...options, body: JSON.stringify(message) }).then(
+        async (response) => {
+          if (message.method === 'session/list') {
+            const { result } = await response.clone().json();
+            const error = result.ok ? '' : result.error.message;
+            if (error !== globalThis.__WINGMATE_AGENT_ERROR__) {
+              globalThis.__WINGMATE_AGENT_ERROR__ = error;
+              dispatchEvent(new Event('wingmate:agent-status'));
+            }
           }
-        }
-        return response;
-      });
+          return response;
+        },
+      );
     },
     createWebSocket(url) {
       const socket = connect(url);
       if (!new URL(url).pathname.endsWith('/api/remote.mux')) return socket;
       const send = socket.send.bind(socket);
-      socket.send = data => {
+      socket.send = (data) => {
         const message = JSON.parse(data);
         if (message.type === 'open') {
           message.payload = { ...message.payload, wingmateAgent: backend };

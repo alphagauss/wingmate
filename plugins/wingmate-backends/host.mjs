@@ -10,8 +10,14 @@ export const inject = ['connection', 'webServer', 'typertGateway'];
 
 export async function apply(ctx) {
   const directory = process.env.DSH_HOME ?? join(homedir(), '.dsh');
-  const codex = createWorkbench('codex', 'Codex', codexCommand,
-    projectIndex(join(directory, 'storages', 'wingmate-backends', 'codex.json')));
+  const codex = createWorkbench(
+    'codex',
+    'Codex',
+    codexCommand,
+    projectIndex(
+      join(directory, 'storages', 'wingmate-backends', 'codex.json'),
+    ),
+  );
   ctx.effect(() => () => codex.dispose(), 'wingmate-backends: ACP lifetime');
   const backends = new Map([['codex', codex]]);
   await installWorkbench(ctx, backends);

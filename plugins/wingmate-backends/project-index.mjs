@@ -13,13 +13,17 @@ export function projectIndex(file) {
       }
     },
     async write(projects) {
-      const data = JSON.stringify(projects.map(({ path, title }) => ({ path, title })));
+      const data = JSON.stringify(
+        projects.map(({ path, title }) => ({ path, title })),
+      );
       await mkdir(dirname(file), { recursive: true });
       const temporary = `${file}.${randomUUID()}.tmp`;
       try {
         await writeFile(temporary, data);
         await rename(temporary, file);
-      } finally { await rm(temporary, { force: true }); }
+      } finally {
+        await rm(temporary, { force: true });
+      }
     },
   };
 }

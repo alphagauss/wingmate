@@ -22,45 +22,76 @@ internal const val OPEN_HOST_SELECTION = "openHostSelection"
 class MainActivity : AppCompatActivity() {
     private lateinit var home: ConnectionHome
     private lateinit var appSettings: AppSettings
-    private val connections = ConnectionFlow(this, onConnectionRequested = { home.cancelDiscovery() })
+    private val connections =
+        ConnectionFlow(this, onConnectionRequested = { home.cancelDiscovery() })
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        val openOnLaunch = savedInstanceState == null &&
-            !intent.getBooleanExtra(OPEN_HOST_SELECTION, false) && !intent.getBooleanExtra("openLocalAgent", false)
-        val localAgent = localEngineSettings(this) { link ->
-            appSettings.close()
-            startActivity(Intent(this, WorkbenchActivity::class.java)
-                .putExtra("link", link.toString()).putExtra("localAgent", true))
-        }
+        val openOnLaunch =
+            savedInstanceState == null &&
+                !intent.getBooleanExtra(OPEN_HOST_SELECTION, false) &&
+                !intent.getBooleanExtra("openLocalAgent", false)
+        val localAgent =
+            localEngineSettings(this) { link ->
+                appSettings.close()
+                startActivity(
+                    Intent(this, WorkbenchActivity::class.java)
+                        .putExtra("link", link.toString())
+                        .putExtra("localAgent", true),
+                )
+            }
 
-        home = ConnectionHome(this, connections, localAgent, { appSettings.openLocal() },
-            { appSettings.openRemote() }, { appSettings.open() })
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(ConnectionUi(this@MainActivity).background)
-            applyWindowInsets()
-        }
-        appSettings = AppSettings(this, root, home.view, connections, localEngine = localAgent,
-            languageChanged = home::render)
+        home =
+            ConnectionHome(
+                this,
+                connections,
+                localAgent,
+                { appSettings.openLocal() },
+                { appSettings.openRemote() },
+                { appSettings.open() },
+            )
+        val root =
+            FrameLayout(this).apply {
+                setBackgroundColor(ConnectionUi(this@MainActivity).background)
+                applyWindowInsets()
+            }
+        appSettings =
+            AppSettings(
+                this,
+                root,
+                home.view,
+                connections,
+                localEngine = localAgent,
+                languageChanged = home::render,
+            )
         val autoConnect = openOnLaunch && AppPreferences(this).autoConnect
-        val openLocal = autoConnect && (localAgent?.openWorkbench != null || localAgent?.shouldStartOnLaunch == true)
+        val openLocal =
+            autoConnect &&
+                (localAgent?.openWorkbench != null || localAgent?.shouldStartOnLaunch == true)
         root.addView(appSettings.view, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (!appSettings.back() && !home.closeLanResults()) finish()
-            }
-        })
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (!appSettings.back() && !home.closeLanResults()) finish()
+                }
+            },
+        )
         localAgent?.observe(home::render)
         if (openLocal) {
             appSettings.view.visibility = View.INVISIBLE
-            startActivity(Intent(this, WorkbenchActivity::class.java)
-                .putExtra(START_LOCAL_WORKBENCH, true).putExtra("localAgent", true))
+            startActivity(
+                Intent(this, WorkbenchActivity::class.java)
+                    .putExtra(START_LOCAL_WORKBENCH, true)
+                    .putExtra("localAgent", true),
+            )
         } else if (openOnLaunch && localAgent?.shouldStartOnLaunch == true) {
             localAgent.startOnLaunch()
         }
-        if (autoConnect && !openLocal && connections.store.entries().isNotEmpty()) home.discover(true)
+        if (autoConnect && !openLocal && connections.store.entries().isNotEmpty())
+            home.discover(true)
         openRequestedSettings(intent)
     }
 

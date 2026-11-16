@@ -7,13 +7,19 @@ internal class AppPreferences(context: Context) {
 
     var language: String
         get() = values.getString("app_language", "").orEmpty()
-        set(value) { values.edit().putString("app_language", value).apply() }
+        set(value) {
+            values.edit().putString("app_language", value).apply()
+        }
 
     var taskNotifications: Boolean
         get() = values.getBoolean("task_notifications", true)
-        set(value) { values.edit().putBoolean("task_notifications", value).apply() }
+        set(value) {
+            values.edit().putBoolean("task_notifications", value).apply()
+        }
 
     var autoConnect: Boolean
         get() = values.getBoolean("auto_connect", false)
-        set(value) { values.edit().putBoolean("auto_connect", value).apply() }
+        set(value) {
+            values.edit().putBoolean("auto_connect", value).apply()
+        }
 }

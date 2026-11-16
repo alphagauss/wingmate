@@ -9,18 +9,38 @@ async function smokeRuntime(runtime, work, env) {
   const require = createRequire(join(runtime, 'package.json'));
   const checks = [];
   const backend = join(runtime, 'plugins/wingmate-backends');
-  const manifest = JSON.parse(await readFile(join(backend, 'package.json'), 'utf8'));
-  const adapter = spawnSync(process.execPath, [join(backend, 'dist/codex-acp.mjs'), '--version'], {
-    cwd: work, env: { ...env, NODE_PATH: '', NODE_OPTIONS: '', PATH: '' },
-    windowsHide: true, encoding: 'utf8', timeout: 10_000,
-  });
+  const manifest = JSON.parse(
+    await readFile(join(backend, 'package.json'), 'utf8'),
+  );
+  const adapter = spawnSync(
+    process.execPath,
+    [join(backend, 'dist/codex-acp.mjs'), '--version'],
+    {
+      cwd: work,
+      env: { ...env, NODE_PATH: '', NODE_OPTIONS: '', PATH: '' },
+      windowsHide: true,
+      encoding: 'utf8',
+      timeout: 10_000,
+    },
+  );
   assert.equal(adapter.status, 0, adapter.error?.message || adapter.stderr);
-  assert.equal(adapter.stdout.trim(), '@agentclientprotocol/codex-acp ' + manifest.devDependencies['@agentclientprotocol/codex-acp']);
+  assert.equal(
+    adapter.stdout.trim(),
+    '@agentclientprotocol/codex-acp ' +
+      manifest.devDependencies['@agentclientprotocol/codex-acp'],
+  );
   checks.push('内置 ACP 适配器可脱离开发依赖和全局安装启动');
   const { z } = require('zod');
-  assert.equal(z.object({ value: z.string() }).parse({ value: 'ok' }).value, 'ok');
+  assert.equal(
+    z.object({ value: z.string() }).parse({ value: 'ok' }).value,
+    'ok',
+  );
   await readFile(join(runtime, 'node_modules/zod/index.d.ts'));
-  const png = await require('sharp')({ create: { width: 2, height: 2, channels: 3, background: '#2459c7' } }).png().toBuffer();
+  const png = await require('sharp')({
+    create: { width: 2, height: 2, channels: 3, background: '#2459c7' },
+  })
+    .png()
+    .toBuffer();
   assert.equal((await require('sharp')(png).metadata()).width, 2);
   checks.push('释放后的 Zod、类型声明和 Sharp 原生图片处理可用');
 
@@ -30,29 +50,64 @@ async function smokeRuntime(runtime, work, env) {
   checks.push('语音原生模块及 ONNX 依赖可加载（不下载模型）');
 
   await new Promise((resolve, reject) => {
-    const terminal = require('node-pty').spawn(process.execPath,
-      ['-e', 'process.stdout.write("wingmate-pty-ok")'], { cwd: work, env, cols: 80, rows: 24 });
+    const terminal = require('node-pty').spawn(
+      process.execPath,
+      ['-e', 'process.stdout.write("wingmate-pty-ok")'],
+      { cwd: work, env, cols: 80, rows: 24 },
+    );
     let output = '';
-    const timer = setTimeout(() => { terminal.kill(); reject(new Error('终端测试超时')); }, 15_000);
-    terminal.onData(data => output += data);
+    const timer = setTimeout(() => {
+      terminal.kill();
+      reject(new Error('终端测试超时'));
+    }, 15_000);
+    terminal.onData((data) => (output += data));
     terminal.onExit(({ exitCode }) => {
       clearTimeout(timer);
-      if (exitCode !== 0 || !output.includes('wingmate-pty-ok')) reject(new Error(`终端运行失败: ${output}`));
+      if (exitCode !== 0 || !output.includes('wingmate-pty-ok'))
+        reject(new Error(`终端运行失败: ${output}`));
       else resolve();
     });
   });
   checks.push('node-pty 目标架构终端可运行子进程');
 
   assert.throws(() => require.resolve('@deepseek-ai/libreoffice-kit'));
-  const kitFiles = (await readdir(join(runtime, 'node_modules'), { recursive: true, withFileTypes: true }))
-    .filter(entry => entry.isFile() && /[\\/]@deepseek-ai[\\/]libreoffice-kit(?:-[^\\/]+)?[\\/]/.test(`${entry.parentPath}/`));
-  assert.ok(kitFiles.every(entry => /^(licen[cs]e|copying|copyright|notice)([.-]|$)/i.test(entry.name)));
-  const preview = await readFile(join(runtime, 'node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js'), 'utf8');
+  const kitFiles = (
+    await readdir(join(runtime, 'node_modules'), {
+      recursive: true,
+      withFileTypes: true,
+    })
+  ).filter(
+    (entry) =>
+      entry.isFile() &&
+      /[\\/]@deepseek-ai[\\/]libreoffice-kit(?:-[^\\/]+)?[\\/]/.test(
+        `${entry.parentPath}/`,
+      ),
+  );
+  assert.ok(
+    kitFiles.every((entry) =>
+      /^(licen[cs]e|copying|copyright|notice)([.-]|$)/i.test(entry.name),
+    ),
+  );
+  const preview = await readFile(
+    join(
+      runtime,
+      'node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js',
+    ),
+    'utf8',
+  );
   assert.ok(!preview.includes('apply$2(ctx, config.office);'));
   checks.push('LibreOffice 运行内容已裁剪，旧 Office 预览入口已移除');
   return checks;
 }
 
-console.log(JSON.stringify(await smokeRuntime(resolve(process.argv[2]), resolve(process.argv[3]), process.env)));
+console.log(
+  JSON.stringify(
+    await smokeRuntime(
+      resolve(process.argv[2]),
+      resolve(process.argv[3]),
+      process.env,
+    ),
+  ),
+);
 // 原生库可能保留线程池；所有操作已完成并 dispose，结束这个专用测试进程。
 process.exit(0);

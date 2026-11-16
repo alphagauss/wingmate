@@ -17,12 +17,13 @@ internal class SettingsOverlay(
     private val workbench: View,
     private val visibilityChanged: (Boolean) -> Unit,
     private val hasParentPage: () -> Boolean,
-    private val back: () -> Unit
+    private val back: () -> Unit,
 ) : FrameLayout(context) {
-    private val page = FrameLayout(context).apply {
-        visibility = GONE
-        isClickable = true
-    }
+    private val page =
+        FrameLayout(context).apply {
+            visibility = GONE
+            isClickable = true
+        }
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
     private var progress = 1f
     private var animator: ValueAnimator? = null
@@ -34,7 +35,9 @@ internal class SettingsOverlay(
     private var scrolling = false
     var closing = false
         private set
-    val showing: Boolean get() = page.visibility == VISIBLE
+
+    val showing: Boolean
+        get() = page.visibility == VISIBLE
 
     init {
         addView(workbench, LayoutParams(-1, -1))
@@ -53,22 +56,24 @@ internal class SettingsOverlay(
         }
         previous.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         next.translationX = width.toFloat() * direction
-        pageAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 270
-            interpolator = DecelerateInterpolator()
-            addUpdateListener {
-                val fraction = it.animatedValue as Float
-                previous.translationX = -width * fraction * direction
-                currentPage?.translationX = width * (1f - fraction) * direction
+        pageAnimator =
+            ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 270
+                interpolator = DecelerateInterpolator()
+                addUpdateListener {
+                    val fraction = it.animatedValue as Float
+                    previous.translationX = -width * fraction * direction
+                    currentPage?.translationX = width * (1f - fraction) * direction
+                }
+                doOnEnd { page.removeView(previous) }
+                start()
             }
-            doOnEnd { page.removeView(previous) }
-            start()
-        }
     }
 
     fun open() {
         if (showing && !closing) return
-        context.getSystemService(InputMethodManager::class.java)
+        context
+            .getSystemService(InputMethodManager::class.java)
             .hideSoftInputFromWindow(windowToken, 0)
         workbench.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         if (!showing) translate(1f)
@@ -82,7 +87,8 @@ internal class SettingsOverlay(
     fun close() {
         if (closing || !showing) return
         pageAnimator?.end()
-        context.getSystemService(InputMethodManager::class.java)
+        context
+            .getSystemService(InputMethodManager::class.java)
             .hideSoftInputFromWindow(windowToken, 0)
         closing = true
         slideTo(1f)
@@ -94,20 +100,21 @@ internal class SettingsOverlay(
 
     private fun slideTo(target: Float) {
         animator?.cancel()
-        animator = ValueAnimator.ofFloat(progress, target).apply {
-            duration = (270 * abs(target - progress)).roundToLong().coerceAtLeast(100)
-            interpolator = DecelerateInterpolator()
-            addUpdateListener {
-                translate(it.animatedValue as Float)
-                if (progress == 1f && target == 1f) {
-                    page.visibility = GONE
-                    workbench.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_AUTO
-                    closing = false
-                    visibilityChanged(false)
+        animator =
+            ValueAnimator.ofFloat(progress, target).apply {
+                duration = (270 * abs(target - progress)).roundToLong().coerceAtLeast(100)
+                interpolator = DecelerateInterpolator()
+                addUpdateListener {
+                    translate(it.animatedValue as Float)
+                    if (progress == 1f && target == 1f) {
+                        page.visibility = GONE
+                        workbench.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_AUTO
+                        closing = false
+                        visibilityChanged(false)
+                    }
                 }
+                start()
             }
-            start()
-        }
     }
 
     private fun translate(position: Float) {
@@ -145,12 +152,15 @@ internal class SettingsOverlay(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (!dragging) return showing
         when (event.actionMasked) {
-            MotionEvent.ACTION_MOVE -> if (!hasParentPage()) {
-                translate(((event.x - downX) / width).coerceIn(0f, 1f))
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+            MotionEvent.ACTION_MOVE ->
+                if (!hasParentPage()) {
+                    translate(((event.x - downX) / width).coerceIn(0f, 1f))
+                }
+            MotionEvent.ACTION_UP,
+            MotionEvent.ACTION_CANCEL -> {
                 dragging = false
-                if (event.actionMasked == MotionEvent.ACTION_UP && event.x - downX >= width * .25f) back()
+                if (event.actionMasked == MotionEvent.ACTION_UP && event.x - downX >= width * .25f)
+                    back()
                 else resetSwipe()
             }
         }

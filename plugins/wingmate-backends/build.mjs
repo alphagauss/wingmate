@@ -27,9 +27,20 @@ await build({
   jsxFactory: 'h',
 });
 if (!clientOnly) {
-  const adapter = new URL(import.meta.resolve('@agentclientprotocol/codex-acp'));
+  const adapter = new URL(
+    import.meta.resolve('@agentclientprotocol/codex-acp'),
+  );
   await copyFile(adapter, new URL('dist/codex-acp.mjs', root));
-  await copyFile(new URL('../LICENSE', adapter), new URL('dist/LICENSE.codex-acp', root));
-  await copyFile(new URL('node_modules/@agentclientprotocol/sdk/LICENSE', root), new URL('dist/LICENSE.acp-sdk', root));
-  await copyFile(new URL('transport.js', root), new URL('dist/transport.js', root));
+  await copyFile(
+    new URL('../LICENSE', adapter),
+    new URL('dist/LICENSE.codex-acp', root),
+  );
+  await copyFile(
+    new URL('node_modules/@agentclientprotocol/sdk/LICENSE', root),
+    new URL('dist/LICENSE.acp-sdk', root),
+  );
+  await copyFile(
+    new URL('transport.js', root),
+    new URL('dist/transport.js', root),
+  );
 }

@@ -6,10 +6,15 @@ import { join } from 'node:path';
 export async function applyRuntimePatches(stage, patches) {
   for (const patch of patches) {
     const directory = join(stage, 'node_modules', patch.package);
-    const manifest = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8'));
+    const manifest = JSON.parse(
+      await readFile(join(directory, 'package.json'), 'utf8'),
+    );
     const file = join(directory, patch.file);
     const bytes = await readFile(file);
-    if (manifest.version !== patch.version || createHash('sha256').update(bytes).digest('hex') !== patch.sha256) {
+    if (
+      manifest.version !== patch.version ||
+      createHash('sha256').update(bytes).digest('hex') !== patch.sha256
+    ) {
       throw new Error(`上游文件与补丁不匹配: ${patch.id} (${patch.package})`);
     }
     const source = bytes.toString('utf8');
@@ -19,7 +24,11 @@ export async function applyRuntimePatches(stage, patches) {
     const temporary = `${file}.${randomUUID()}.part`;
     try {
       const { mode } = await stat(file);
-      await writeFile(temporary, source.replace(patch.before, () => patch.after), { mode });
+      await writeFile(
+        temporary,
+        source.replace(patch.before, () => patch.after),
+        { mode },
+      );
       // Creation applies the process umask; restore the original permissions before publishing.
       await chmod(temporary, mode);
       await rename(temporary, file);

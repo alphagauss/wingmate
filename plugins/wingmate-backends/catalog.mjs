@@ -32,13 +32,24 @@ export function projections(session) {
     asOfSeq: session.records.at(-1)?.event.seq ?? -1,
     values: {
       title: session.title,
-      sessionListMetadata: { blank: session.blank, lastPromptAt: session.blank ? null : session.updatedAt },
-      ...(session.model && { modelSelection: {
-        lastUsed: null, next: { provider: session.backend, model: session.model.currentValue },
-      } }),
-      ...(session.mode && { permissions: {
-        currentValue: session.mode.currentValue,
-      } }),
+      sessionListMetadata: {
+        blank: session.blank,
+        lastPromptAt: session.blank ? null : session.updatedAt,
+      },
+      ...(session.model && {
+        modelSelection: {
+          lastUsed: null,
+          next: {
+            provider: session.backend,
+            model: session.model.currentValue,
+          },
+        },
+      }),
+      ...(session.mode && {
+        permissions: {
+          currentValue: session.mode.currentValue,
+        },
+      }),
     },
   };
 }
@@ -46,7 +57,13 @@ export function projections(session) {
 export function snapshot(session) {
   return {
     type: 'snapshot',
-    header: { version: 3, id: session.id, createdAt: session.createdAt, cwd: session.cwd, isSeeded: false },
+    header: {
+      version: 3,
+      id: session.id,
+      createdAt: session.createdAt,
+      cwd: session.cwd,
+      isSeeded: false,
+    },
     cursor: session.records.at(-1)?.event.seq ?? -1,
     records: session.records.slice(),
     hasMore: false,

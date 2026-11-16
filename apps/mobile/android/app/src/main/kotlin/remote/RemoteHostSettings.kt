@@ -25,7 +25,7 @@ internal class RemoteHostSettings(
     currentOrigin: String?,
     private val localCurrent: Boolean,
     private val hasLocalEngine: Boolean,
-    private val returnToWorkbench: () -> Unit
+    private val returnToWorkbench: () -> Unit,
 ) {
     private val current = currentOrigin.takeUnless { localCurrent }
     private val labels = ConnectionStrings(activity)
@@ -38,25 +38,33 @@ internal class RemoteHostSettings(
     private var checking = false
     private var selected: String? = null
     private var openPassword: LinearLayout? = null
-    private val refreshTimer = object : Runnable {
-        override fun run() {
-            val view = content ?: return
-            refresh()
-            view.postDelayed(this, 15_000)
+    private val refreshTimer =
+        object : Runnable {
+            override fun run() {
+                val view = content ?: return
+                refresh()
+                view.postDelayed(this, 15_000)
+            }
         }
-    }
 
     val currentName: String?
-        get() = if (localCurrent) labels["localAgent.workbench"] else current?.let { origin ->
-            (flow.store.entries().firstOrNull { it.origin == origin } ?: SavedConnection(origin)).label
-        }
+        get() =
+            if (localCurrent) labels["localAgent.workbench"]
+            else
+                current?.let { origin ->
+                    (flow.store.entries().firstOrNull { it.origin == origin }
+                            ?: SavedConnection(origin))
+                        .label
+                }
 
     fun attach(ui: SettingsUi, parent: LinearLayout, openLocal: (() -> Unit)?) {
         stop()
         this.ui = ui
         this.openLocal = openLocal
-        content = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-            .also(parent::addView)
+        content =
+            LinearLayout(activity)
+                .apply { orientation = LinearLayout.VERTICAL }
+                .also(parent::addView)
         render()
         refreshTimer.run()
     }
@@ -82,39 +90,75 @@ internal class RemoteHostSettings(
             notice?.let { body.addView(text(it, 14f, danger)) }
             body.section(labels["connection.currentConnection"]) {
                 if (current != null) {
-                    addView(hostRow(entries.firstOrNull { it.origin == current } ?: SavedConnection(current)))
+                    addView(
+                        hostRow(
+                            entries.firstOrNull { it.origin == current }
+                                ?: SavedConnection(current),
+                        ),
+                    )
                 } else {
-                    addView(row(currentName ?: labels["connection.noConnection"],
-                        subtitle = labels["connection.connected"].takeIf { localCurrent },
-                        icon = R.drawable.ic_settings_engine.takeIf { localCurrent },
-                        subtitleColor = success,
-                        trailing = if (localCurrent) disconnectButton() else null,
-                        action = returnToWorkbench.takeIf { localCurrent }))
+                    addView(
+                        row(
+                            currentName ?: labels["connection.noConnection"],
+                            subtitle = labels["connection.connected"].takeIf { localCurrent },
+                            icon = R.drawable.ic_settings_engine.takeIf { localCurrent },
+                            subtitleColor = success,
+                            trailing = if (localCurrent) disconnectButton() else null,
+                            action = returnToWorkbench.takeIf { localCurrent },
+                        ),
+                    )
                 }
             }
-            if (!localCurrent) openLocal?.let { open ->
-                body.section {
-                    addView(row(labels["localAgent.workbench"], value = labels["connection.available"],
-                        icon = R.drawable.ic_settings_engine, valueColor = success, action = open))
+            if (!localCurrent)
+                openLocal?.let { open ->
+                    body.section {
+                        addView(
+                            row(
+                                labels["localAgent.workbench"],
+                                value = labels["connection.available"],
+                                icon = R.drawable.ic_settings_engine,
+                                valueColor = success,
+                                action = open,
+                            ),
+                        )
+                    }
                 }
-            }
             body.section(labels["connection.recentConnections"]) {
                 recent.forEach { addView(hostRow(it)) }
                 if (recent.isEmpty()) addView(row(labels["connection.noHistory"]))
-                addView(actionButton(labels["connection.refreshConnections"], R.drawable.ic_refresh, action = ::refresh),
+                addView(
+                    actionButton(
+                        labels["connection.refreshConnections"],
+                        R.drawable.ic_refresh,
+                        action = ::refresh,
+                    ),
                     LinearLayout.LayoutParams(-1, -2).apply {
                         setMargins(activity.dp(16), activity.dp(8), activity.dp(16), 0)
-                    })
+                    },
+                )
             }
             body.section {
-                addView(row(labels["scan.scanQr"], icon = R.drawable.ic_scan,
-                    action = { flow.scan(::showNotice) }))
-                addView(row(labels["scan.enterAddress"], icon = R.drawable.ic_settings_host,
-                    action = { flow.scan(::showNotice, manual = true) }))
+                addView(
+                    row(
+                        labels["scan.scanQr"],
+                        icon = R.drawable.ic_scan,
+                        action = { flow.scan(::showNotice) },
+                    ),
+                )
+                addView(
+                    row(
+                        labels["scan.enterAddress"],
+                        icon = R.drawable.ic_settings_host,
+                        action = { flow.scan(::showNotice, manual = true) },
+                    ),
+                )
             }
             body.section {
-                val title = if (hasLocalEngine) "settings.autoConnectLocalFirst" else "settings.autoConnect"
-                addView(toggle(labels[title], preferences.autoConnect) { preferences.autoConnect = it })
+                val title =
+                    if (hasLocalEngine) "settings.autoConnectLocalFirst" else "settings.autoConnect"
+                addView(
+                    toggle(labels[title], preferences.autoConnect) { preferences.autoConnect = it },
+                )
             }
         }
     }
@@ -123,24 +167,37 @@ internal class RemoteHostSettings(
         val active = entry.origin == current
         val status = health[entry.origin]
         val connected = active && status != false
-        val state = labels[when {
-            connected -> "connection.connected"
-            status == true -> "connection.available"
-            status == false -> "connection.unavailable"
-            else -> "connection.checking"
-        }]
+        val state =
+            labels[
+                when {
+                    connected -> "connection.connected"
+                    status == true -> "connection.available"
+                    status == false -> "connection.unavailable"
+                    else -> "connection.checking"
+                }]
         val wrapper = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
         val details = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-        val row = ui.row(entry.label, subtitle = state.takeIf { active }, value = state.takeUnless { active },
-            icon = R.drawable.ic_settings_host,
-            valueColor = if (status == true) ui.success else ui.primaryText,
-            subtitleColor = if (connected) ui.success else ui.primaryText,
-            trailing = if (active) disconnectButton() else null,
-            action = if (active) returnToWorkbench else ({ select(entry, details) })
-        ).apply {
-            setOnLongClickListener { edit(entry); true }
-            androidx.core.view.ViewCompat.setTooltipText(this, labels["connection.editHint"])
-        }
+        val row =
+            ui.row(
+                    entry.label,
+                    subtitle = state.takeIf { active },
+                    value = state.takeUnless { active },
+                    icon = R.drawable.ic_settings_host,
+                    valueColor = if (status == true) ui.success else ui.primaryText,
+                    subtitleColor = if (connected) ui.success else ui.primaryText,
+                    trailing = if (active) disconnectButton() else null,
+                    action = if (active) returnToWorkbench else ({ select(entry, details) }),
+                )
+                .apply {
+                    setOnLongClickListener {
+                        edit(entry)
+                        true
+                    }
+                    androidx.core.view.ViewCompat.setTooltipText(
+                        this,
+                        labels["connection.editHint"],
+                    )
+                }
         wrapper.addView(row)
         wrapper.addView(details)
         return wrapper
@@ -163,9 +220,12 @@ internal class RemoteHostSettings(
             openPassword = details
             if (message != null) details.addView(ui.text(message, 14f, ui.danger))
             else if (host != null) {
-                details.addView(lanPasswordView(activity, ConnectionUi(activity, ui.dark)) { password, onError ->
-                    flow.login(host, password, onError)
-                })
+                details.addView(
+                    lanPasswordView(activity, ConnectionUi(activity, ui.dark)) { password, onError
+                        ->
+                        flow.login(host, password, onError)
+                    },
+                )
             }
         }
     }
@@ -190,7 +250,9 @@ internal class RemoteHostSettings(
         if (origins.isEmpty()) return
         checking = true
         val workers = Executors.newFixedThreadPool(minOf(origins.size, 5))
-        val results = origins.associateWith { origin -> workers.submit<Boolean> { probeConnection(origin) } }
+        val results = origins.associateWith { origin ->
+            workers.submit<Boolean> { probeConnection(origin) }
+        }
         workers.shutdown()
         Thread {
             val updated = results.mapValues { (_, result) -> result.get() }
@@ -206,13 +268,16 @@ internal class RemoteHostSettings(
                     if (selected == null) render()
                 }
             }
-        }.start()
+        }
+            .start()
     }
 
     private fun edit(entry: SavedConnection) {
         AlertDialog.Builder(activity)
             .setTitle(entry.label)
-            .setItems(arrayOf(labels["connection.rename"], labels["connection.delete"])) { _, selected ->
+            .setItems(arrayOf(labels["connection.rename"], labels["connection.delete"])) {
+                _,
+                selected ->
                 if (selected == 0) rename(entry) else delete(entry)
             }
             .setNegativeButton(labels["common.cancel"], null)
@@ -220,12 +285,13 @@ internal class RemoteHostSettings(
     }
 
     private fun rename(entry: SavedConnection) {
-        val input = EditText(activity).apply {
-            setText(entry.label)
-            setSelectAllOnFocus(true)
-            setSingleLine()
-            contentDescription = labels["connection.name"]
-        }
+        val input =
+            EditText(activity).apply {
+                setText(entry.label)
+                setSelectAllOnFocus(true)
+                setSingleLine()
+                contentDescription = labels["connection.name"]
+            }
         AlertDialog.Builder(activity)
             .setTitle(labels["connection.rename"])
             .setView(input)
@@ -242,7 +308,10 @@ internal class RemoteHostSettings(
         val active = entry.origin == current
         AlertDialog.Builder(activity)
             .setTitle(labels["connection.delete"])
-            .setMessage(if (active) labels["connection.deleteCurrentConfirm"] else labels["connection.deleteConfirm"])
+            .setMessage(
+                if (active) labels["connection.deleteCurrentConfirm"]
+                else labels["connection.deleteConfirm"],
+            )
             .setNegativeButton(labels["common.cancel"], null)
             .setPositiveButton(labels["connection.delete"]) { _, _ ->
                 flow.store.forget(entry.origin)
@@ -257,9 +326,11 @@ internal class RemoteHostSettings(
     }
 
     private fun disconnect() {
-        activity.startActivity(Intent(activity, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            .putExtra(OPEN_HOST_SELECTION, true))
+        activity.startActivity(
+            Intent(activity, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra(OPEN_HOST_SELECTION, true),
+        )
         activity.finish()
     }
 }

@@ -16,14 +16,21 @@ import java.util.concurrent.Executors
 
 sealed interface RuntimeStatus {
     data object Stopped : RuntimeStatus
+
     data class Installing(val progress: Int) : RuntimeStatus
+
     data object Starting : RuntimeStatus
+
     data class Ready(val address: String, val token: String) : RuntimeStatus
+
     data object Stopping : RuntimeStatus
+
     data class Failed(val reason: String) : RuntimeStatus
 }
 
-/** UI-independent state and process owner for the local runtime. Commands arrive on the main thread. */
+/**
+ * UI-independent state and process owner for the local runtime. Commands arrive on the main thread.
+ */
 object LocalRuntime {
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
@@ -44,7 +51,8 @@ object LocalRuntime {
         context.startService(Intent(context, DshService::class.java).setAction(DshService.RESTART))
     }
 
-    fun isInstalled(context: Context): Boolean = File(context.filesDir, "runtime/rootfs.version").isFile
+    fun isInstalled(context: Context): Boolean =
+        File(context.filesDir, "runtime/rootfs.version").isFile
 
     fun logs(): String = synchronized(logs) { logs.joinToString("\n") }
 
@@ -121,9 +129,11 @@ object LocalRuntime {
             if (servers.isEmpty()) return
             val config = File(rootfs, "etc/resolv.conf")
             val next = File(config.parentFile, "resolv.conf.next")
-            next.writeText(servers.joinToString("\n", postfix = "\noptions timeout:2 attempts:2\n") {
-                "nameserver ${it.hostAddress}"
-            })
+            next.writeText(
+                servers.joinToString("\n", postfix = "\noptions timeout:2 attempts:2\n") {
+                    "nameserver ${it.hostAddress}"
+                },
+            )
             Files.move(next.toPath(), config.toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
         }
 
@@ -140,8 +150,10 @@ object LocalRuntime {
         override fun onExit(source: DshProcess, code: Int, expected: Boolean) {
             worker.execute {
                 engine = null
-                finish(if (expected) RuntimeStatus.Stopped else
-                    RuntimeStatus.Failed(source.startupError ?: "DSH exited with code $code"))
+                finish(
+                    if (expected) RuntimeStatus.Stopped
+                    else RuntimeStatus.Failed(source.startupError ?: "DSH exited with code $code"),
+                )
             }
         }
 

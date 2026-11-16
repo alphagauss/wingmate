@@ -60,16 +60,39 @@ process.exit(0);
 
 export async function validatePluginArchive(archive, dshVersion) {
   // Keep the probe outside the repository so ancestor node_modules cannot hide missing files.
-  await using scratch = await mkdtempDisposable(join(tmpdir(), 'wingmate-plugin-check-'));
+  await using scratch = await mkdtempDisposable(
+    join(tmpdir(), 'wingmate-plugin-check-'),
+  );
   const directory = join(scratch.path, 'node_modules/wingmate-check');
   await mkdir(directory, { recursive: true });
   await tar.x({ file: archive, cwd: directory, strip: 1, strict: true });
-  const env = { ...process.env, NODE_PATH: '', NODE_OPTIONS: '',
-    DSH_HOME: join(scratch.path, 'dsh'), DSH_AGENTS_HOME: join(scratch.path, 'agents') };
-  const result = spawnSync(process.execPath,
-    ['--no-global-search-paths', '--input-type=module', '--eval', probe, dshVersion],
-    { cwd: scratch.path, env, windowsHide: true, encoding: 'utf8', timeout: 10_000 });
+  const env = {
+    ...process.env,
+    NODE_PATH: '',
+    NODE_OPTIONS: '',
+    DSH_HOME: join(scratch.path, 'dsh'),
+    DSH_AGENTS_HOME: join(scratch.path, 'agents'),
+  };
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--no-global-search-paths',
+      '--input-type=module',
+      '--eval',
+      probe,
+      dshVersion,
+    ],
+    {
+      cwd: scratch.path,
+      env,
+      windowsHide: true,
+      encoding: 'utf8',
+      timeout: 10_000,
+    },
+  );
   if (result.status !== 0) {
-    throw new Error(`插件包检查失败 (${archive}): ${result.error?.message || result.stderr || result.stdout}`);
+    throw new Error(
+      `插件包检查失败 (${archive}): ${result.error?.message || result.stderr || result.stdout}`,
+    );
   }
 }

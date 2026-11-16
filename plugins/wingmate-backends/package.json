@@ -13,7 +13,9 @@
     "dsh": "0.2.2-rc.1"
   },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "inject": [
@@ -22,7 +24,11 @@
       ]
     }
   },
-  "files": ["dist", "cordis.patch.yml", "LICENSE.remote"],
+  "files": [
+    "dist",
+    "cordis.patch.yml",
+    "LICENSE.remote"
+  ],
   "devDependencies": {
     "@agentclientprotocol/codex-acp": "2.6.0",
     "@agentclientprotocol/sdk": "2.5.0",

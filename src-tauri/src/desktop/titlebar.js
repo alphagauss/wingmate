@@ -1,10 +1,19 @@
 ([address, instance, theme, dev, navigation]) => {
   const home = instance === null;
-  if (window !== window.top || (home ? location.href : location.origin) !== address
-    || window.__WINGMATE_TITLEBAR__) return;
+  if (
+    window !== window.top ||
+    (home ? location.href : location.origin) !== address ||
+    window.__WINGMATE_TITLEBAR__
+  )
+    return;
 
   const height = '40px';
-  const invoke = action => window.__TAURI_INTERNALS__.invoke('window_chrome', { action, instance, navigation });
+  const invoke = (action) =>
+    window.__TAURI_INTERNALS__.invoke('window_chrome', {
+      action,
+      instance,
+      navigation,
+    });
   const controls = document.createElement('div');
   controls.dataset.wingmateTitlebar = '';
   if (home) controls.dataset.homeTheme = theme;
@@ -114,7 +123,9 @@
   connection.setAttribute('aria-haspopup', 'dialog');
   connection.ariaLabel = connection.title = '远程连接';
   connection.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="13" rx="2"/><path d="M12 17.5v3m-4 0h8"/></svg>`;
-  connection.addEventListener('click', () => window.__TAURI_INTERNALS__.invoke('open_connections').catch(report));
+  connection.addEventListener('click', () =>
+    window.__TAURI_INTERNALS__.invoke('open_connections').catch(report),
+  );
   shadow.querySelector('.buttons').prepend(connection);
   const status = shadow.querySelector('.status');
   let maximized = false;
@@ -123,7 +134,9 @@
     status.textContent = [
       dev && 'Wingmate · 开发版',
       disconnected && '后台连接暂时中断',
-    ].filter(Boolean).join(' · ');
+    ]
+      .filter(Boolean)
+      .join(' · ');
     status.hidden = !status.textContent;
   }
   setDisconnected(false);
@@ -134,23 +147,30 @@
     const labels = chinese
       ? ['最小化', value ? '还原' : '最大化', '关闭窗口']
       : ['Minimize', value ? 'Restore' : 'Maximize', 'Close window'];
-    shadow.querySelector('.buttons').ariaLabel = chinese ? '窗口控件' : 'Window controls';
+    shadow.querySelector('.buttons').ariaLabel = chinese
+      ? '窗口控件'
+      : 'Window controls';
     buttons.forEach((button, i) => {
       button.ariaLabel = labels[i];
       button.title = labels[i];
     });
-    maximizeIcon.setAttribute('d', value
-      ? 'M2 0h8v8H8v2H0V2h2zm1 1v1h5v5h1V1zM1 3v6h6V3z'
-      : 'M0 0h10v10H0zm1 1v8h8V1z');
+    maximizeIcon.setAttribute(
+      'd',
+      value
+        ? 'M2 0h8v8H8v2H0V2h2zm1 1v1h5v5h1V1zM1 3v6h6V3z'
+        : 'M0 0h10v10H0zm1 1v8h8V1z',
+    );
   }
 
-  const report = error => console.error('Wingmate title bar', error);
+  const report = (error) => console.error('Wingmate title bar', error);
   for (const button of buttons) {
     button.addEventListener('click', () => {
       const { action } = button.dataset;
-      invoke(action).then(value => {
-        if (action === 'toggleMaximize') setMaximized(value);
-      }).catch(report);
+      invoke(action)
+        .then((value) => {
+          if (action === 'toggleMaximize') setMaximized(value);
+        })
+        .catch(report);
     });
   }
 
@@ -176,7 +196,9 @@
       setMaximized(maximized);
       syncTheme();
     });
-    presentation.observe(root, { attributeFilter: ['lang', 'data-ds-theme-source'] });
+    presentation.observe(root, {
+      attributeFilter: ['lang', 'data-ds-theme-source'],
+    });
     syncTheme();
     document.body.append(controls);
     let mounted = true;
@@ -189,13 +211,15 @@
       root.removeAttribute('data-windows-titlebar');
       root.style.removeProperty('--dsh-windows-titlebar-height');
     };
-    invoke('ready').then(value => {
-      if (mounted) setMaximized(value);
-    }).catch(error => {
-      if (!mounted) return;
-      remove();
-      report(error);
-    });
+    invoke('ready')
+      .then((value) => {
+        if (mounted) setMaximized(value);
+      })
+      .catch((error) => {
+        if (!mounted) return;
+        remove();
+        report(error);
+      });
     return () => {
       if (!mounted) return;
       remove();
@@ -205,7 +229,10 @@
 
   Object.defineProperty(window, '__WINGMATE_TITLEBAR__', {
     value: Object.freeze({
-      prepare, mount, setMaximized, setDisconnected,
+      prepare,
+      mount,
+      setMaximized,
+      setDisconnected,
     }),
   });
   if (home) {
@@ -216,4 +243,4 @@
     }
   }
   window.dispatchEvent(new Event('wingmate:titlebar'));
-}
+};

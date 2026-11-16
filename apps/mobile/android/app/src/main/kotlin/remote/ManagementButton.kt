@@ -16,27 +16,37 @@ import kotlin.math.abs
 
 internal fun FrameLayout.addManagementButton(
     preferences: SharedPreferences,
-    openManagement: () -> Unit
+    openManagement: () -> Unit,
 ) {
-    val button = AppCompatImageButton(context).apply {
-        val inset = context.dp(5)
-        background = InsetDrawable(GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(Color.parseColor("#426FBB"))
-        }, inset)
-        setImageResource(R.drawable.ic_manage)
-        val padding = context.dp(14)
-        setPadding(padding, padding, padding, padding)
-        alpha = .66f
-        contentDescription = ConnectionStrings(context)["settings.title"]
-        setOnClickListener { openManagement() }
-    }
+    val button =
+        AppCompatImageButton(context).apply {
+            val inset = context.dp(5)
+            background =
+                InsetDrawable(
+                    GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(Color.parseColor("#426FBB"))
+                    },
+                    inset,
+                )
+            setImageResource(R.drawable.ic_manage)
+            val padding = context.dp(14)
+            setPadding(padding, padding, padding, padding)
+            alpha = .66f
+            contentDescription = ConnectionStrings(context)["settings.title"]
+            setOnClickListener { openManagement() }
+        }
     val touchSize = context.dp(48)
     addView(button, FrameLayout.LayoutParams(touchSize, touchSize, Gravity.TOP or Gravity.LEFT))
     fun highlight(active: Boolean) {
         val scale = if (active) 1.16f else 1f
-        button.animate().alpha(if (active) 1f else .66f).scaleX(scale).scaleY(scale)
-            .setDuration(140).start()
+        button
+            .animate()
+            .alpha(if (active) 1f else .66f)
+            .scaleX(scale)
+            .scaleY(scale)
+            .setDuration(140)
+            .start()
     }
 
     val margin = context.dp(12)
@@ -73,33 +83,40 @@ internal fun FrameLayout.addManagementButton(
                 button.isPressed = true
                 highlight(true)
             }
-            MotionEvent.ACTION_MOVE -> if (tracking) {
-                val dx = event.rawX - downX
-                val dy = event.rawY - downY
-                if (dragging || maxOf(abs(dx), abs(dy)) > touchSlop) {
-                    dragging = true
+            MotionEvent.ACTION_MOVE ->
+                if (tracking) {
+                    val dx = event.rawX - downX
+                    val dy = event.rawY - downY
+                    if (dragging || maxOf(abs(dx), abs(dy)) > touchSlop) {
+                        dragging = true
+                        button.isPressed = false
+                        val left = horizontalInset().toFloat()
+                        val top = verticalInset().toFloat()
+                        button.x = (startX + dx).coerceIn(left, left + horizontalTravel())
+                        button.y = (startY + dy).coerceIn(top, top + verticalTravel())
+                    }
+                }
+            MotionEvent.ACTION_UP ->
+                if (tracking) {
+                    tracking = false
                     button.isPressed = false
-                    val left = horizontalInset().toFloat()
-                    val top = verticalInset().toFloat()
-                    button.x = (startX + dx).coerceIn(left, left + horizontalTravel())
-                    button.y = (startY + dy).coerceIn(top, top + verticalTravel())
+                    highlight(false)
+                    if (dragging) {
+                        val travelX = horizontalTravel()
+                        val travelY = verticalTravel()
+                        if (travelX > 0) xFraction = (button.x - horizontalInset()) / travelX
+                        if (travelY > 0) yFraction = (button.y - verticalInset()) / travelY
+                        preferences
+                            .edit()
+                            .putFloat("management_x", xFraction)
+                            .putFloat("management_y", yFraction)
+                            .apply()
+                    } else {
+                        button.performClick()
+                    }
                 }
-            }
-            MotionEvent.ACTION_UP -> if (tracking) {
-                tracking = false
-                button.isPressed = false
-                highlight(false)
-                if (dragging) {
-                    val travelX = horizontalTravel()
-                    val travelY = verticalTravel()
-                    if (travelX > 0) xFraction = (button.x - horizontalInset()) / travelX
-                    if (travelY > 0) yFraction = (button.y - verticalInset()) / travelY
-                    preferences.edit().putFloat("management_x", xFraction).putFloat("management_y", yFraction).apply()
-                } else {
-                    button.performClick()
-                }
-            }
-            MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> {
+            MotionEvent.ACTION_CANCEL,
+            MotionEvent.ACTION_POINTER_DOWN -> {
                 tracking = false
                 button.isPressed = false
                 highlight(false)

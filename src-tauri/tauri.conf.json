@@ -12,15 +12,23 @@
     "windows": [],
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:",
-      "capabilities": [{
-        "identifier": "wingmate-home",
-        "webviews": ["main", "temporary-*"],
-        "permissions": ["allow-home-backend", "allow-window-chrome", "allow-open-connections", "allow-local-share"]
-      }, {
-        "identifier": "wingmate-connections",
-        "webviews": ["wingmate-connections-*"],
-        "permissions": ["allow-remote-workbench", "allow-local-share"]
-      }]
+      "capabilities": [
+        {
+          "identifier": "wingmate-home",
+          "webviews": ["main", "temporary-*"],
+          "permissions": [
+            "allow-home-backend",
+            "allow-window-chrome",
+            "allow-open-connections",
+            "allow-local-share"
+          ]
+        },
+        {
+          "identifier": "wingmate-connections",
+          "webviews": ["wingmate-connections-*"],
+          "permissions": ["allow-remote-workbench", "allow-local-share"]
+        }
+      ]
     }
   },
   "bundle": {

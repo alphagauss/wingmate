@@ -18,5 +18,7 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "wingmate-android"
+
 include(":app")
+
 include(":local-agent")

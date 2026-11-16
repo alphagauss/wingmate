@@ -1,14 +1,16 @@
-import org.gradle.api.file.ArchiveOperations
-import org.gradle.api.file.FileSystemOperations
-import org.gradle.api.file.DirectoryProperty
-import org.gradle.api.file.RelativePath
 import javax.inject.Inject
+import org.gradle.api.file.ArchiveOperations
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.FileSystemOperations
+import org.gradle.api.file.RelativePath
 
 plugins {
     id("com.android.application")
 }
 
-abstract class UnpackLocalRuntime @Inject constructor(
+abstract class UnpackLocalRuntime
+@Inject
+constructor(
     private val archives: ArchiveOperations,
     private val files: FileSystemOperations,
 ) : DefaultTask() {
@@ -24,7 +26,11 @@ abstract class UnpackLocalRuntime @Inject constructor(
                 from(tree) {
                     include("$prefix/**")
                     eachFile {
-                        relativePath = RelativePath(!isDirectory, *relativePath.segments.drop(1).toTypedArray())
+                        relativePath =
+                            RelativePath(
+                                !isDirectory,
+                                *relativePath.segments.drop(1).toTypedArray(),
+                            )
                     }
                     includeEmptyDirs = false
                 }
@@ -34,11 +40,16 @@ abstract class UnpackLocalRuntime @Inject constructor(
     }
 }
 
-val unpackLocalRuntime = tasks.register<UnpackLocalRuntime>("unpackLocalRuntime") {
-    bundle.set(rootProject.layout.projectDirectory.file("../../../work/build/android/runtime-arm64-v8a.zip"))
-    assets.set(layout.buildDirectory.dir("generated/localRuntime/assets"))
-    libraries.set(layout.buildDirectory.dir("generated/localRuntime/jniLibs"))
-}
+val unpackLocalRuntime =
+    tasks.register<UnpackLocalRuntime>("unpackLocalRuntime") {
+        bundle.set(
+            rootProject.layout.projectDirectory.file(
+                "../../../work/build/android/runtime-arm64-v8a.zip",
+            ),
+        )
+        assets.set(layout.buildDirectory.dir("generated/localRuntime/assets"))
+        libraries.set(layout.buildDirectory.dir("generated/localRuntime/jniLibs"))
+    }
 
 android {
     namespace = "dev.wingmate.mobile"
@@ -86,9 +97,16 @@ android {
     }
 }
 
-androidComponents.onVariants(androidComponents.selector().withFlavor("execution" to "local")) { variant ->
-    variant.sources.assets?.addGeneratedSourceDirectory(unpackLocalRuntime, UnpackLocalRuntime::assets)
-    variant.sources.jniLibs?.addGeneratedSourceDirectory(unpackLocalRuntime, UnpackLocalRuntime::libraries)
+androidComponents.onVariants(androidComponents.selector().withFlavor("execution" to "local")) {
+    variant ->
+    variant.sources.assets?.addGeneratedSourceDirectory(
+        unpackLocalRuntime,
+        UnpackLocalRuntime::assets,
+    )
+    variant.sources.jniLibs?.addGeneratedSourceDirectory(
+        unpackLocalRuntime,
+        UnpackLocalRuntime::libraries,
+    )
 }
 
 dependencies {

@@ -10,9 +10,9 @@ import java.io.InputStream
 /**
  * Streaming tar extractor for the decompressed rootfs archive.
  *
- * Handles ustar, GNU long names ('L'/'K') and pax headers ('x'); restores modes and
- * symlinks; turns hardlinks into copies (no hardlinks across app storage needed).
- * Device nodes and FIFOs are skipped: proot binds the host /dev instead.
+ * Handles ustar, GNU long names ('L'/'K') and pax headers ('x'); restores modes and symlinks; turns
+ * hardlinks into copies (no hardlinks across app storage needed). Device nodes and FIFOs are
+ * skipped: proot binds the host /dev instead.
  */
 internal class TarExtractor(private val root: File) {
     private val rootCanonical: String = root.canonicalPath
@@ -48,18 +48,33 @@ internal class TarExtractor(private val root: File) {
             val type = header[156].toInt().toChar()
             var size = paxSize ?: parseNumber(header, 124, 12)
             when (type) {
-                'L' -> { longName = readString(input, size); continue }
-                'K' -> { longLink = readString(input, size); continue }
-                'x' -> {
-                    val pax = parsePax(readString(input, size))
-                    paxPath = pax["path"]; paxLink = pax["linkpath"]; paxSize = pax["size"]?.toLongOrNull()
+                'L' -> {
+                    longName = readString(input, size)
                     continue
                 }
-                'g' -> { skip(input, padded(size)); continue }
+                'K' -> {
+                    longLink = readString(input, size)
+                    continue
+                }
+                'x' -> {
+                    val pax = parsePax(readString(input, size))
+                    paxPath = pax["path"]
+                    paxLink = pax["linkpath"]
+                    paxSize = pax["size"]?.toLongOrNull()
+                    continue
+                }
+                'g' -> {
+                    skip(input, padded(size))
+                    continue
+                }
             }
             val name = paxPath ?: longName ?: headerName(header)
             val link = paxLink ?: longLink ?: cString(header, 157, 100)
-            longName = null; longLink = null; paxPath = null; paxLink = null; paxSize = null
+            longName = null
+            longLink = null
+            paxPath = null
+            paxLink = null
+            paxSize = null
             val mode = parseNumber(header, 100, 8).toInt() and 0xFFF
             val target = resolve(name)
             if (target == null) {
@@ -81,11 +96,15 @@ internal class TarExtractor(private val root: File) {
                     target.parentFile?.mkdirs()
                     deleteIfExists(target)
                     if (source != null && source.isFile) {
-                        FileInputStream(source).use { src -> FileOutputStream(target).use { src.copyTo(it, 1 shl 16) } }
+                        FileInputStream(source).use { src ->
+                            FileOutputStream(target).use { src.copyTo(it, 1 shl 16) }
+                        }
                         chmod(target, mode)
                     }
                 }
-                '0', '\u0000', '7' -> {
+                '0',
+                '\u0000',
+                '7' -> {
                     target.parentFile?.mkdirs()
                     deleteIfExists(target)
                     FileOutputStream(target).use { out -> copyExactly(input, out, size) }
@@ -106,7 +125,8 @@ internal class TarExtractor(private val root: File) {
         if (clean.isEmpty() || clean == ".") return null
         val file = File(root, clean)
         val parentCanonical = file.parentFile?.canonicalPath ?: return null
-        if (parentCanonical != rootCanonical && !parentCanonical.startsWith("$rootCanonical/")) return null
+        if (parentCanonical != rootCanonical && !parentCanonical.startsWith("$rootCanonical/"))
+            return null
         return file
     }
 
@@ -119,17 +139,17 @@ internal class TarExtractor(private val root: File) {
         }
     }
 
-    private fun isSymlink(file: File): Boolean = try {
-        android.system.OsConstants.S_ISLNK(Os.lstat(file.path).st_mode)
-    } catch (_: Exception) {
-        false
-    }
+    private fun isSymlink(file: File): Boolean =
+        try {
+            android.system.OsConstants.S_ISLNK(Os.lstat(file.path).st_mode)
+        } catch (_: Exception) {
+            false
+        }
 
     private fun chmod(file: File, mode: Int) {
         try {
             Os.chmod(file.path, mode)
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
     }
 
     private fun headerName(h: ByteArray): String {
@@ -163,7 +183,8 @@ internal class TarExtractor(private val root: File) {
             var sp = i
             while (sp < bytes.size && bytes[sp] != ' '.code.toByte()) sp++
             val len = String(bytes, i, sp - i, Charsets.US_ASCII).toIntOrNull() ?: break
-            val record = String(bytes, sp + 1, len - (sp - i) - 2, Charsets.UTF_8) // minus trailing \n
+            val record =
+                String(bytes, sp + 1, len - (sp - i) - 2, Charsets.UTF_8) // minus trailing \n
             val eq = record.indexOf('=')
             if (eq > 0) out[record.substring(0, eq)] = record.substring(eq + 1)
             i += len

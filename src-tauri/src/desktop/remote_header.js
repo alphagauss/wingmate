@@ -26,7 +26,9 @@
     `);
     shadow.adoptedStyleSheets = [style];
     shadow.innerHTML = `<header><span role="status"></span><button type="button">返回本机</button><span role="alert"></span></header>`;
-    const report = error => { shadow.querySelector('[role="alert"]').textContent = String(error); };
+    const report = (error) => {
+      shadow.querySelector('[role="alert"]').textContent = String(error);
+    };
     shadow.querySelector('button').addEventListener('click', () => {
       window.__TAURI_INTERNALS__.invoke('return_local').catch(report);
     });
@@ -35,12 +37,15 @@
       connection.type = 'button';
       connection.textContent = '远程连接';
       shadow.querySelector('header').append(connection);
-      connection.addEventListener('click', () => window.__TAURI_INTERNALS__.invoke('open_connections').catch(report));
+      connection.addEventListener('click', () =>
+        window.__TAURI_INTERNALS__.invoke('open_connections').catch(report),
+      );
     }
     document.body.append(header);
   }
   header.dataset.theme = theme;
   header.toggleAttribute('data-windows', windows);
   const label = { local: '本机', lan: '局域网', public: '公网' }[transport];
-  header.shadowRoot.querySelector('[role="status"]').textContent = label + ' · ' + new URL(origin).host;
-}
+  header.shadowRoot.querySelector('[role="status"]').textContent =
+    label + ' · ' + new URL(origin).host;
+};

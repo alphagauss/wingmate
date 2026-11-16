@@ -28,29 +28,42 @@ internal class WorkbenchBridge(
     private val view: WebView,
     private val origin: String,
     private val onReady: () -> Unit,
-    private val onTheme: (String) -> Unit
+    private val onTheme: (String) -> Unit,
 ) {
     private val labels = ConnectionStrings(activity)
     private val preferences = AppPreferences(activity)
     private val listener = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
     private var ready = false
     private val script by lazy {
-        activity.assets.open("web/workbench-bridge.js").bufferedReader().use { it.readText() }
+        activity.assets
+            .open("web/workbench-bridge.js")
+            .bufferedReader()
+            .use { it.readText() }
             .replace("__WINGMATE_ORIGIN__", JSONObject.quote(origin))
     }
 
     init {
         if (listener) {
-            WebViewCompat.addWebMessageListener(view, "WingmateWorkbench", setOf(origin)) { _, message, source, top, _ ->
-                if (top && source.toString().removeSuffix("/") == origin &&
-                    message.type == WebMessageCompat.TYPE_STRING
-                ) receive(message.data)
+            WebViewCompat.addWebMessageListener(view, "WingmateWorkbench", setOf(origin)) {
+                _,
+                message,
+                source,
+                top,
+                _ ->
+                if (
+                    top &&
+                        source.toString().removeSuffix("/") == origin &&
+                        message.type == WebMessageCompat.TYPE_STRING
+                )
+                    receive(message.data)
             }
             WebViewCompat.addDocumentStartJavaScript(view, script, setOf(origin))
         }
     }
 
-    fun started() { ready = false }
+    fun started() {
+        ready = false
+    }
 
     fun finished() {
         ready = listener
@@ -61,7 +74,7 @@ internal class WorkbenchBridge(
         if (!ready) return false
         view.evaluateJavascript(
             "if (location.origin === ${JSONObject.quote(origin)}) window.wingmateOpenSession?.(${JSONObject.quote(session)});",
-            null
+            null,
         )
         return true
     }
@@ -75,47 +88,69 @@ internal class WorkbenchBridge(
                 if (theme in listOf("light", "dark", "system")) onTheme(theme)
             }
             "completed" -> if (ready) notify(message)
-            "session-unavailable" -> if (ready) {
-                Toast.makeText(activity, labels["connection.focusFailed"], Toast.LENGTH_SHORT).show()
-            }
+            "session-unavailable" ->
+                if (ready) {
+                    Toast.makeText(activity, labels["connection.focusFailed"], Toast.LENGTH_SHORT)
+                        .show()
+                }
         }
     }
 
     @SuppressLint("MissingPermission")
     private fun notify(payload: JSONObject) {
         if (!preferences.taskNotifications) return
-        if (ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
-        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(
-                activity, Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED
-        ) return
+        if (ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+            return
+        if (
+            Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(
+                    activity,
+                    Manifest.permission.POST_NOTIFICATIONS,
+                ) != PackageManager.PERMISSION_GRANTED
+        )
+            return
         val session = payload.opt("sessionId") as? String ?: return
         if (session.length !in 1..256) return
-        val title = (payload.opt("title") as? String).orEmpty().trim().take(256)
-            .ifBlank { labels["notification.channel"] }
+        val title =
+            (payload.opt("title") as? String).orEmpty().trim().take(256).ifBlank {
+                labels["notification.channel"]
+            }
         val body = labels["notification.completed"]
 
         val channel = "wingmate-tasks"
         if (Build.VERSION.SDK_INT >= 26) {
             val manager = activity.getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(NotificationChannel(
-                channel, labels["notification.channel"], NotificationManager.IMPORTANCE_DEFAULT
-            ))
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    channel,
+                    labels["notification.channel"],
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ),
+            )
         }
         val id = "$origin/$session".hashCode()
-        val click = Intent(activity, WorkbenchActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            .putExtra("link", "$origin/").putExtra("notificationSession", session)
-            .putExtra("localAgent", activity.intent.getBooleanExtra("localAgent", false))
-        val notification = NotificationCompat.Builder(activity, channel)
-            .setSmallIcon(R.drawable.ic_manage)
-            .setContentTitle(title).setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setAutoCancel(true)
-            .setContentIntent(PendingIntent.getActivity(
-                activity, id, click, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-            ))
-            .build()
+        val click =
+            Intent(activity, WorkbenchActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra("link", "$origin/")
+                .putExtra("notificationSession", session)
+                .putExtra("localAgent", activity.intent.getBooleanExtra("localAgent", false))
+        val notification =
+            NotificationCompat.Builder(activity, channel)
+                .setSmallIcon(R.drawable.ic_manage)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setAutoCancel(true)
+                .setContentIntent(
+                    PendingIntent.getActivity(
+                        activity,
+                        id,
+                        click,
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                    ),
+                )
+                .build()
         NotificationManagerCompat.from(activity).notify(id, notification)
     }
 }

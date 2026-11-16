@@ -1,42 +1,121 @@
 <!doctype html>
 <html lang="zh-CN">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>连接 Wingmate</title>
-<style>
-  :root { color-scheme: light dark; font: 16px system-ui, sans-serif;
-    --border: light-dark(#00000029,#fff3); --focus: light-dark(#4176e6,#7aaaff); }
-  body { display: grid; min-height: 100dvh; margin: 0; place-items: center; }
-  main { margin: 1.5rem; width: min(22rem, calc(100% - 3rem)); }
-  form { display: grid; gap: .65rem; }
-  .password { position: relative; }
-  input { box-sizing: border-box; width: 100%; min-height: 44px; padding: 0 44px 0 10px;
-    border: .5px solid var(--border); border-radius: 6px; background: Canvas; color: CanvasText; font: inherit; }
-  input:focus { outline: none; border-color: var(--focus); }
-  input::-ms-reveal { display: none; }
-  button { cursor: pointer; font: inherit; min-height: 44px; border-radius: 6px; }
-  #eye { position: absolute; inset: 0 0 0 auto; width: 44px; border: none;
-    background: transparent; color: inherit; display: grid; place-items: center; }
-  #eye svg { width: 18px; height: 18px; }
-  #eye[aria-pressed=false] .slash { display: none; }
-  #message { margin: 0; color: light-dark(#b42318,#ffa39e); }
-  #message:empty { display: none; }
-</style>
-<main id="loginForm">
-  <h1>连接 Wingmate</h1>
-  <form>
-    <label for="password">局域网密码</label>
-    <div class="password">
-      <input id="password" type="password" required maxlength="256" autocomplete="current-password">
-      <button id="eye" type="button" aria-label="显示密码" aria-controls="password" aria-pressed="false">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/><path class="slash" d="m4 4 16 16"/></svg>
-      </button>
-    </div>
-    <p id="message" role="alert"></p>
-    <button id="connect" type="submit">连接</button>
-  </form>
-</main>
-<script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>连接 Wingmate</title>
+  <style>
+  :root {
+    color-scheme: light dark;
+    font:
+      16px system-ui,
+      sans-serif;
+    --border: light-dark(#00000029, #fff3);
+    --focus: light-dark(#4176e6, #7aaaff);
+  }
+  body {
+    display: grid;
+    min-height: 100dvh;
+    margin: 0;
+    place-items: center;
+  }
+  main {
+    margin: 1.5rem;
+    width: min(22rem, calc(100% - 3rem));
+  }
+  form {
+    display: grid;
+    gap: 0.65rem;
+  }
+  .password {
+    position: relative;
+  }
+  input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 44px 0 10px;
+    border: 0.5px solid var(--border);
+    border-radius: 6px;
+    background: Canvas;
+    color: CanvasText;
+    font: inherit;
+  }
+  input:focus {
+    outline: none;
+    border-color: var(--focus);
+  }
+  input::-ms-reveal {
+    display: none;
+  }
+  button {
+    cursor: pointer;
+    font: inherit;
+    min-height: 44px;
+    border-radius: 6px;
+  }
+  #eye {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: 44px;
+    border: none;
+    background: transparent;
+    color: inherit;
+    display: grid;
+    place-items: center;
+  }
+  #eye svg {
+    width: 18px;
+    height: 18px;
+  }
+  #eye[aria-pressed="false"] .slash {
+    display: none;
+  }
+  #message {
+    margin: 0;
+    color: light-dark(#b42318, #ffa39e);
+  }
+  #message:empty {
+    display: none;
+  }
+  </style>
+  <main id="loginForm">
+    <h1>连接 Wingmate</h1>
+    <form>
+      <label for="password">局域网密码</label>
+      <div class="password">
+        <input
+          id="password"
+          type="password"
+          required
+          maxlength="256"
+          autocomplete="current-password"
+        >
+        <button
+          id="eye"
+          type="button"
+          aria-label="显示密码"
+          aria-controls="password"
+          aria-pressed="false"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            ><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12Z" />
+            <circle cx="12" cy="12" r="2.5" />
+            <path class="slash" d="m4 4 16 16" /></svg
+          >
+        </button>
+      </div>
+      <p id="message" role="alert"></p>
+      <button id="connect" type="submit">连接</button>
+    </form>
+  </main>
+  <script>
   const form = document.querySelector('form');
   const password = document.getElementById('password');
   const eye = document.getElementById('eye');
@@ -48,13 +127,16 @@
     eye.setAttribute('aria-pressed', String(visible));
     eye.setAttribute('aria-label', visible ? '隐藏密码' : '显示密码');
   });
-  form.addEventListener('submit', async event => {
+  form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (connect.disabled) return;
     connect.disabled = true;
     message.textContent = '';
     try {
-      const response = await fetch('/_wingmate/login', { method: 'POST', body: password.value });
+      const response = await fetch('/_wingmate/login', {
+        method: 'POST',
+        body: password.value,
+      });
       if (response.ok) location.replace('/');
       else message.textContent = await response.text();
     } catch {
@@ -63,5 +145,5 @@
       connect.disabled = false;
     }
   });
-</script>
+  </script>
 </html>

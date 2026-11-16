@@ -1,6 +1,8 @@
 const confirmation = document.getElementById('restart-confirmation');
 const actionError = document.getElementById('action-error');
-const controls = document.querySelectorAll('[data-backend-action], #show-restart');
+const controls = document.querySelectorAll(
+  '[data-backend-action], #show-restart',
+);
 const messageText = document.getElementById('message');
 const hintText = document.getElementById('hint');
 const spinner = document.getElementById('spinner');
@@ -9,7 +11,9 @@ const errorText = document.getElementById('error');
 const start = document.getElementById('start');
 const update = document.getElementById('update');
 const showRestart = document.getElementById('show-restart');
-const confirmUpdate = confirmation.querySelector('[data-backend-action="restart"]');
+const confirmUpdate = confirmation.querySelector(
+  '[data-backend-action="restart"]',
+);
 const connectLocal = document.getElementById('connect-local');
 const local = window.__WINGMATE_LOCAL_HOME__ === true;
 let updateRequest;
@@ -20,7 +24,14 @@ function showActionError(error) {
   actionError.hidden = false;
 }
 
-window.renderWingmateHome = ({ message, hint, waiting, error, actions, target }) => {
+window.renderWingmateHome = ({
+  message,
+  hint,
+  waiting,
+  error,
+  actions,
+  target,
+}) => {
   messageText.textContent = message;
   hintText.textContent = hint;
   hintText.hidden = !hint;
@@ -31,19 +42,42 @@ window.renderWingmateHome = ({ message, hint, waiting, error, actions, target })
   const retry = actions === 'retry' || actions === 'retry-reopen';
   start.hidden = !retry && actions !== 'start';
   start.textContent = retry ? '重试' : '启动后台';
-  start.dataset.backendAction = actions === 'retry-reopen' ? 'retry-reopen' : 'start';
+  start.dataset.backendAction =
+    actions === 'retry-reopen' ? 'retry-reopen' : 'start';
   const idleUpdate = actions === 'update-idle';
   const desktopUpdate = actions === 'update-desktop';
   update.hidden = actions !== 'update' && !idleUpdate && !desktopUpdate;
-  updateRequest = { action: desktopUpdate ? 'update-desktop' : 'restart', expected: target };
+  updateRequest = {
+    action: desktopUpdate ? 'update-desktop' : 'restart',
+    expected: target,
+  };
   if (!update.hidden) {
-    update.querySelector('[data-backend-action="continue"]').textContent = idleUpdate ? '继续并启动' : '继续使用';
-    showRestart.textContent = desktopUpdate ? '更新桌面' : idleUpdate ? '更新并启动' : '重启并更新';
-    document.getElementById('restart-title').textContent = desktopUpdate ? '更新桌面？' : idleUpdate ? '更新管理服务并启动后台？' : '重启并更新后台？';
-    document.getElementById('restart-hint').textContent = desktopUpdate ? '后台任务会继续运行。' : idleUpdate ? '已启用的远程连接会短暂中断。' : '这会中断正在运行的任务。';
-    confirmUpdate.textContent = desktopUpdate || idleUpdate ? '确认更新' : '确认重启';
+    update.querySelector('[data-backend-action="continue"]').textContent =
+      idleUpdate ? '继续并启动' : '继续使用';
+    showRestart.textContent = desktopUpdate
+      ? '更新桌面'
+      : idleUpdate
+        ? '更新并启动'
+        : '重启并更新';
+    document.getElementById('restart-title').textContent = desktopUpdate
+      ? '更新桌面？'
+      : idleUpdate
+        ? '更新管理服务并启动后台？'
+        : '重启并更新后台？';
+    document.getElementById('restart-hint').textContent = desktopUpdate
+      ? '后台任务会继续运行。'
+      : idleUpdate
+        ? '已启用的远程连接会短暂中断。'
+        : '这会中断正在运行的任务。';
+    confirmUpdate.textContent =
+      desktopUpdate || idleUpdate ? '确认更新' : '确认重启';
   }
-  if (confirmation.open && (update.hidden || JSON.stringify(confirmedUpdate) !== JSON.stringify(updateRequest))) confirmation.close();
+  if (
+    confirmation.open &&
+    (update.hidden ||
+      JSON.stringify(confirmedUpdate) !== JSON.stringify(updateRequest))
+  )
+    confirmation.close();
   actionError.hidden = true;
   for (const button of controls) button.disabled = waiting;
 };
@@ -51,7 +85,9 @@ window.renderWingmateHome = ({ message, hint, waiting, error, actions, target })
 if (local) {
   connectLocal.hidden = false;
   connectLocal.addEventListener('click', () => {
-    window.__TAURI_INTERNALS__.invoke('open_connections').catch(showActionError);
+    window.__TAURI_INTERNALS__
+      .invoke('open_connections')
+      .catch(showActionError);
   });
 } else {
   document.documentElement.dataset.remoteLauncher = '';
@@ -65,10 +101,16 @@ if (local) {
   };
   async function refresh() {
     try {
-      const response = await fetch('/_wingmate/status', { signal: AbortSignal.timeout(5000) });
+      const response = await fetch('/_wingmate/status', {
+        signal: AbortSignal.timeout(5000),
+      });
       if (response.status === 401) {
         window.renderWingmateHome({
-          message: '连接已失效', hint: '请从主机获取新的配对链接。', waiting: false, error: null, actions: '',
+          message: '连接已失效',
+          hint: '请从主机获取新的配对链接。',
+          waiting: false,
+          error: null,
+          actions: '',
         });
         return;
       }
@@ -88,7 +130,13 @@ if (local) {
     if (phase === next) return;
     phase = next;
     const [message, hint, waiting, actions] = state[next] ?? state.unavailable;
-    window.renderWingmateHome({ message, hint, waiting: waiting || pending, error: null, actions });
+    window.renderWingmateHome({
+      message,
+      hint,
+      waiting: waiting || pending,
+      error: null,
+      actions,
+    });
   }
   start.addEventListener('click', async () => {
     if (pending) return;
@@ -96,7 +144,8 @@ if (local) {
     render('starting');
     try {
       const response = await fetch('/_wingmate/manage', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'start' }),
       });
       if (!response.ok) throw new Error(await response.text());
@@ -120,12 +169,18 @@ showRestart.addEventListener('click', () => {
 // The modal makes elements outside it inert, including the custom window controls.
 confirmation.addEventListener('toggle', () => {
   const titlebar = document.querySelector('[data-wingmate-titlebar]');
-  if (titlebar) (confirmation.open ? confirmation : document.body).append(titlebar);
+  if (titlebar)
+    (confirmation.open ? confirmation : document.body).append(titlebar);
 });
 
-for (const control of local ? document.querySelectorAll('[data-backend-action]') : []) {
+for (const control of local
+  ? document.querySelectorAll('[data-backend-action]')
+  : []) {
   control.addEventListener('click', async () => {
-    const request = control === confirmUpdate ? confirmedUpdate : { action: control.dataset.backendAction };
+    const request =
+      control === confirmUpdate
+        ? confirmedUpdate
+        : { action: control.dataset.backendAction };
     if (confirmation.open) confirmation.close();
     actionError.hidden = true;
     for (const button of controls) button.disabled = true;

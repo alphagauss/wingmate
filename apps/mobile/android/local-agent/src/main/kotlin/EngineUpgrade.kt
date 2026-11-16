@@ -10,27 +10,48 @@ import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.nio.file.StandardOpenOption
 
 /** An upgrade must never fall back to rebuilding an existing user system. */
-internal class RuntimeUpgradeBlocked(reason: String) : IllegalStateException("runtime_upgrade_blocked:$reason")
+internal class RuntimeUpgradeBlocked(reason: String) :
+    IllegalStateException("runtime_upgrade_blocked:$reason")
 
-internal val ENGINE_PATHS = listOf(
-    "opt/dsh", "opt/node", "opt/wingmate", "etc/dsh-app",
-    "etc/profile.d/dsh-app.sh", "usr/local/lib/node_modules/pnpm",
-    "usr/local/bin/dsh", "usr/local/bin/node", "usr/local/bin/npm", "usr/local/bin/npx",
-    "usr/local/bin/corepack", "usr/local/bin/pnpm", "usr/local/bin/pnpx", "usr/local/bin/pn", "usr/local/bin/pnx",
-)
+internal val ENGINE_PATHS =
+    listOf(
+        "opt/dsh",
+        "opt/node",
+        "opt/wingmate",
+        "etc/dsh-app",
+        "etc/profile.d/dsh-app.sh",
+        "usr/local/lib/node_modules/pnpm",
+        "usr/local/bin/dsh",
+        "usr/local/bin/node",
+        "usr/local/bin/npm",
+        "usr/local/bin/npx",
+        "usr/local/bin/corepack",
+        "usr/local/bin/pnpm",
+        "usr/local/bin/pnpx",
+        "usr/local/bin/pn",
+        "usr/local/bin/pnx",
+    )
 
-internal data class EngineUpgradeSpec(val baseId: String, val ubuntuVersion: String, val paths: List<String>) {
+internal data class EngineUpgradeSpec(
+    val baseId: String,
+    val ubuntuVersion: String,
+    val paths: List<String>,
+) {
     fun validate() {
-        if (!baseId.matches(Regex("[a-f0-9]{64}")) || ubuntuVersion.isBlank() || paths != ENGINE_PATHS) {
+        if (
+            !baseId.matches(Regex("[a-f0-9]{64}")) ||
+                ubuntuVersion.isBlank() ||
+                paths != ENGINE_PATHS
+        ) {
             throw RuntimeUpgradeBlocked("manifest")
         }
     }
 }
 
 /**
- * A forward-only, durable transaction. Its new payload and old engine are outside
- * staging, which install may discard. User files never enter the transaction.
- * A killed install resumes before staging is touched, even across APK versions.
+ * A forward-only, durable transaction. Its new payload and old engine are outside staging, which
+ * install may discard. User files never enter the transaction. A killed install resumes before
+ * staging is touched, even across APK versions.
  */
 internal class EngineUpgrade(
     private val base: File,
@@ -65,7 +86,10 @@ internal class EngineUpgrade(
             move(safePath(staging, path), target)
         }
         writeSynced(File(preparing, "version"), version)
-        writeSynced(File(preparing, "original"), spec.paths.filter { present(File(root, it)) }.joinToString("\n"))
+        writeSynced(
+            File(preparing, "original"),
+            spec.paths.filter { present(File(root, it)) }.joinToString("\n"),
+        )
         sync()
         afterStep("prepared")
         move(preparing, pending)
@@ -80,12 +104,21 @@ internal class EngineUpgrade(
             remove(preparing)
             return
         }
-        if (!Files.isDirectory(pending.toPath(), NOFOLLOW_LINKS)) throw RuntimeUpgradeBlocked("transaction")
-        val version = try { File(pending, "version").readText() }
-            catch (_: Exception) { throw RuntimeUpgradeBlocked("transaction") }
+        if (!Files.isDirectory(pending.toPath(), NOFOLLOW_LINKS))
+            throw RuntimeUpgradeBlocked("transaction")
+        val version =
+            try {
+                File(pending, "version").readText()
+            } catch (_: Exception) {
+                throw RuntimeUpgradeBlocked("transaction")
+            }
         validateVersion(version)
-        val original = try { File(pending, "original").readLines() }
-            catch (_: Exception) { throw RuntimeUpgradeBlocked("transaction") }
+        val original =
+            try {
+                File(pending, "original").readLines()
+            } catch (_: Exception) {
+                throw RuntimeUpgradeBlocked("transaction")
+            }
         if (original.distinct() != original || original.any { it !in ENGINE_PATHS }) {
             throw RuntimeUpgradeBlocked("transaction")
         }
@@ -156,7 +189,10 @@ internal class EngineUpgrade(
     }
 
     private fun writeSynced(file: File, text: String) {
-        FileOutputStream(file).use { out -> out.write(text.toByteArray(Charsets.UTF_8)); out.fd.sync() }
+        FileOutputStream(file).use { out ->
+            out.write(text.toByteArray(Charsets.UTF_8))
+            out.fd.sync()
+        }
     }
 
     private fun present(file: File): Boolean = Files.exists(file.toPath(), NOFOLLOW_LINKS)
@@ -179,7 +215,11 @@ internal class EngineUpgrade(
     private fun remove(file: File) {
         if (!present(file)) return
         if (Files.isDirectory(file.toPath(), NOFOLLOW_LINKS)) {
-            for (child in file.listFiles() ?: throw IllegalStateException("could not list engine transaction")) remove(child)
+            for (child in
+                file.listFiles()
+                    ?: throw IllegalStateException("could not list engine transaction")) remove(
+                child,
+            )
         }
         Files.delete(file.toPath())
     }

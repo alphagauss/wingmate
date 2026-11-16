@@ -1,17 +1,27 @@
 (() => {
   const host = window.WingmateWorkbench;
-  if (!host || window.top !== window || location.origin !== __WINGMATE_ORIGIN__ || window.wingmateOpenSession) return;
+  if (
+    !host ||
+    window.top !== window ||
+    location.origin !== __WINGMATE_ORIGIN__ ||
+    window.wingmateOpenSession
+  )
+    return;
 
-  const send = (event, details = {}) => host.postMessage(JSON.stringify({ event, ...details }));
+  const send = (event, details = {}) =>
+    host.postMessage(JSON.stringify({ event, ...details }));
   const rows = '[data-row-key^="session:"]';
-  const sessionId = row => row.dataset.rowKey.slice('session:'.length);
+  const sessionId = (row) => row.dataset.rowKey.slice('session:'.length);
   let theme;
   let focusTimer;
 
   function publishTheme() {
     const source = document.documentElement.dataset.dsThemeSource;
     const next = ['light', 'dark', 'system'].includes(source)
-      ? source : document.body.hasAttribute('data-ds-dark-theme') ? 'dark' : 'light';
+      ? source
+      : document.body.hasAttribute('data-ds-dark-theme')
+        ? 'dark'
+        : 'light';
     if (next === theme) return;
     theme = next;
     send('theme', { theme });
@@ -24,7 +34,11 @@
   function readStatus(message) {
     if (typeof message.data !== 'string') return;
     let frame;
-    try { frame = JSON.parse(message.data); } catch { return; }
+    try {
+      frame = JSON.parse(message.data);
+    } catch {
+      return;
+    }
     const value = frame?.type === 'item' && frame.value;
     if (!value) return;
     if (value.type === 'waterfall' && value.eventId && value.agentId) {
@@ -35,7 +49,12 @@
         running.delete(id);
         waiting.delete(id);
       }
-      if (value.event !== 'api-session/status' || typeof id !== 'string' || typeof active !== 'boolean') return;
+      if (
+        value.event !== 'api-session/status' ||
+        typeof id !== 'string' ||
+        typeof active !== 'boolean'
+      )
+        return;
       if (active) {
         running.add(id);
         waiting.delete(id);
@@ -43,7 +62,9 @@
         const wasRunning = running.delete(id);
         const needsInput = waiting.delete(id);
         if (!wasRunning || needsInput) return;
-        const row = Array.from(document.querySelectorAll(rows)).find(item => sessionId(item) === id);
+        const row = Array.from(document.querySelectorAll(rows)).find(
+          (item) => sessionId(item) === id,
+        );
         const title = row?.children[1]?.textContent.trim();
         send('completed', { sessionId: id, title: title?.slice(0, 256) });
       }
@@ -54,7 +75,11 @@
       const socket = Reflect.construct(target, args, type);
       const endpoint = new URL(socket.url);
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      if (endpoint.protocol === protocol && endpoint.host === location.host && endpoint.pathname === '/api/remote.mux') {
+      if (
+        endpoint.protocol === protocol &&
+        endpoint.host === location.host &&
+        endpoint.pathname === '/api/remote.mux'
+      ) {
         socket.addEventListener('message', readStatus);
         socket.addEventListener('close', () => {
           running.clear();
@@ -65,12 +90,14 @@
     },
   });
 
-  window.wingmateOpenSession = id => {
+  window.wingmateOpenSession = (id) => {
     clearTimeout(focusTimer);
     const expires = Date.now() + 15000;
     let openedSidebar = false;
     const open = () => {
-      const row = Array.from(document.querySelectorAll(rows)).find(item => sessionId(item) === id);
+      const row = Array.from(document.querySelectorAll(rows)).find(
+        (item) => sessionId(item) === id,
+      );
       if (row) {
         row.click();
         return;
@@ -98,10 +125,19 @@
     document.head.append(appearance);
 
     const observer = new MutationObserver(publishTheme);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-ds-theme-source'] });
-    observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme'] });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-ds-theme-source'],
+    });
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['data-ds-dark-theme'],
+    });
     publishTheme();
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attachAppearance, { once: true });
+  if (document.readyState === 'loading')
+    document.addEventListener('DOMContentLoaded', attachAppearance, {
+      once: true,
+    });
   else attachAppearance();
 })();

@@ -16,10 +16,12 @@ import kotlin.math.roundToInt
 
 internal fun View.applyWindowInsets() {
     ViewCompat.setOnApplyWindowInsetsListener(this) { view, windowInsets ->
-        val insets = windowInsets.getInsets(
-            WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or
-                WindowInsetsCompat.Type.ime()
-        )
+        val insets =
+            windowInsets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or
+                    WindowInsetsCompat.Type.displayCutout() or
+                    WindowInsetsCompat.Type.ime(),
+            )
         view.setPadding(insets.left, insets.top, insets.right, insets.bottom)
         WindowInsetsCompat.CONSUMED
     }
@@ -28,15 +30,18 @@ internal fun View.applyWindowInsets() {
 
 internal fun Context.dp(value: Int): Int = (resources.displayMetrics.density * value).roundToInt()
 
-internal fun Context.rounded(color: Int, radius: Int, stroke: Int? = null) = GradientDrawable().apply {
-    setColor(color)
-    cornerRadius = dp(radius).toFloat()
-    if (stroke != null) setStroke(dp(2), stroke)
-}
+internal fun Context.rounded(color: Int, radius: Int, stroke: Int? = null) =
+    GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = dp(radius).toFloat()
+        if (stroke != null) setStroke(dp(2), stroke)
+    }
 
 internal class ConnectionUi(private val context: Context, darkOverride: Boolean? = null) {
-    val dark = darkOverride ?: (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
-        Configuration.UI_MODE_NIGHT_YES)
+    val dark =
+        darkOverride
+            ?: (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+                Configuration.UI_MODE_NIGHT_YES)
     val background = Color.parseColor(if (dark) "#111821" else "#FCFDFF")
     val foreground = Color.parseColor(if (dark) "#EAF1FB" else "#172235")
     val muted = Color.parseColor(if (dark) "#AAB9CB" else "#526174")
@@ -47,13 +52,17 @@ internal class ConnectionUi(private val context: Context, darkOverride: Boolean?
 
     // DSH Models > API key uses a business-primary border on focus.
     fun modelInputBackground(): StateListDrawable {
-        fun field(stroke: Int) = GradientDrawable().apply {
-            setColor(background)
-            cornerRadius = context.dp(6).toFloat()
-            setStroke(context.dp(1), stroke)
-        }
+        fun field(stroke: Int) =
+            GradientDrawable().apply {
+                setColor(background)
+                cornerRadius = context.dp(6).toFloat()
+                setStroke(context.dp(1), stroke)
+            }
         return StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_focused), field(Color.parseColor(if (dark) "#7AAAFF" else "#4176E6")))
+            addState(
+                intArrayOf(android.R.attr.state_focused),
+                field(Color.parseColor(if (dark) "#7AAAFF" else "#4176E6")),
+            )
             addState(intArrayOf(), field(Color.parseColor(if (dark) "#33FFFFFF" else "#29000000")))
         }
     }

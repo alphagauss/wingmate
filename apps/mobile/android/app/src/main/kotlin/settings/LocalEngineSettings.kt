@@ -7,7 +7,10 @@ internal interface LocalEngineSettings {
     val openWorkbench: (() -> Unit)?
     val shouldStartOnLaunch: Boolean
     val launchPending: Boolean
+
     fun startOnLaunch()
+
     fun observe(changed: () -> Unit)
+
     fun render(ui: SettingsUi, body: LinearLayout)
 }

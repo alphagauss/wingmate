@@ -25,12 +25,14 @@ import dev.wingmate.mobile.theme.dp
 import dev.wingmate.mobile.theme.rounded
 
 internal class SettingsUi(private val context: Context, theme: String) {
-    val dark = when (theme) {
-        "dark" -> true
-        "light" -> false
-        else -> context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
-            Configuration.UI_MODE_NIGHT_YES
-    }
+    val dark =
+        when (theme) {
+            "dark" -> true
+            "light" -> false
+            else ->
+                context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+                    Configuration.UI_MODE_NIGHT_YES
+        }
 
     // Resolved DSH Web aliases from design-platform.css for the mobile settings panel.
     val panelBackground = color("#FFFFFF", "#2C2C2E") // bg-layer-2
@@ -46,7 +48,8 @@ internal class SettingsUi(private val context: Context, theme: String) {
     private val thumbOn = color("#FFFFFF", "#0F1115") // label-primary-foreground
     private val thumbOff = color("#FFFFFF", "#ADB2B8") // switch-thumb
     val danger = color("#EC1313", "#F25A5A") // state-error-primary
-    val success = color("#16803D", "#22C55E") // Darken the DSH success color for light text contrast.
+    val success =
+        color("#16803D", "#22C55E") // Darken the DSH success color for light text contrast.
 
     fun text(value: String, size: Float, color: Int = primaryText, bold: Boolean = false) =
         TextView(context).apply {
@@ -61,33 +64,52 @@ internal class SettingsUi(private val context: Context, theme: String) {
         backLabel: String,
         back: () -> Unit,
         action: View?,
-        content: LinearLayout.() -> Unit
+        content: LinearLayout.() -> Unit,
     ) =
         ScrollView(context).apply {
             isFillViewport = true
             isFocusableInTouchMode = true
             setBackgroundColor(panelBackground)
-            addView(column().apply {
-                setPadding(dp(16), dp(12), dp(16), dp(28))
-                addView(LinearLayout(context).apply {
-                    addView(toolbarButton(R.drawable.ic_settings_back, backLabel, back), dp(48), dp(48))
-                    if (action != null) {
-                        addView(View(context), LinearLayout.LayoutParams(0, 0, 1f))
-                        addView(action, dp(48), dp(48))
-                    }
-                }, -1, -2)
-                addView(text(title, 28f, bold = true).apply {
-                    ViewCompat.setAccessibilityHeading(this, true)
-                }, LinearLayout.LayoutParams(-1, -2).apply {
-                    setMargins(dp(8), dp(12), dp(8), dp(16))
-                })
-                content()
-            })
+            addView(
+                column().apply {
+                    setPadding(dp(16), dp(12), dp(16), dp(28))
+                    addView(
+                        LinearLayout(context).apply {
+                            addView(
+                                toolbarButton(R.drawable.ic_settings_back, backLabel, back),
+                                dp(48),
+                                dp(48),
+                            )
+                            if (action != null) {
+                                addView(View(context), LinearLayout.LayoutParams(0, 0, 1f))
+                                addView(action, dp(48), dp(48))
+                            }
+                        },
+                        -1,
+                        -2,
+                    )
+                    addView(
+                        text(title, 28f, bold = true).apply {
+                            ViewCompat.setAccessibilityHeading(this, true)
+                        },
+                        LinearLayout.LayoutParams(-1, -2).apply {
+                            setMargins(dp(8), dp(12), dp(8), dp(16))
+                        },
+                    )
+                    content()
+                },
+            )
         }
 
-    fun scanButton(label: String, action: () -> Unit) = toolbarButton(R.drawable.ic_scan, label, action)
+    fun scanButton(label: String, action: () -> Unit) =
+        toolbarButton(R.drawable.ic_scan, label, action)
 
-    fun actionButton(label: String, icon: Int? = null, primary: Boolean = false, action: () -> Unit) =
+    fun actionButton(
+        label: String,
+        icon: Int? = null,
+        primary: Boolean = false,
+        action: () -> Unit,
+    ) =
         MaterialButton(context).apply {
             val ink = if (primary) actionInk else primaryText
             text = label
@@ -124,18 +146,26 @@ internal class SettingsUi(private val context: Context, theme: String) {
         }
 
     fun LinearLayout.section(title: String? = null, content: LinearLayout.() -> Unit) {
-        if (title != null) addView(text(title, 14f, secondary, bold = true).apply {
-            ViewCompat.setAccessibilityHeading(this, true)
-        }, LinearLayout.LayoutParams(-1, -2).apply { setMargins(dp(8), 0, dp(8), dp(8)) })
-        addView(column().apply {
-            dividerDrawable = GradientDrawable().apply {
-                setColor(divider)
-                setSize(0, 1)
-            }
-            dividerPadding = dp(16)
-            showDividers = LinearLayout.SHOW_DIVIDER_MIDDLE
-            content()
-        }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(22) })
+        if (title != null)
+            addView(
+                text(title, 14f, secondary, bold = true).apply {
+                    ViewCompat.setAccessibilityHeading(this, true)
+                },
+                LinearLayout.LayoutParams(-1, -2).apply { setMargins(dp(8), 0, dp(8), dp(8)) },
+            )
+        addView(
+            column().apply {
+                dividerDrawable =
+                    GradientDrawable().apply {
+                        setColor(divider)
+                        setSize(0, 1)
+                    }
+                dividerPadding = dp(16)
+                showDividers = LinearLayout.SHOW_DIVIDER_MIDDLE
+                content()
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(22) },
+        )
     }
 
     fun row(
@@ -148,44 +178,67 @@ internal class SettingsUi(private val context: Context, theme: String) {
         maxSubtitleLines: Int = 2,
         tone: Tone = Tone.HOSTS,
         trailing: View? = null,
-        action: (() -> Unit)? = null
-    ) = LinearLayout(context).apply {
-        gravity = Gravity.CENTER_VERTICAL
-        minimumHeight = dp(if (subtitle == null) 52 else 64)
-        setPadding(dp(16), dp(8), dp(16), dp(8))
-        if (icon != null) addView(ImageView(context).apply {
-            setImageResource(icon)
-            setColorFilter(color(tone.lightInk, tone.darkInk))
-            background = context.rounded(color(tone.lightFill, tone.darkFill), 16)
-            setPadding(dp(7), dp(7), dp(7), dp(7))
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(12) })
-        addView(column().apply {
-            addView(text(title, 15f))
-            if (subtitle != null) addView(text(subtitle, 13f, subtitleColor).apply {
-                maxLines = maxSubtitleLines
-                ellipsize = TextUtils.TruncateAt.END
-            })
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        if (value != null) addView(text(value, 13f, valueColor).apply {
-            maxWidth = dp(130)
-            maxLines = 2
-            ellipsize = TextUtils.TruncateAt.END
-        }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
-        if (trailing != null) addView(trailing, LinearLayout.LayoutParams(-2, -2).apply {
-            marginStart = dp(8)
-        })
-        if (action != null) {
-            if (trailing == null) addView(ImageView(context).apply {
-                setImageResource(R.drawable.ic_settings_chevron)
-                setColorFilter(tertiary)
-                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }, LinearLayout.LayoutParams(dp(16), dp(20)).apply { marginStart = dp(6) })
-            background = ripple(12)
-            isFocusable = true
-            setOnClickListener { action() }
+        action: (() -> Unit)? = null,
+    ) =
+        LinearLayout(context).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(if (subtitle == null) 52 else 64)
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            if (icon != null)
+                addView(
+                    ImageView(context).apply {
+                        setImageResource(icon)
+                        setColorFilter(color(tone.lightInk, tone.darkInk))
+                        background = context.rounded(color(tone.lightFill, tone.darkFill), 16)
+                        setPadding(dp(7), dp(7), dp(7), dp(7))
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    },
+                    LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(12) },
+                )
+            addView(
+                column().apply {
+                    addView(text(title, 15f))
+                    if (subtitle != null)
+                        addView(
+                            text(subtitle, 13f, subtitleColor).apply {
+                                maxLines = maxSubtitleLines
+                                ellipsize = TextUtils.TruncateAt.END
+                            },
+                        )
+                },
+                LinearLayout.LayoutParams(0, -2, 1f),
+            )
+            if (value != null)
+                addView(
+                    text(value, 13f, valueColor).apply {
+                        maxWidth = dp(130)
+                        maxLines = 2
+                        ellipsize = TextUtils.TruncateAt.END
+                    },
+                    LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) },
+                )
+            if (trailing != null)
+                addView(
+                    trailing,
+                    LinearLayout.LayoutParams(-2, -2).apply {
+                        marginStart = dp(8)
+                    },
+                )
+            if (action != null) {
+                if (trailing == null)
+                    addView(
+                        ImageView(context).apply {
+                            setImageResource(R.drawable.ic_settings_chevron)
+                            setColorFilter(tertiary)
+                            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                        },
+                        LinearLayout.LayoutParams(dp(16), dp(20)).apply { marginStart = dp(6) },
+                    )
+                background = ripple(12)
+                isFocusable = true
+                setOnClickListener { action() }
+            }
         }
-    }
 
     fun toggle(title: String, enabled: Boolean, change: (Boolean) -> Unit) =
         SwitchCompat(context).apply {
@@ -201,47 +254,65 @@ internal class SettingsUi(private val context: Context, theme: String) {
             setOnCheckedChangeListener { _, value -> change(value) }
         }
 
-    fun search(label: String) = EditText(context).apply {
-        hint = label
-        textSize = 16f
-        setTextColor(primaryText)
-        setHintTextColor(secondary)
-        setPadding(dp(16), 0, dp(16), 0)
-        minimumHeight = dp(46)
-        isSingleLine = true
-        background = context.rounded(field, 24)
-        setCompoundDrawablesRelativeWithIntrinsicBounds(searchIcon(), null, null, null)
-        compoundDrawablePadding = dp(8)
-    }
+    fun search(label: String) =
+        EditText(context).apply {
+            hint = label
+            textSize = 16f
+            setTextColor(primaryText)
+            setHintTextColor(secondary)
+            setPadding(dp(16), 0, dp(16), 0)
+            minimumHeight = dp(46)
+            isSingleLine = true
+            background = context.rounded(field, 24)
+            setCompoundDrawablesRelativeWithIntrinsicBounds(searchIcon(), null, null, null)
+            compoundDrawablePadding = dp(8)
+        }
 
-    fun searchButton(label: String, action: () -> Unit) = text(label, 16f, secondary).apply {
-        gravity = Gravity.CENTER_VERTICAL
-        minimumHeight = dp(46)
-        setPadding(dp(16), 0, dp(16), 0)
-        background = ripple(24, field)
-        setCompoundDrawablesRelativeWithIntrinsicBounds(searchIcon(), null, null, null)
-        compoundDrawablePadding = dp(8)
-        isFocusable = true
-        setOnClickListener { action() }
-    }
+    fun searchButton(label: String, action: () -> Unit) =
+        text(label, 16f, secondary).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(46)
+            setPadding(dp(16), 0, dp(16), 0)
+            background = ripple(24, field)
+            setCompoundDrawablesRelativeWithIntrinsicBounds(searchIcon(), null, null, null)
+            compoundDrawablePadding = dp(8)
+            isFocusable = true
+            setOnClickListener { action() }
+        }
 
-    private fun searchIcon() = AppCompatResources.getDrawable(context, R.drawable.ic_settings_search)
-        ?.mutate()?.apply { setTint(secondary) }
+    private fun searchIcon() =
+        AppCompatResources.getDrawable(context, R.drawable.ic_settings_search)?.mutate()?.apply {
+            setTint(secondary)
+        }
 
     private fun column() = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+
     private fun dp(value: Int) = context.dp(value)
-    private fun color(light: String, dark: String) = Color.parseColor(if (this.dark) dark else light)
+
+    private fun color(light: String, dark: String) =
+        Color.parseColor(if (this.dark) dark else light)
+
     private fun ripple(radius: Int, fill: Int = Color.TRANSPARENT) =
-        RippleDrawable(ColorStateList.valueOf(pressed), context.rounded(fill, radius),
-            context.rounded(Color.WHITE, radius))
+        RippleDrawable(
+            ColorStateList.valueOf(pressed),
+            context.rounded(fill, radius),
+            context.rounded(Color.WHITE, radius),
+        )
 
-    private fun switchTint(checked: Int, unchecked: Int) = ColorStateList(
-        arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(checked, unchecked)
-    )
+    private fun switchTint(checked: Int, unchecked: Int) =
+        ColorStateList(
+            arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+            intArrayOf(checked, unchecked),
+        )
 
-    enum class Tone(val lightFill: String, val lightInk: String, val darkFill: String, val darkInk: String) {
+    enum class Tone(
+        val lightFill: String,
+        val lightInk: String,
+        val darkFill: String,
+        val darkInk: String,
+    ) {
         GENERAL("#E6FAED", "#0F1115", "#233C2C", "#4ED17E"),
         HOSTS("#E4EDFD", "#4868B2", "#34415B", "#7AAAFF"),
-        HELP("#DBEAFE", "#1E40AF", "#172554", "#93C5FD")
+        HELP("#DBEAFE", "#1E40AF", "#172554", "#93C5FD"),
     }
 }

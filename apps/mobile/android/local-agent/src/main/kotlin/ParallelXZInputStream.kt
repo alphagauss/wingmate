@@ -1,9 +1,5 @@
 package dev.wingmate.mobile.runtime
 
-import org.tukaani.xz.MemoryLimitException
-import org.tukaani.xz.SeekableInputStream
-import org.tukaani.xz.SeekableXZInputStream
-import org.tukaani.xz.XZInputStream
 import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
@@ -12,17 +8,23 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
+import org.tukaani.xz.MemoryLimitException
+import org.tukaani.xz.SeekableInputStream
+import org.tukaani.xz.SeekableXZInputStream
+import org.tukaani.xz.XZInputStream
 
 /** Single tar consumer; two decoded blocks total, including its current block. */
-internal class ParallelXZInputStream private constructor(
+internal class ParallelXZInputStream
+private constructor(
     private val decoders: Array<SeekableXZInputStream>,
     private val sizes: IntArray,
     private val progress: LongArray,
     private val onProgress: (Long) -> Unit,
 ) : InputStream() {
-    private val workers = Array(2) { i ->
-        Executors.newSingleThreadExecutor { Thread(it, "dsh-xz-$i") }
-    }
+    private val workers =
+        Array(2) { i ->
+            Executors.newSingleThreadExecutor { Thread(it, "dsh-xz-$i") }
+        }
     private val pending = ArrayDeque<Future<ByteArray>>()
     private var nextBlock = 0
     private var consumed = 0
@@ -30,25 +32,30 @@ internal class ParallelXZInputStream private constructor(
     private var offset = 0
     @Volatile private var closed = false
 
-    init { submit(); submit() }
+    init {
+        submit()
+        submit()
+    }
 
     private fun submit() {
         if (nextBlock == sizes.size) return
         val block = nextBlock++
-        pending.addLast(workers[block % 2].submit<ByteArray> {
-            val decoder = decoders[block % 2]
-            decoder.seekToBlock(block)
-            val bytes = ByteArray(sizes[block])
-            var at = 0
-            while (at < bytes.size) {
-                if (closed) throw InterruptedIOException("xz decoding cancelled")
-                val read = decoder.read(bytes, at, minOf(64 * 1024, bytes.size - at))
-                if (read < 0) throw IOException("truncated xz block")
-                at += read
-            }
-            // XZ verifies the block check when the declared final byte is read.
-            bytes
-        })
+        pending.addLast(
+            workers[block % 2].submit<ByteArray> {
+                val decoder = decoders[block % 2]
+                decoder.seekToBlock(block)
+                val bytes = ByteArray(sizes[block])
+                var at = 0
+                while (at < bytes.size) {
+                    if (closed) throw InterruptedIOException("xz decoding cancelled")
+                    val read = decoder.read(bytes, at, minOf(64 * 1024, bytes.size - at))
+                    if (read < 0) throw IOException("truncated xz block")
+                    at += read
+                }
+                // XZ verifies the block check when the declared final byte is read.
+                bytes
+            },
+        )
     }
 
     override fun read(): Int {
@@ -77,7 +84,11 @@ internal class ParallelXZInputStream private constructor(
             return count
         } catch (e: Exception) {
             val cause = (e as? ExecutionException)?.cause ?: e
-            try { close() } catch (cleanup: Exception) { cause.addSuppressed(cleanup) }
+            try {
+                close()
+            } catch (cleanup: Exception) {
+                cause.addSuppressed(cleanup)
+            }
             throw cause
         }
     }
@@ -88,7 +99,11 @@ internal class ParallelXZInputStream private constructor(
         workers.forEach { it.shutdownNow() }
         // A decoder isn't safe to close under a read; a block read stops within 64 KiB.
         workers.forEach { it.awaitTermination(1, TimeUnit.MINUTES) }
-        try { decoders[0].close() } finally { decoders[1].close() }
+        try {
+            decoders[0].close()
+        } finally {
+            decoders[1].close()
+        }
     }
 
     companion object {
@@ -101,17 +116,25 @@ internal class ParallelXZInputStream private constructor(
             try {
                 first = decoder(factory)
                 val count = first.blockCount
-                if (count < 2 || (0 until count).any { first.getBlockSize(it) !in 1..MAX_BLOCK_BYTES }) {
+                if (
+                    count < 2 ||
+                        (0 until count).any { first.getBlockSize(it) !in 1..MAX_BLOCK_BYTES }
+                ) {
                     first.close()
                     return sequential(factory, onProgress)
                 }
                 val sizes = IntArray(count) { first.getBlockSize(it).toInt() }
-                val progress = LongArray(count) { block ->
-                    if (block + 1 < count) first.getBlockCompPos(block + 1) else factory().use { it.length() }
-                }
+                val progress =
+                    LongArray(count) { block ->
+                        if (block + 1 < count) first.getBlockCompPos(block + 1)
+                        else factory().use { it.length() }
+                    }
                 // Block filter/dictionary memory is only known when a read initializes
                 // that block. Check every header before tar can write anything.
-                repeat(count) { block -> first.seekToBlock(block); first.read() }
+                repeat(count) { block ->
+                    first.seekToBlock(block)
+                    first.read()
+                }
                 second = decoder(factory)
                 return ParallelXZInputStream(arrayOf(first, second), sizes, progress, onProgress)
             } catch (_: MemoryLimitException) {
@@ -119,32 +142,60 @@ internal class ParallelXZInputStream private constructor(
                 second?.close()
                 return sequential(factory, onProgress)
             } catch (e: Throwable) {
-                try { first?.close() } catch (cleanup: Exception) { e.addSuppressed(cleanup) }
-                try { second?.close() } catch (cleanup: Exception) { e.addSuppressed(cleanup) }
+                try {
+                    first?.close()
+                } catch (cleanup: Exception) {
+                    e.addSuppressed(cleanup)
+                }
+                try {
+                    second?.close()
+                } catch (cleanup: Exception) {
+                    e.addSuppressed(cleanup)
+                }
                 throw e
             }
         }
 
         private fun decoder(factory: () -> SeekableInputStream): SeekableXZInputStream {
             val raw = factory()
-            try { return SeekableXZInputStream(raw, DECODER_MEMORY_KIB) }
-            catch (e: Throwable) {
-                try { raw.close() } catch (cleanup: Exception) { e.addSuppressed(cleanup) }
+            try {
+                return SeekableXZInputStream(raw, DECODER_MEMORY_KIB)
+            } catch (e: Throwable) {
+                try {
+                    raw.close()
+                } catch (cleanup: Exception) {
+                    e.addSuppressed(cleanup)
+                }
                 throw e
             }
         }
 
-        private fun sequential(factory: () -> SeekableInputStream, onProgress: (Long) -> Unit): InputStream {
-            val counting = object : FilterInputStream(factory()) {
-                var count = 0L
-                override fun read(): Int = `in`.read().also { if (it >= 0) onProgress(++count) }
-                override fun read(b: ByteArray, off: Int, len: Int): Int = `in`.read(b, off, len).also {
-                    if (it > 0) { count += it; onProgress(count) }
+        private fun sequential(
+            factory: () -> SeekableInputStream,
+            onProgress: (Long) -> Unit,
+        ): InputStream {
+            val counting =
+                object : FilterInputStream(factory()) {
+                    var count = 0L
+
+                    override fun read(): Int = `in`.read().also { if (it >= 0) onProgress(++count) }
+
+                    override fun read(b: ByteArray, off: Int, len: Int): Int =
+                        `in`.read(b, off, len).also {
+                            if (it > 0) {
+                                count += it
+                                onProgress(count)
+                            }
+                        }
                 }
-            }
-            try { return XZInputStream(counting) }
-            catch (e: Throwable) {
-                try { counting.close() } catch (cleanup: Exception) { e.addSuppressed(cleanup) }
+            try {
+                return XZInputStream(counting)
+            } catch (e: Throwable) {
+                try {
+                    counting.close()
+                } catch (cleanup: Exception) {
+                    e.addSuppressed(cleanup)
+                }
                 throw e
             }
         }

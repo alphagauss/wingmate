@@ -10,17 +10,20 @@ import dev.wingmate.mobile.web.WorkbenchActivity
 
 internal class ConnectionFlow(
     private val activity: ComponentActivity,
-    private val onConnectionRequested: () -> Unit = {}
+    private val onConnectionRequested: () -> Unit = {},
 ) {
     val store by lazy { ConnectionStore(activity) }
     private val labels by lazy { ConnectionStrings(activity) }
     private var scanningResult: ((String?) -> Unit)? = null
     private var attempt = 0
-    private val scanner = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        val result = scanningResult
-        scanningResult = null
-        result?.invoke(if (it.resultCode == Activity.RESULT_OK) it.data?.getStringExtra("text") else null)
-    }
+    private val scanner =
+        activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            val result = scanningResult
+            scanningResult = null
+            result?.invoke(
+                if (it.resultCode == Activity.RESULT_OK) it.data?.getStringExtra("text") else null,
+            )
+        }
 
     fun scan(onNotice: (String?) -> Unit, manual: Boolean = false) {
         readPairingLink(manual) { link -> if (link != null) connect(link, onNotice) }
@@ -54,9 +57,13 @@ internal class ConnectionFlow(
                     return@runOnUiThread
                 }
                 onNotice(null)
-                launch(if (resolved.origin == target.origin) target else resolved.target, resolved.previousOrigin)
+                launch(
+                    if (resolved.origin == target.origin) target else resolved.target,
+                    resolved.previousOrigin,
+                )
             }
-        }.start()
+        }
+            .start()
     }
 
     fun select(host: DiscoveredHost, onResult: (String?) -> Unit) {
@@ -64,25 +71,35 @@ internal class ConnectionFlow(
     }
 
     fun select(entry: SavedConnection, onResult: (String?, DiscoveredHost?) -> Unit) {
-        select({ ConnectionTarget.parse(entry.origin)?.let { resolveConnection(activity, it) } }, onResult)
+        select(
+            { ConnectionTarget.parse(entry.origin)?.let { resolveConnection(activity, it) } },
+            onResult,
+        )
     }
 
-    private fun select(resolve: () -> DiscoveredHost?, onResult: (String?, DiscoveredHost?) -> Unit) {
+    private fun select(
+        resolve: () -> DiscoveredHost?,
+        onResult: (String?, DiscoveredHost?) -> Unit,
+    ) {
         onConnectionRequested()
         val generation = ++attempt
         Thread {
             val host = runCatching { resolve() }.getOrNull()
-            val session = runCatching { host != null && (host.origin.startsWith("https:") || hasLanSession(host.origin)) }
+            val session = runCatching {
+                host != null && (host.origin.startsWith("https:") || hasLanSession(host.origin))
+            }
             activity.runOnUiThread {
                 if (!current(generation)) return@runOnUiThread
                 when {
-                    host == null || session.isFailure -> onResult(labels["connection.connectionFailed"], null)
+                    host == null || session.isFailure ->
+                        onResult(labels["connection.connectionFailed"], null)
                     session.getOrDefault(false) -> launch(host.target, host.previousOrigin)
                     host.identity.password -> onResult(null, host)
                     else -> onResult(labels["connection.pairRequired"], host)
                 }
             }
-        }.start()
+        }
+            .start()
     }
 
     fun login(host: DiscoveredHost, password: String, onError: (String) -> Unit) {
@@ -101,17 +118,24 @@ internal class ConnectionFlow(
                             launch(host.target, host.previousOrigin)
                         } else onError(labels["connection.connectionFailed"])
                     }
-                } else onError(labels[when (reply?.status) {
-                    400, 401 -> "connection.passwordIncorrect"
-                    404 -> "connection.pairRequired"
-                    429 -> "connection.passwordRateLimited"
-                    else -> "connection.connectionFailed"
-                }])
+                } else
+                    onError(
+                        labels[
+                            when (reply?.status) {
+                                400,
+                                401 -> "connection.passwordIncorrect"
+                                404 -> "connection.pairRequired"
+                                429 -> "connection.passwordRateLimited"
+                                else -> "connection.connectionFailed"
+                            }],
+                    )
             }
-        }.start()
+        }
+            .start()
     }
 
-    private fun current(generation: Int) = generation == attempt && !activity.isFinishing && !activity.isDestroyed
+    private fun current(generation: Int) =
+        generation == attempt && !activity.isFinishing && !activity.isDestroyed
 
     private fun launch(target: ConnectionTarget, previousOrigin: String) {
         store.remember(target.origin, previousOrigin)

@@ -14,9 +14,10 @@ internal data class RuntimeManifest(
 ) {
     companion object {
         fun load(context: Context): RuntimeManifest {
-            val json = context.assets.open("runtime/manifest.json").bufferedReader().use {
-                JSONObject(it.readText())
-            }
+            val json =
+                context.assets.open("runtime/manifest.json").bufferedReader().use {
+                    JSONObject(it.readText())
+                }
             require(json.getInt("schema") == 1 && json.getString("abi") == "arm64-v8a")
             require(json.getString("rootfs") == "rootfs-arm64-v8a.tar.xz")
             val launch = json.getJSONObject("launch")

@@ -24,28 +24,37 @@ internal object ProotTempFiles {
         try {
             val path = directory.toPath()
             val parent = path.parent ?: return Result(0, true)
-            val expectedParent = Files.readAttributes(parent, BasicFileAttributes::class.java, NOFOLLOW_LINKS)
+            val expectedParent =
+                Files.readAttributes(parent, BasicFileAttributes::class.java, NOFOLLOW_LINKS)
             if (!expectedParent.isDirectory) return Result(0, true)
             Files.newDirectoryStream(parent).use { opened ->
-                // Relative, no-follow operations pin the cache even if a path is replaced during cleanup.
+                // Relative, no-follow operations pin the cache even if a path is replaced during
+                // cleanup.
                 val cache = opened as? SecureDirectoryStream<Path> ?: return Result(0, true)
                 if (!sameDirectory(expectedParent, cache.attributes())) return Result(0, true)
                 cache.newDirectoryStream(path.fileName, NOFOLLOW_LINKS).use { temp ->
                     for (entry in temp) {
                         val name = entry.fileName
-                        val pid = NAME.matchEntire(name.toString())?.groupValues?.get(1)?.toIntOrNull() ?: continue
+                        val pid =
+                            NAME.matchEntire(name.toString())?.groupValues?.get(1)?.toIntOrNull()
+                                ?: continue
                         try {
                             val expected = temp.attributes(name)
                             if (!expected.isDirectory || expected.fileKey() == null) continue
-                            val emptied = temp.newDirectoryStream(name, NOFOLLOW_LINKS).use { child ->
-                                if (!sameDirectory(expected, child.attributes()) ||
-                                    !runCatching { isProcessGone(pid) }.getOrDefault(false) ||
-                                    !sameDirectory(expected, temp.attributes(name))) false
-                                else {
-                                    clear(child)
-                                    true
+                            val emptied =
+                                temp.newDirectoryStream(name, NOFOLLOW_LINKS).use { child ->
+                                    if (
+                                        !sameDirectory(expected, child.attributes()) ||
+                                            !runCatching { isProcessGone(pid) }
+                                                .getOrDefault(false) ||
+                                            !sameDirectory(expected, temp.attributes(name))
+                                    )
+                                        false
+                                    else {
+                                        clear(child)
+                                        true
+                                    }
                                 }
-                            }
                             if (emptied && sameDirectory(expected, temp.attributes(name))) {
                                 temp.deleteDirectory(name)
                                 removed++
@@ -75,11 +84,15 @@ internal object ProotTempFiles {
     }
 
     private fun sameDirectory(expected: BasicFileAttributes, actual: BasicFileAttributes): Boolean =
-        expected.isDirectory && actual.isDirectory && expected.fileKey() != null && expected.fileKey() == actual.fileKey()
+        expected.isDirectory &&
+            actual.isDirectory &&
+            expected.fileKey() != null &&
+            expected.fileKey() == actual.fileKey()
 
     private fun SecureDirectoryStream<Path>.attributes(name: Path? = null): BasicFileAttributes =
         (if (name == null) getFileAttributeView(BasicFileAttributeView::class.java)
-        else getFileAttributeView(name, BasicFileAttributeView::class.java, NOFOLLOW_LINKS)).readAttributes()
+            else getFileAttributeView(name, BasicFileAttributeView::class.java, NOFOLLOW_LINKS))
+            .readAttributes()
 
     private fun clear(directory: SecureDirectoryStream<Path>) {
         for (entry in directory) {
@@ -87,10 +100,12 @@ internal object ProotTempFiles {
             val expected = directory.attributes(name)
             if (expected.isDirectory) {
                 directory.newDirectoryStream(name, NOFOLLOW_LINKS).use { child ->
-                    if (!sameDirectory(expected, child.attributes())) throw IOException("temporary directory changed")
+                    if (!sameDirectory(expected, child.attributes()))
+                        throw IOException("temporary directory changed")
                     clear(child)
                 }
-                if (!sameDirectory(expected, directory.attributes(name))) throw IOException("temporary directory changed")
+                if (!sameDirectory(expected, directory.attributes(name)))
+                    throw IOException("temporary directory changed")
                 directory.deleteDirectory(name)
             } else {
                 // This also unlinks dangling symlinks; their targets are never opened or chmodded.

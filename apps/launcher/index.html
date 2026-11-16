@@ -1,28 +1,40 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Wingmate</title>
-  <style>
-    * { box-sizing: border-box; }
-    html[data-wingmate-home-titlebar="system"] { color-scheme: light dark; }
-    html[data-wingmate-home-titlebar="dark"] { color-scheme: dark; }
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Wingmate</title>
+    <style>
+    * {
+      box-sizing: border-box;
+    }
+    html[data-wingmate-home-titlebar="system"] {
+      color-scheme: light dark;
+    }
+    html[data-wingmate-home-titlebar="dark"] {
+      color-scheme: dark;
+    }
     body {
       display: grid;
       place-items: center;
       min-height: 100vh;
       margin: 0;
       padding: 24px;
-      font: 16px/1.6 system-ui, sans-serif;
+      font:
+        16px / 1.6 system-ui,
+        sans-serif;
       color: light-dark(#162641, #f9fafb);
       background: light-dark(#fff, #161617);
     }
     html[data-wingmate-home-titlebar] body {
       padding-top: calc(24px + var(--dsh-windows-titlebar-height));
     }
-    html[data-wingmate-home-titlebar] #connect-local { display: none; }
-    html[data-remote-launcher] { color-scheme: light dark; }
+    html[data-wingmate-home-titlebar] #connect-local {
+      display: none;
+    }
+    html[data-remote-launcher] {
+      color-scheme: light dark;
+    }
     main {
       width: min(100%, 460px);
       padding: 30px 32px;
@@ -31,10 +43,25 @@
       background: light-dark(#fff, #202021);
       box-shadow: 0 12px 40px rgb(32 63 112 / 8%);
     }
-    header { display: flex; align-items: center; gap: 12px; }
-    h1 { margin: 0; font-size: 20px; }
-    h2 { margin: 0; font-size: 21px; }
-    .status { display: flex; align-items: center; gap: 12px; margin-top: 22px; }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+    }
+    h2 {
+      margin: 0;
+      font-size: 21px;
+    }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 22px;
+    }
     .spinner {
       flex: 0 0 auto;
       width: 18px;
@@ -44,12 +71,30 @@
       border-radius: 50%;
       animation: spin 0.85s linear infinite;
     }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
-    p { margin: 8px 0 0; color: light-dark(#4d607d, #b9bbc1); }
-    details { margin-top: 16px; color: light-dark(#4d607d, #b9bbc1); }
-    summary { cursor: pointer; }
-    .actions { margin-top: 18px; }
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .spinner {
+        animation: none;
+      }
+    }
+    p {
+      margin: 8px 0 0;
+      color: light-dark(#4d607d, #b9bbc1);
+    }
+    details {
+      margin-top: 16px;
+      color: light-dark(#4d607d, #b9bbc1);
+    }
+    summary {
+      cursor: pointer;
+    }
+    .actions {
+      margin-top: 18px;
+    }
     button {
       border: 1px solid light-dark(#c9d9f1, #46464b);
       border-radius: 10px;
@@ -59,11 +104,27 @@
       color: light-dark(#162641, #f9fafb);
       cursor: pointer;
     }
-    button:disabled { opacity: .55; cursor: default; }
-    button.primary { border-color: #255ac9; background: #255ac9; color: #fff; }
-    #action-error { color: light-dark(#a12929, #ffa1a1); }
-    dialog { max-width: min(360px, 85vw); border: 1px solid light-dark(#dce5f2, #39393c); border-radius: 16px; padding: 24px; }
-    dialog::backdrop { background: light-dark(#16264166, #0009); }
+    button:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+    button.primary {
+      border-color: #255ac9;
+      background: #255ac9;
+      color: #fff;
+    }
+    #action-error {
+      color: light-dark(#a12929, #ffa1a1);
+    }
+    dialog {
+      max-width: min(360px, 85vw);
+      border: 1px solid light-dark(#dce5f2, #39393c);
+      border-radius: 16px;
+      padding: 24px;
+    }
+    dialog::backdrop {
+      background: light-dark(#16264166, #0009);
+    }
     pre {
       max-height: 160px;
       overflow: auto;
@@ -75,41 +136,54 @@
       white-space: pre-wrap;
       overflow-wrap: anywhere;
     }
-  </style>
-</head>
-<body>
-  <main>
-    <header>
-      <img src="/_wingmate/logo.svg" width="42" height="42" alt="">
-      <h1>Wingmate</h1>
-    </header>
-    <div role="status" aria-live="polite" aria-atomic="true">
-      <div class="status">
-        <span id="spinner" class="spinner" aria-hidden="true"></span>
-        <h2 id="message">正在检查后台…</h2>
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <img src="/_wingmate/logo.svg" width="42" height="42" alt="">
+        <h1>Wingmate</h1>
+      </header>
+      <div role="status" aria-live="polite" aria-atomic="true">
+        <div class="status">
+          <span id="spinner" class="spinner" aria-hidden="true"></span>
+          <h2 id="message">正在检查后台…</h2>
+        </div>
+        <p id="hint" hidden></p>
       </div>
-      <p id="hint" hidden></p>
-    </div>
-    <details id="details" hidden>
-      <summary>查看错误详情</summary>
-      <pre id="error"></pre>
-    </details>
-    <button class="actions primary" id="start" type="button" data-backend-action="start" hidden>启动后台</button>
-    <button class="actions" id="connect-local" type="button" hidden>连接其他主机</button>
-    <div class="actions" id="update" hidden>
-      <button class="primary" type="button" data-backend-action="continue">继续使用</button>
-      <button id="show-restart" type="button">重启并更新</button>
-    </div>
-    <p id="action-error" role="alert" hidden></p>
-  </main>
-  <dialog id="restart-confirmation" aria-labelledby="restart-title">
-    <h2 id="restart-title">重启并更新后台？</h2>
-    <p id="restart-hint">这会中断正在运行的任务。</p>
-    <form class="actions" method="dialog">
-      <button autofocus>取消</button>
-      <button class="primary" type="button" data-backend-action="restart">确认重启</button>
-    </form>
-  </dialog>
-  <script src="/_wingmate/home.js" defer></script>
-</body>
+      <details id="details" hidden>
+        <summary>查看错误详情</summary>
+        <pre id="error"></pre>
+      </details>
+      <button
+        class="actions primary"
+        id="start"
+        type="button"
+        data-backend-action="start"
+        hidden
+        >启动后台</button
+      >
+      <button class="actions" id="connect-local" type="button" hidden
+        >连接其他主机</button
+      >
+      <div class="actions" id="update" hidden>
+        <button class="primary" type="button" data-backend-action="continue"
+          >继续使用</button
+        >
+        <button id="show-restart" type="button">重启并更新</button>
+      </div>
+      <p id="action-error" role="alert" hidden></p>
+    </main>
+    <dialog id="restart-confirmation" aria-labelledby="restart-title">
+      <h2 id="restart-title">重启并更新后台？</h2>
+      <p id="restart-hint">这会中断正在运行的任务。</p>
+      <form class="actions" method="dialog">
+        <button autofocus>取消</button>
+        <button class="primary" type="button" data-backend-action="restart"
+          >确认重启</button
+        >
+      </form>
+    </dialog>
+    <script src="/_wingmate/home.js" defer></script>
+  </body>
 </html>

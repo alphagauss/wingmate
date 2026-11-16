@@ -9,7 +9,10 @@ fn main() {
             if tunnel == "tunnel" && no_update == "--no-autoupdate" && option == "--url" =>
         {
             std::fs::write(std::env::var_os("TEST_TUNNEL_ORIGIN").unwrap(), origin).unwrap();
-            println!("| https://wingmate-{}.trycloudflare.com |", std::process::id());
+            println!(
+                "| https://wingmate-{}.trycloudflare.com |",
+                std::process::id()
+            );
         }
         [tunnel, no_update, run]
             if tunnel == "tunnel" && no_update == "--no-autoupdate" && run == "run" =>
