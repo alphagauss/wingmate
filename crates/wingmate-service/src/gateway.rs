@@ -19,7 +19,7 @@ use std::{
     collections::HashMap,
     convert::Infallible,
     fs, io,
-    net::{IpAddr, Ipv4Addr, SocketAddrV4, UdpSocket},
+    net::{IpAddr, Ipv4Addr, SocketAddrV4},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -401,20 +401,9 @@ pub(super) struct Control {
     login_workers: Arc<tokio::sync::Semaphore>,
 }
 
-fn suggested_address() -> Option<Ipv4Addr> {
-    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
-    // Ask the OS which interface it would use. UDP connect sends no packets.
-    socket.connect("192.0.2.1:9").ok()?;
-    match socket.local_addr().ok()?.ip() {
-        IpAddr::V4(address) if address.is_private() => Some(address),
-        _ => None,
-    }
-}
-
 fn lan_addresses() -> Vec<Ipv4Addr> {
-    let preferred = suggested_address();
     let Ok(interfaces) = if_addrs::get_if_addrs() else {
-        return preferred.into_iter().collect();
+        return Vec::new();
     };
     let mut addresses: Vec<_> = interfaces
         .into_iter()
@@ -424,7 +413,7 @@ fn lan_addresses() -> Vec<Ipv4Addr> {
             _ => None,
         })
         .collect();
-    addresses.sort_unstable_by_key(|&address| (Some(address) != preferred, address));
+    addresses.sort_unstable();
     addresses.dedup();
     addresses
 }
