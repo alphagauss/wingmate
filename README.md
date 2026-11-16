@@ -14,6 +14,8 @@ Wingmate 是一个面向个人使用的 DeepSeek Harness（DSH）发行版。可
 
 ## 使用
 
+> **Wingmate 0.x 仍处于开发初期，各版本之间不保证兼容。** 升级遇到兼容性问题时，可能需要先停止旧版后台，备份并清理默认管理目录 `~/.wingmate`，再重新安装。[数据存放位置](crates/wingmate-service/README.md#数据与管理边界)
+
 发行目标为 Windows、macOS 和 Linux。请选择与系统和处理器架构对应的构建，并安装相同架构的 Node.js >=24.9.0。桌面构建在 Windows 需要 WebView2，macOS 使用系统 WebKit，Linux 需要 WebKitGTK 4.1 及对应桌面运行库。无 GUI 构建不链接 Tauri 或 WebView。Zstd 解压库已内嵌。各平台系统依赖见 [Tauri 前提条件](https://v2.tauri.app/start/prerequisites/)。
 
 Word、PowerPoint 及部分扩展格式使用随包提供的 [File Viewer 侧栏预览](plugins/wingmate-file-viewer/README.md)，发行包已移除 LibreOffice 引擎。能力范围与相对原版的取舍见[运行时维护指南](docs/runtime-maintenance.md#去重与精简取舍)。
