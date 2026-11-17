@@ -17,6 +17,7 @@ const confirmUpdate = confirmation.querySelector(
 const connectLocal = document.getElementById('connect-local');
 const local = window.__WINGMATE_LOCAL_HOME__ === true;
 let updateRequest;
+let updateNeedsConfirmation;
 let confirmedUpdate;
 
 function showActionError(error) {
@@ -46,7 +47,8 @@ window.renderWingmateHome = ({
     actions === 'retry-reopen' ? 'retry-reopen' : 'start';
   const idleUpdate = actions === 'update-idle';
   const desktopUpdate = actions === 'update-desktop';
-  update.hidden = actions !== 'update' && !idleUpdate && !desktopUpdate;
+  updateNeedsConfirmation = idleUpdate || desktopUpdate;
+  update.hidden = actions !== 'update' && !updateNeedsConfirmation;
   updateRequest = {
     action: desktopUpdate ? 'update-desktop' : 'restart',
     expected: target,
@@ -59,22 +61,18 @@ window.renderWingmateHome = ({
       : idleUpdate
         ? '更新并启动'
         : '重启并更新';
+  }
+  if (updateNeedsConfirmation) {
     document.getElementById('restart-title').textContent = desktopUpdate
       ? '更新桌面？'
-      : idleUpdate
-        ? '更新管理服务并启动后台？'
-        : '重启并更新后台？';
+      : '更新管理服务并启动后台？';
     document.getElementById('restart-hint').textContent = desktopUpdate
       ? '后台任务会继续运行。'
-      : idleUpdate
-        ? '已启用的远程连接会短暂中断。'
-        : '这会中断正在运行的任务。';
-    confirmUpdate.textContent =
-      desktopUpdate || idleUpdate ? '确认更新' : '确认重启';
+      : '已启用的远程连接会短暂中断。';
   }
   if (
     confirmation.open &&
-    (update.hidden ||
+    (!updateNeedsConfirmation ||
       JSON.stringify(confirmedUpdate) !== JSON.stringify(updateRequest))
   )
     confirmation.close();
@@ -162,10 +160,6 @@ if (local) {
   refresh();
 }
 
-showRestart.addEventListener('click', () => {
-  confirmedUpdate = updateRequest;
-  confirmation.showModal();
-});
 // The modal makes elements outside it inert, including the custom window controls.
 confirmation.addEventListener('toggle', () => {
   const titlebar = document.querySelector('[data-wingmate-titlebar]');
@@ -173,14 +167,19 @@ confirmation.addEventListener('toggle', () => {
     (confirmation.open ? confirmation : document.body).append(titlebar);
 });
 
-for (const control of local
-  ? document.querySelectorAll('[data-backend-action]')
-  : []) {
+for (const control of local ? controls : []) {
   control.addEventListener('click', async () => {
+    if (control === showRestart && updateNeedsConfirmation) {
+      confirmedUpdate = updateRequest;
+      confirmation.showModal();
+      return;
+    }
     const request =
-      control === confirmUpdate
-        ? confirmedUpdate
-        : { action: control.dataset.backendAction };
+      control === showRestart
+        ? updateRequest
+        : control === confirmUpdate
+          ? confirmedUpdate
+          : { action: control.dataset.backendAction };
     if (confirmation.open) confirmation.close();
     actionError.hidden = true;
     for (const button of controls) button.disabled = true;
