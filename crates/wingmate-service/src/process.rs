@@ -7,6 +7,15 @@ use std::{
     process::{Child, Command, Stdio},
 };
 
+// Worker 会继承 --import。内联入口可在临时文件删除后加载，控制脚本只由 DSH 主线程执行。
+const CONTROL_PRELOAD: &str = "data:text/javascript,\
+    import { isMainThread } from 'node:worker_threads';\
+    const url = process.env.WINGMATE_CONTROL_URL;\
+    if (isMainThread && url) {\
+        delete process.env.WINGMATE_CONTROL_URL;\
+        await import(url);\
+    }";
+
 pub fn ready_url(value: &str) -> bool {
     let Ok(url) = reqwest::Url::parse(value) else {
         return false;
@@ -81,11 +90,12 @@ pub fn start(
     }
     command
         .arg("--import")
-        .arg(control_url.as_str())
+        .arg(CONTROL_PRELOAD)
         .arg(runtime.directory.join(crate::runtime::DSH_ENTRY))
         .args(["web", "--patch"])
         .arg(runtime.directory.join(crate::runtime::WEB_PATCH))
         .args(["--host", "127.0.0.1", "--port", "0", "--no-open"])
+        .env("WINGMATE_CONTROL_URL", control_url.as_str())
         .env("WINGMATE_HOME", home)
         .env("WINGMATE_RUNTIME_ID", &runtime.id)
         .env("WINGMATE_RUNTIME_REVISION", &runtime.revision)

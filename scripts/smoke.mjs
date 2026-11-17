@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { once } from 'node:events';
+import { on, once } from 'node:events';
 import { existsSync } from 'node:fs';
 import {
   copyFile,
@@ -517,6 +517,67 @@ try {
   );
   try {
     await once(socket, 'open');
+    if (process.platform === 'win32') {
+      const agentId = session.value.sessionId;
+      const shells = await call('terminal/shells', { agentId });
+      assert.equal(shells.status, 200);
+      const { result: profiles } = await shells.json();
+      assert.equal(profiles.ok, true, JSON.stringify(profiles));
+      const cmd = profiles.value.find((shell) =>
+        /^cmd(?:\.exe)?$/i.test(shell.name),
+      );
+      assert.ok(cmd, '终端菜单缺少 CMD');
+      const id = randomUUID();
+      const created = await call('terminal/create', {
+        agentId,
+        request: { id, shellPath: cmd.path, cols: 80, rows: 24 },
+      });
+      assert.equal(created.status, 200);
+      const { result: terminal } = await created.json();
+      assert.equal(terminal.ok, true, JSON.stringify(terminal));
+
+      const messages = on(socket, 'message', {
+        signal: AbortSignal.timeout(15_000),
+      });
+      socket.send(
+        JSON.stringify({
+          type: 'open',
+          streamId: id,
+          endpoint: 'terminal/attach',
+          payload: { args: { agentId, id } },
+        }),
+      );
+      let output = '';
+      for await (const [message] of messages) {
+        const frame = JSON.parse(message);
+        if (frame.streamId !== id) continue;
+        assert.equal(frame.type, 'item', JSON.stringify(frame));
+        const value = frame.value;
+        if (value.type === 'snapshot') {
+          assert.equal(value.info.state, 'running', JSON.stringify(value.info));
+          assert.equal(value.writable, true);
+          socket.send(
+            JSON.stringify({
+              type: 'item',
+              streamId: id,
+              value: {
+                type: 'write',
+                sequence: 1,
+                data: 'set WINGMATE_PTY_CHECK=wingmate-pty\recho %WINGMATE_PTY_CHECK%-ok\rexit\r',
+              },
+            }),
+          );
+        }
+        if (value.type === 'output') output += value.data;
+        if (value.type === 'state' && value.info.state !== 'running') {
+          assert.equal(value.info.exitCode, 0, JSON.stringify(value.info));
+          break;
+        }
+      }
+      assert.match(output, /wingmate-pty-ok/);
+      socket.send(JSON.stringify({ type: 'cancel', streamId: id }));
+      checks.push('实际 DSH 侧栏终端能启动 CMD、执行命令并正常退出');
+    }
     const {
       devices: [device],
     } = await cli('share-status');
