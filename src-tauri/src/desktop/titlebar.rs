@@ -42,7 +42,9 @@ pub(super) fn expose(window: &WebviewWindow, source: &Source, theme: Theme, navi
         navigation
     ]);
     let script = include_str!("titlebar.js");
-    let _ = window.eval(&format!("({script})({args})"));
+    let _ = window.eval(&format!(
+        "{{ const initTitlebar = {script}\ninitTitlebar({args}); }}"
+    ));
 }
 
 #[derive(Default)]
