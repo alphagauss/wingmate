@@ -165,6 +165,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v8
         with:
           pattern: wingmate-*
@@ -192,7 +195,13 @@ jobs:
           else
             flags=()
             if [[ "$tag" == *-* ]]; then flags+=(--prerelease); fi
-            cat > "$RUNNER_TEMP/release-notes.md" <<EOF
+            notes="$RUNNER_TEMP/release-notes.md"
+            version_notes="$GITHUB_WORKSPACE/.github/release-notes/$tag.md"
+            if [[ -f "$version_notes" ]]; then
+              cat "$version_notes" > "$notes"
+              printf '\n' >> "$notes"
+            fi
+            cat >> "$notes" <<EOF
           - \`wingmate-windows-x64.exe\` · Windows x64，需要 Node.js。
           - \`wingmate-android-remote.apk\` · Android 远程版，连接已有 Wingmate 主机。
           - \`wingmate-android-local.apk\` · Android 本地版，可在 Android 8.0 及以上的 ARM64 手机上运行 DSH。
@@ -201,7 +210,7 @@ jobs:
 
           本地 APK 按 AGPLv3 分发。[对应 Wingmate 源码和构建说明](https://github.com/$GH_REPO/tree/$GITHUB_SHA/apps/mobile)、[随包组件源码说明](https://github.com/$GH_REPO/blob/$GITHUB_SHA/runtime/android/SOURCES.md)及下方的 \`wingmate-android-runtime-sources.tar\` 随此版本提供。
           EOF
-            gh release create "$tag" --verify-tag --draft --generate-notes --notes-file "$RUNNER_TEMP/release-notes.md" "${flags[@]}"
+            gh release create "$tag" --verify-tag --draft --generate-notes --notes-file "$notes" "${flags[@]}"
           fi
           gh release upload "$tag" "${files[@]}" --clobber
           gh release edit "$tag" --draft=false

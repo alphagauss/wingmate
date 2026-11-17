@@ -47,7 +47,7 @@
 - `ANDROID_KEY_ALIAS` 保存签名密钥别名。
 - `ANDROID_KEY_PASSWORD` 保存签名密钥密码。
 
-将根 `package.json`、Rust 工作区、Tauri 配置和 Android 的 `versionName` 更新为同一版本。发布新版 APK 时递增 Android 的 `versionCode`。在包含这些更新的提交上创建并推送对应 tag。
+将根 `package.json`、Rust 工作区、Tauri 配置和 Android 的 `versionName` 更新为同一版本。发布新版 APK 时递增 Android 的 `versionCode`。如需在 Release 顶部补充版本说明，将其写入 `.github/release-notes/<tag>.md`。在包含这些更新的提交上创建并推送对应 tag。
 
 构建和检查通过后，发布任务把 EXE、两个 APK、`wingmate-android-runtime-sources.tar` 和 `SHA256SUMS.txt` 上传到同一个 Release 草稿，上传成功后发布。说明链接到该提交的应用源码和[随包组件源码说明](../runtime/android/SOURCES.md)。带预发布后缀的版本标为预发布。上传失败可重跑，草稿继续使用，已发布的 Release 保留原有资产。发布任务使用工作流自带的 `GITHUB_TOKEN`。
 
