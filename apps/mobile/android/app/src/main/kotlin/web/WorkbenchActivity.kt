@@ -34,6 +34,7 @@ import dev.wingmate.mobile.remote.ConnectionFlow
 import dev.wingmate.mobile.remote.addManagementButton
 import dev.wingmate.mobile.settings.AppPreferences
 import dev.wingmate.mobile.settings.AppSettings
+import dev.wingmate.mobile.settings.LocalEngineSettings
 import dev.wingmate.mobile.theme.ConnectionUi
 import dev.wingmate.mobile.theme.applyWindowInsets
 
@@ -50,6 +51,7 @@ class WorkbenchActivity : AppCompatActivity() {
     private lateinit var bridge: WorkbenchBridge
     private lateinit var loading: WorkbenchLoading
     private lateinit var appSettings: AppSettings
+    private var localEngine: LocalEngineSettings? = null
     private lateinit var activeOrigin: String
     private lateinit var workbench: FrameLayout
     private lateinit var root: FrameLayout
@@ -71,6 +73,16 @@ class WorkbenchActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        localEngine =
+            localEngineSettings(this) { link ->
+                if (intent.getBooleanExtra(START_LOCAL_WORKBENCH, false)) {
+                    intent.removeExtra(START_LOCAL_WORKBENCH)
+                    intent.putExtra("link", link.toString())
+                    showWorkbench(link.toString(), fromStartup = true)
+                } else {
+                    openLocalWorkbench(link)
+                }
+            }
         val provider = WebViewCompat.getCurrentWebViewPackage(this)
         if (
             !supportsWorkbenchWebView(provider?.versionName) ||
@@ -119,12 +131,7 @@ class WorkbenchActivity : AppCompatActivity() {
     }
 
     private fun startLocalWorkbench() {
-        val engine =
-            localEngineSettings(this) { link ->
-                intent.removeExtra(START_LOCAL_WORKBENCH)
-                intent.putExtra("link", link.toString())
-                showWorkbench(link.toString(), fromStartup = true)
-            } ?: return finish()
+        val engine = localEngine ?: return finish()
         engine.openWorkbench?.let { open ->
             open()
             return
@@ -192,7 +199,7 @@ class WorkbenchActivity : AppCompatActivity() {
                 connections,
                 activeOrigin,
                 localCurrent,
-                localEngineSettings(this, ::openLocalWorkbench),
+                localEngine,
             )
         bridge =
             WorkbenchBridge(this, webView, activeOrigin, ::ready) { theme ->

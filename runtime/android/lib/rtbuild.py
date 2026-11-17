@@ -1112,6 +1112,7 @@ def launch_template():
         "{NATIVE_LIB_DIR}/libproot.so",
         "--kill-on-exit", "--link2symlink", "--sysvipc", "-L", "-0",
         "--rootfs={ROOTFS}", "--cwd=/root",
+        "-b", "{WORKSPACE}:/Workspace",
         "-b", "/dev",
         "-b", "/dev/urandom:/dev/random",
         "-b", "/proc",
@@ -1143,6 +1144,7 @@ def launch_template():
         "placeholders": {
             "{NATIVE_LIB_DIR}": "applicationInfo.nativeLibraryDir (libs must be extracted: useLegacyPackaging=true)",
             "{ROOTFS}": "filesDir/runtime/rootfs",
+            "{WORKSPACE}": "Android shared Documents/Wingmate/Workspaces directory",
             "{TMP}": "app-private writable dir for PROOT_TMP_DIR (e.g. cacheDir/proot-tmp)",
             "{FILES_DIR}": "context.filesDir (unused by this template)",
             "{PORT}": "loopback port chosen by the app",

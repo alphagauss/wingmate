@@ -20,7 +20,6 @@ import kotlin.concurrent.thread
 /** Runs DSH Web through PRoot and reports ready after receiving its startup token. */
 internal class DshProcess(
     private val context: Context,
-    private val manifest: RuntimeManifest,
     private val rootfs: File,
     private val listener: Listener,
 ) {
@@ -62,7 +61,7 @@ internal class DshProcess(
         }
     }
 
-    fun start(guestEnv: Map<String, String>) {
+    fun start(manifest: RuntimeManifest, workspace: File, guestEnv: Map<String, String>) {
         check(process == null)
         val pidFile = File(rootfs, "tmp/dsh-web.pid")
         pidFile.delete() // also removes a stale/dangling symlink; never reuse a previous run's PID
@@ -77,6 +76,7 @@ internal class DshProcess(
             mapOf(
                 "{NATIVE_LIB_DIR}" to context.applicationInfo.nativeLibraryDir,
                 "{ROOTFS}" to rootfs.canonicalPath,
+                "{WORKSPACE}" to workspace.canonicalPath,
                 "{TMP}" to tmp.absolutePath,
                 "{PORT}" to port.toString(),
             )

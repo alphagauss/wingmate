@@ -1,6 +1,6 @@
 - id: workspace-controller
   config:
-    documentsDirectory: /root/Documents
+    documentsDirectory: /Workspace
 - insert:
     - id: wingmate-file-viewer
       name: /opt/dsh/plugins/wingmate-file-viewer/host.mjs

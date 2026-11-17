@@ -32,7 +32,7 @@ internal class RuntimeInstaller(
         upgrade.recover()
         check(!Files.isSymbolicLink(rootfs.toPath()))
         if (rootfs.isDirectory && version.isFile && version.readText() == manifest.runtimeVersion) {
-            clearStaging()
+            deleteRuntimeTree(staging)
             return
         }
         if (
@@ -42,7 +42,7 @@ internal class RuntimeInstaller(
             throw RuntimeUpgradeBlocked("base")
         }
 
-        clearStaging()
+        deleteRuntimeTree(staging)
         val required = manifest.uncompressedBytes * 115 / 100
         check(base.usableSpace >= required) {
             "Insufficient space to unpack the runtime (${required shr 20} MiB required)"
@@ -84,29 +84,29 @@ internal class RuntimeInstaller(
                 FileChannel.open(base.toPath(), StandardOpenOption.READ).use { it.force(true) }
             }
         } finally {
-            clearStaging()
+            deleteRuntimeTree(staging)
         }
     }
+}
 
-    private fun clearStaging() {
-        if (!Files.exists(staging.toPath(), NOFOLLOW_LINKS)) return
-        // Files.walkFileTree leaves archive symlinks as leaf entries.
-        Files.walkFileTree(
-            staging.toPath(),
-            object : SimpleFileVisitor<Path>() {
-                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
-                    Files.delete(file)
-                    return FileVisitResult.CONTINUE
-                }
+internal fun deleteRuntimeTree(directory: File) {
+    if (!Files.exists(directory.toPath(), NOFOLLOW_LINKS)) return
+    // Files.walkFileTree leaves archive symlinks as leaf entries.
+    Files.walkFileTree(
+        directory.toPath(),
+        object : SimpleFileVisitor<Path>() {
+            override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                Files.delete(file)
+                return FileVisitResult.CONTINUE
+            }
 
-                override fun postVisitDirectory(dir: Path, error: IOException?): FileVisitResult {
-                    if (error != null) throw error
-                    Files.delete(dir)
-                    return FileVisitResult.CONTINUE
-                }
-            },
-        )
-    }
+            override fun postVisitDirectory(dir: Path, error: IOException?): FileVisitResult {
+                if (error != null) throw error
+                Files.delete(dir)
+                return FileVisitResult.CONTINUE
+            }
+        },
+    )
 }
 
 private fun installedInfo(tree: File): JSONObject =

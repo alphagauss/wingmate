@@ -8,10 +8,13 @@ import android.provider.Settings
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.MutableLiveData
 import dev.wingmate.mobile.i18n.ConnectionStrings
 import dev.wingmate.mobile.runtime.LocalRuntime
 import dev.wingmate.mobile.runtime.RuntimeStatus
+import dev.wingmate.mobile.runtime.SharedWorkspace
 import dev.wingmate.mobile.settings.LocalEngineSettings
 import dev.wingmate.mobile.settings.SettingsUi
 import dev.wingmate.mobile.theme.dp
@@ -26,6 +29,36 @@ private class EngineSettings(
     private val open: (Uri) -> Unit,
 ) : LocalEngineSettings {
     private val labels = ConnectionStrings(activity)
+    private val backup = EngineBackupSettings(activity, labels, ::startWithWorkspace)
+    private val workspaceChanged = MutableLiveData(Unit)
+    private var startAfterGrant = false
+    private val storagePermission =
+        activity.registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            result ->
+            val granted = SharedWorkspace.hasPermission(activity)
+            workspaceChanged.value = Unit
+            if (granted && startAfterGrant) LocalRuntime.start(activity)
+            if (
+                !granted &&
+                    result.any { (permission, allowed) ->
+                        !allowed && !activity.shouldShowRequestPermissionRationale(permission)
+                    }
+            ) {
+                AlertDialog.Builder(activity)
+                    .setMessage(labels["localAgent.workspacePermissionHint"])
+                    .setNegativeButton(labels["common.cancel"], null)
+                    .setPositiveButton(labels["scan.openSettings"]) { _, _ ->
+                        activity.startActivity(
+                            Intent(
+                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.fromParts("package", activity.packageName, null),
+                            ),
+                        )
+                    }
+                    .show()
+            }
+            startAfterGrant = false
+        }
     private val preferences =
         activity.getSharedPreferences("local_engine", AppCompatActivity.MODE_PRIVATE)
     private val status
@@ -33,6 +66,9 @@ private class EngineSettings(
 
     private val installed
         get() = LocalRuntime.isInstalled(activity)
+
+    private val backupBusy
+        get() = LocalRuntime.backupBusy.value == true
 
     private var statusBeforeStart: RuntimeStatus? = null
 
@@ -43,7 +79,12 @@ private class EngineSettings(
         get() = preferences.getBoolean("auto_start", false)
 
     override val shouldStartOnLaunch: Boolean
-        get() = autoStartOnLaunch && installed && status != RuntimeStatus.Stopping
+        get() =
+            autoStartOnLaunch &&
+                installed &&
+                !backupBusy &&
+                SharedWorkspace.hasPermission(activity) &&
+                status != RuntimeStatus.Stopping
 
     override val launchPending: Boolean
         get() =
@@ -57,6 +98,19 @@ private class EngineSettings(
             statusBeforeStart = state
             LocalRuntime.start(activity)
         }
+    }
+
+    private fun startWithWorkspace() {
+        if (SharedWorkspace.hasPermission(activity)) {
+            LocalRuntime.start(activity)
+        } else {
+            requestWorkspacePermission(start = true)
+        }
+    }
+
+    private fun requestWorkspacePermission(start: Boolean) {
+        startAfterGrant = start
+        storagePermission.launch(SharedWorkspace.missingPermissions(activity).toTypedArray())
     }
 
     private fun openCurrentWorkbench() {
@@ -88,6 +142,8 @@ private class EngineSettings(
             if (it !== statusBeforeStart) statusBeforeStart = null
             changed()
         }
+        workspaceChanged.observe(activity) { changed() }
+        LocalRuntime.backupBusy.observe(activity) { changed() }
     }
 
     override fun render(ui: SettingsUi, body: LinearLayout) =
@@ -130,12 +186,12 @@ private class EngineSettings(
                             }
                         controls.addView(
                             actionButton(
-                                labels[action],
-                                R.drawable.ic_settings_start,
-                                primary = true,
-                            ) {
-                                LocalRuntime.start(activity)
-                            },
+                                    labels[action],
+                                    R.drawable.ic_settings_start,
+                                    primary = true,
+                                    action = ::startWithWorkspace,
+                                )
+                                .apply { isEnabled = !backupBusy },
                             -1,
                             -2,
                         )
@@ -197,6 +253,71 @@ private class EngineSettings(
                     ),
                 )
                 addView(row(labels["localAgent.logs"], action = { logs(ui) }))
+            }
+            body.section(labels["localAgent.storageBackup"]) {
+                val path = SharedWorkspace.directory
+                val granted = SharedWorkspace.hasPermission(activity)
+                val availability =
+                    when {
+                        !granted || !path.exists() -> labels["localAgent.workspaceUnmounted"]
+                        !path.isDirectory || !path.canRead() || !path.canWrite() ->
+                            labels["localAgent.workspaceUnavailable"]
+                        else -> null
+                    }
+                val locations =
+                    listOfNotNull(
+                            labels["localAgent.workspacePhonePath"].format(path.absolutePath),
+                            labels["localAgent.workspaceGuestPath"].format(
+                                SharedWorkspace.guestPath,
+                            ),
+                            availability,
+                        )
+                        .joinToString("\n")
+                addView(
+                    row(
+                        labels["localAgent.workspaceShared"],
+                        subtitle = locations,
+                        maxSubtitleLines = Int.MAX_VALUE,
+                    ),
+                )
+                if (!granted) {
+                    addView(
+                        row(
+                            labels["localAgent.workspacePermission"],
+                            action = {
+                                requestWorkspacePermission(start = false)
+                            },
+                        ),
+                    )
+                }
+                val canBackup =
+                    !backupBusy &&
+                        status !is RuntimeStatus.Installing &&
+                        status != RuntimeStatus.Starting &&
+                        status != RuntimeStatus.Stopping
+                addView(
+                    row(
+                        labels["localAgent.backupExport"],
+                        action = if (installed && canBackup) backup::pickExport else null,
+                    ),
+                )
+                addView(
+                    row(
+                        labels["localAgent.backupImport"],
+                        action = if (canBackup) backup::pickImport else null,
+                    ),
+                )
+                val hint = if (backupBusy) "localAgent.backupBusy" else "localAgent.backupHint"
+                addView(
+                    text(labels[hint], 13f).apply {
+                        setPadding(
+                            activity.dp(16),
+                            activity.dp(8),
+                            activity.dp(16),
+                            activity.dp(12),
+                        )
+                    },
+                )
             }
         }
 
