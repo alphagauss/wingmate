@@ -1,5 +1,3 @@
-- id: office-to-pdf
-  disabled: true
 - id: directory-picker
   disabled: true
 - insert:

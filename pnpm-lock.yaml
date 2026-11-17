@@ -20,6 +20,8 @@ importers:
 
   apps/desktop: {}
 
+  plugins/wingmate-android-environment: {}
+
   plugins/wingmate-backends:
     devDependencies:
       '@agentclientprotocol/codex-acp':

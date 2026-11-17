@@ -1,6 +1,6 @@
 # 自用 DSH 插件
 
-本目录承载 Wingmate 自用插件源码，目前预装 [Wingmate 后台服务](wingmate-web/README.md)、[文件预览](wingmate-file-viewer/README.md)和[执行后端](wingmate-backends/README.md)。社区插件的发行接入见[运行时维护指南](../docs/runtime-maintenance.md#社区和自用插件集成)。
+本目录承载 Wingmate 自用插件源码。[文件预览](wingmate-file-viewer/README.md)由电脑端和 Android 本地版共用。电脑端另带 [Wingmate 后台服务](wingmate-web/README.md)和[执行后端](wingmate-backends/README.md)，Android 本地版另带 [Android 本机 Agent 环境](wingmate-android-environment/README.md)。发行配置见[运行时维护指南](../docs/runtime-maintenance.md#社区和自用插件集成)。
 
 在 DSH 侧栏打开「插件」，从「内置插件配置」下的 Wingmate 卡片进入各自详情。预装插件随 Wingmate 发行包更新。
 

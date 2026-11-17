@@ -115,22 +115,33 @@ install_npm_tree() {
   )
 }
 
-build_file_viewer() {
+build_plugins() {
   local ws="$WORK/workspace" pnpm="$WORK/pnpm-prefix/node_modules/pnpm/bin/pnpm.mjs"
-  mkdir -p "$ws/plugins/wingmate-file-viewer"
+  local name source archive
+  local -a filters=()
+  mkdir -p "$ws/plugins" "$WORK/plugins" "$WORK/plugin-archives"
   cp "$ROOT/package.json" "$ROOT/pnpm-lock.yaml" "$ROOT/pnpm-workspace.yaml" "$ws/"
-  tar -C "$ROOT/plugins/wingmate-file-viewer" --exclude=node_modules --exclude=dist -cf - . |
-    tar -C "$ws/plugins/wingmate-file-viewer" -xf -
+  node -p 'require(process.argv[1]).join("\n")' "$HERE/plugins.json" > "$WORK/plugins.txt"
+  while IFS= read -r name; do
+    source="$ws/plugins/$name"
+    mkdir "$source"
+    tar -C "$ROOT/plugins/$name" --exclude=node_modules --exclude=dist -cf - . |
+      tar -C "$source" -xf -
+    filters+=(--filter "./plugins/$name")
+  done < "$WORK/plugins.txt"
   (
     cd "$ws"
-    npm_config_registry="$NPM_REGISTRY" node "$pnpm" --filter dsh-wingmate-file-viewer install \
+    npm_config_registry="$NPM_REGISTRY" node "$pnpm" "${filters[@]}" install \
       --frozen-lockfile --store-dir "$CACHE/pnpm"
-    cd plugins/wingmate-file-viewer
-    npm run build
-    npm pack --ignore-scripts --pack-destination "$WORK" --cache "$CACHE/npm"
   )
-  mkdir "$WORK/file-viewer"
-  tar -xzf "$WORK"/dsh-wingmate-file-viewer-*.tgz --strip-components=1 -C "$WORK/file-viewer"
+  while IFS= read -r name; do
+    source="$ws/plugins/$name"
+    (cd "$source" && npm run build --if-present)
+    archive="$(cd "$source" && npm pack --ignore-scripts --no-json \
+      --pack-destination "$WORK/plugin-archives" --cache "$CACHE/npm")"
+    mkdir "$WORK/plugins/$name"
+    tar -xzf "$WORK/plugin-archives/$archive" --strip-components=1 -C "$WORK/plugins/$name"
+  done < "$WORK/plugins.txt"
 }
 
 build_runtime() {
@@ -269,22 +280,12 @@ PYEOF
   export PATH="$host_node/bin:$PATH"
   install_npm_tree "$ROOT/runtime" "$prefix"
   install_npm_tree "$LOCKS/pnpm-$PNPM_VERSION" "$pnpm_prefix"
-  build_file_viewer
+  build_plugins
   node "$HERE/prepare-dsh.mjs" "$prefix" "$work/dsh-excluded.json"
 
   local dsh_version patch="$work/dsh-web.patch.yml"
   dsh_version="$(node -p 'require(process.argv[1]).version' "$prefix/node_modules/@deepseek-ai/dsh/package.json")"
-  {
-    sed -n '/^- id: office-to-pdf$/,+1p' "$ROOT/plugins/cordis.patch.yml"
-    cat <<'YAML'
-- id: workspace-controller
-  config:
-    documentsDirectory: /root/Documents
-- insert:
-    - id: wingmate-file-viewer
-      name: /opt/dsh/plugins/wingmate-file-viewer/host.mjs
-YAML
-  } > "$patch"
+  cat "$ROOT/runtime/cordis.shared.patch.yml" "$HERE/cordis.patch.yml" > "$patch"
 
   local input_hash runtime_version versions
   input_hash="$(
@@ -297,7 +298,7 @@ YAML
         "$LOCKS/pnpm-$PNPM_VERSION/package.json" "$LOCKS/pnpm-$PNPM_VERSION/package-lock.json" \
         "$ROOT/scripts/runtime-files.mjs" "$ROOT/scripts/runtime-patches.mjs" \
         "$ROOT/runtime/patches/dsh-$dsh_version.json" "$patch" | awk '{print $1}'
-      sha256sum "$WORK"/dsh-wingmate-file-viewer-*.tgz | awk '{print $1}'
+      sha256sum "$HERE/plugins.json" "$WORK"/plugin-archives/*.tgz | awk '{print $1}'
     } | sha256sum | cut -d' ' -f1
   )"
   runtime_version="dsh-$dsh_version-$input_hash"
@@ -307,7 +308,7 @@ YAML
 
   "${PY[@]}" assemble --abi "$abi" --base "$base" --node "$node" --python "$python" \
     --dsh-prefix "$prefix" --dsh-excluded "$work/dsh-excluded.json" --pnpm-prefix "$pnpm_prefix" \
-    --file-viewer "$work/file-viewer" --web-patch "$patch" --out "$assets/rootfs-$abi.tar.xz" \
+    --plugins "$work/plugins" --web-patch "$patch" --out "$assets/rootfs-$abi.tar.xz" \
     --report "$out/build-report.json" --runtime-info "$versions" "${extra_debs[@]/#/--deb=}"
   "${PY[@]}" manifest --abi "$abi" --report "$out/build-report.json" --jnilibs "$work/jnilibs.json" \
     --versions "$versions" --out "$assets/manifest.json"

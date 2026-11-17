@@ -111,7 +111,15 @@ function npm(args, options) {
 }
 
 const pluginPatch = 'plugins/cordis.patch.yml';
-const pluginPatchBytes = await readFile(join(root, pluginPatch));
+const pluginPatchBytes = Buffer.concat(
+  await Promise.all([
+    readFile(join(runtime, 'cordis.shared.patch.yml')),
+    readFile(join(runtime, 'desktop/cordis.patch.yml')),
+  ]),
+);
+const plugins = JSON.parse(
+  await readFile(join(runtime, 'desktop/plugins.json'), 'utf8'),
+);
 
 if (!lock) throw new Error('准备运行包需要 runtime/package-lock.json');
 const output = dev ? join(root, 'work/dev/components') : out;
@@ -205,11 +213,7 @@ const devPluginInputs = dev
   : null;
 const sharedSources = join(root, 'packages');
 const sharedDigest = dev ? await sourceDigest(sharedSources) : null;
-for (const name of [
-  'wingmate-web',
-  'wingmate-file-viewer',
-  'wingmate-backends',
-]) {
+for (const name of plugins) {
   const directory = `plugins/${name}`;
   const source = join(root, directory);
   const packed = dev ? null : await buildPlugin(name, source);

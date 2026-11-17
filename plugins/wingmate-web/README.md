@@ -14,6 +14,6 @@ Wingmate 自行维护的 DSH Web 插件。它在官方设置页的 `settings.sec
 
 插件仅在收到 Windows 桌面主 WebView 为本机工作台注入的桥接后，才通过 `shell.overlay` 随工作台布局挂载和卸载[桌面标题栏](../../src-tauri/README.md#windows-标题栏)。
 
-插件随开发安装树和发行归档提供，Wingmate 启动 `web` 时默认通过[运行包启动补丁](../cordis.patch.yml)加载。插件包内的 `cordis.patch.yml` 供 DSH Profile 单独安装此包时使用。用户的 Profile、凭据和会话仍由 DSH 管理。浏览器从 Wingmate 网关进入时可管理当前主机的启停，直接打开 DSH 的浏览器只提供 DSH 工作台。从启动补丁移除此插件的条目后设置项消失，CLI 和首页恢复能力继续可用。
+插件随开发安装树和发行归档提供，Wingmate 启动 `web` 时默认通过[电脑端启动补丁](../../runtime/desktop/cordis.patch.yml)加载。插件包内的 `cordis.patch.yml` 供 DSH Profile 单独安装此包时使用。用户的 Profile、凭据和会话仍由 DSH 管理。浏览器从 Wingmate 网关进入时可管理当前主机的启停，直接打开 DSH 的浏览器只提供 DSH 工作台。从启动补丁移除此插件的条目后设置项消失，CLI 和首页恢复能力继续可用。
 
 验证范围包括设置页的本机管理、远程管理目标、分享卡片及业务停机后的恢复。发行校验使用复制出来的单文件可执行程序，详见[验证约定](../../scripts/README.md)。

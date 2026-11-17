@@ -1,0 +1,13 @@
+{
+  "name": "dsh-wingmate-android-environment",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./host.mjs",
+  "files": [
+    "host.mjs"
+  ],
+  "engines": {
+    "dsh": "0.2.2-rc.1"
+  }
+}

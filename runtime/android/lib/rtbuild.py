@@ -988,8 +988,7 @@ def cmd_assemble(args):
              lambda rel: excluded.get(rel) or dsh_drop_reason(rel, abi))
     add_tree(os.path.join(args.pnpm_prefix, "node_modules", "pnpm"), "usr/local/lib/node_modules/pnpm",
              "pnpm", lambda rel: pnpm_drop_reason(rel, abi))
-    add_tree(args.file_viewer, "opt/dsh/plugins/wingmate-file-viewer", "plugins",
-             lambda rel: None)
+    add_tree(args.plugins, "opt/dsh/plugins", "plugins", lambda rel: None)
 
     for p, e in overlay_entries(runtime_info, args.web_patch).items():
         entries[p] = e
@@ -1254,7 +1253,7 @@ def main():
     p.add_argument("--node", required=True)
     p.add_argument("--dsh-prefix", required=True)
     p.add_argument("--dsh-excluded", required=True)
-    p.add_argument("--file-viewer", required=True)
+    p.add_argument("--plugins", required=True)
     p.add_argument("--pnpm-prefix", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--web-patch", required=True)

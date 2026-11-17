@@ -18,7 +18,7 @@
 
 `pnpm dev` 监听 `plugins/` 下各插件的源码，以及 `packages/` 中的共享源码。声明 `dsh.client` 和 `./client` 导出的插件自动参与构建，优先执行 `build:client`，否则使用 `build`。生成目录如 `dist`、`lib` 及依赖、测试目录不参与监听。构建成功且客户端声明兼容时，开发工具发布已安装插件的客户端入口，由 DSH 热重载该插件。
 
-通过开发版验证 `wingmate-service`、发行入口、插件宿主与独立资源，以及 `runtime/` 和 `plugins/cordis.patch.yml` 的变更时，重新执行 `pnpm dev` 准备运行时，再通过「重启并更新」切换已有后台。共享启动页的桌面版本可直接刷新，网关版本随管理服务更新。
+通过开发版验证 `wingmate-service`、发行入口、插件宿主与独立资源，以及 `runtime/` 的变更时，重新执行 `pnpm dev` 准备运行时，再通过「重启并更新」切换已有后台。共享启动页的桌面版本可直接刷新，网关版本随管理服务更新。
 
 确需编译时，dev 构建使用 `target/debug`，发行构建使用 `target/release`。沿用 Cargo 的默认目录和增量缓存，避免通过 `CARGO_TARGET_DIR` 或 `--target-dir` 新建目录，引发全量编译并增加耗时和磁盘占用。
 

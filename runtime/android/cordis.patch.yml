@@ -1,0 +1,8 @@
+- id: workspace-controller
+  config:
+    documentsDirectory: /root/Documents
+- insert:
+    - id: wingmate-file-viewer
+      name: /opt/dsh/plugins/wingmate-file-viewer/host.mjs
+    - id: wingmate-android-environment
+      name: /opt/dsh/plugins/wingmate-android-environment/host.mjs

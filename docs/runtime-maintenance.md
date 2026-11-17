@@ -106,7 +106,7 @@
 
 ## 社区和自用插件集成
 
-当前预装 [Wingmate 后台服务](../plugins/wingmate-web/README.md)、[文件预览](../plugins/wingmate-file-viewer/README.md)和[执行后端](../plugins/wingmate-backends/README.md)。构建脚本明确指定预装哪些包，[启动补丁](../plugins/cordis.patch.yml)决定 Wingmate 启动 Web 时默认启用哪些插件。开发版和发行版均随运行包携带这份补丁，并将它计入构建指纹。参考仓库、本地开发插件、发行预装组件是不同状态，创建目录或加入开发 workspace 不会自动改变发行内容。
+插件源码与当前预装范围见[插件模块](../plugins/README.md)。电脑端（含无 GUI 构建）和 Android 本地版分别用 [电脑端名单](../runtime/desktop/plugins.json)和 [Android 名单](../runtime/android/plugins.json)选择预装包。构建将[共用补丁](../runtime/cordis.shared.patch.yml)与对应的[电脑端补丁](../runtime/desktop/cordis.patch.yml)或 [Android 补丁](../runtime/android/cordis.patch.yml)合并为 Web 启动配置。开发版和发行版均将生成的补丁计入构建指纹。
 
 执行后端插件内联 ACP SDK，并携带锁定版本的 Codex ACP 适配器。Agent 的主机依赖见[插件文档](../plugins/wingmate-backends/README.md#主机依赖)。选择 Codex 或检查连接时才启动适配器，缺少 Agent 不影响 DSH 启动。构建和发行使用依赖声明与锁文件中的适配器发布包。
 
@@ -139,6 +139,6 @@ Android WebView 禁用了 `scrollbar-width`。目录选择器的分栏和路径�
 
 实际 DSH 升级、预装组件变化或兼容性调整时，在 `docs/records/` 新增有日期的简短记录：变更目标与前后版本、输入/来源、此次取舍及适配变化、验证环境和结论、已有安装的处理方式、未验证项。只记录发生的工作，不预建空台账。
 
-Android 远程版的包体积、构建耗时和验收范围见 [2026-11-12 Android 远程版](records/2026-11-12-android-remote.md)。工作台兼容性调整见 [WebView 104 验证](records/2026-11-14-android-webview-104.md)、[WebView 130 真机验证](records/2026-11-14-android-webview-130.md)和[滚动条复核](records/2026-11-15-android-webview-scrollbars.md)。
+Android 远程版的包体积、构建耗时和验收范围见 [2026-11-12 Android 远程版](records/2026-11-12-android-remote.md)。工作台兼容性调整见 [WebView 104 验证](records/2026-11-14-android-webview-104.md)、[WebView 130 真机验证](records/2026-11-14-android-webview-130.md)和[滚动条复核](records/2026-11-15-android-webview-scrollbars.md)。本地版预装与提示词调整见 [Android 本机环境插件](records/2026-11-17-android-environment-plugin.md)。
 
 当前约定更新在本指南或所属模块；历史记录保留当时结论，不持续改写成最新状态。已有记录包括 [2026-11-05 运行时体积优化](records/2026-11-05-runtime-size.md)、[2026-11-08 Wingmate 后台服务插件](records/2026-11-08-wingmate-web.md)、[2026-11-10 文件预览与 LibreOffice 裁剪](records/2026-11-10-file-viewer.md)、[开发依赖复用与运行目录回收](records/2026-11-10-runtime-reuse.md)、[2026-11-11 独立管理服务与无 GUI 引导](records/2026-11-11-management-service.md)、[ACP 执行后端插件](records/2026-11-11-acp-backends.md)和[预装插件标签页](records/2026-11-11-preinstalled-plugins.md)。
