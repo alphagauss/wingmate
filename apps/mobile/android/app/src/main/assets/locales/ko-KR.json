@@ -59,7 +59,7 @@
   "localAgent.backupRestoring": "DSH 백업 복원 중…",
   "localAgent.backupStopHint": "로컬 엔진을 중지해야 합니다. 실행 중인 작업이 중단됩니다.",
   "localAgent.backupStopContinue": "엔진을 중지하고 계속",
-  "localAgent.backupReplaceHint": "복원하면 로컬 DSH 세션, 설정 및 자격 증명이 교체됩니다.",
+  "localAgent.backupReplaceHint": "복원하면 세션, 설정 및 자격 증명을 포함한 기존 로컬 DSH 데이터가 삭제되고 백업 데이터로 교체됩니다.",
   "localAgent.backupReplace": "교체하고 복원",
   "localAgent.backupSaved": "백업 저장 완료",
   "localAgent.backupRestored": "DSH 백업 복원 완료",

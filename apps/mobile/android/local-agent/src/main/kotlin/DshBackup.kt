@@ -18,18 +18,28 @@ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
 import org.apache.commons.compress.archivers.tar.TarConstants
 
-/** Scoped to the DSH home and its previous revision on the same filesystem. */
-internal class DshBackup(private val guestHome: File) {
+/** The old DSH home stays on the same filesystem until its replacement is durable. */
+internal class DshBackup(guestHome: File, private val sync: () -> Unit = ::syncFilesystems) {
     private val home = guestHome.resolve(".dsh")
+    private val rollback = guestHome.resolve(".dsh-restore-rollback")
     private val previous = guestHome.resolve(".dsh-before-restore")
 
     fun recover() {
-        if (
-            !Files.exists(home.toPath(), NOFOLLOW_LINKS) &&
-                Files.isDirectory(previous.toPath(), NOFOLLOW_LINKS)
-        ) {
-            Files.move(previous.toPath(), home.toPath(), ATOMIC_MOVE)
+        if (Files.exists(home.toPath(), NOFOLLOW_LINKS)) {
+            if (Files.exists(rollback.toPath(), NOFOLLOW_LINKS)) {
+                sync()
+                deleteRuntimeTree(rollback)
+            }
+            return
         }
+        val saved =
+            when {
+                Files.exists(rollback.toPath(), NOFOLLOW_LINKS) -> rollback
+                Files.isDirectory(previous.toPath(), NOFOLLOW_LINKS) -> previous
+                else -> return
+            }
+        Files.move(saved.toPath(), home.toPath(), ATOMIC_MOVE)
+        sync()
     }
 
     fun export(output: OutputStream) {
@@ -76,13 +86,12 @@ internal class DshBackup(private val guestHome: File) {
         }
     }
 
-    fun restore(staged: File, sync: () -> Unit) {
+    fun restore(staged: File) {
         check(Files.isDirectory(staged.toPath(), NOFOLLOW_LINKS)) { "Staged DSH backup is missing" }
         recover()
-        deleteRuntimeTree(previous)
         sync()
         if (Files.exists(home.toPath(), NOFOLLOW_LINKS)) {
-            Files.move(home.toPath(), previous.toPath(), ATOMIC_MOVE)
+            Files.move(home.toPath(), rollback.toPath(), ATOMIC_MOVE)
         }
         try {
             Files.move(staged.toPath(), home.toPath(), ATOMIC_MOVE)
@@ -91,6 +100,7 @@ internal class DshBackup(private val guestHome: File) {
             throw error
         }
         sync()
+        deleteRuntimeTree(rollback)
     }
 
     companion object {

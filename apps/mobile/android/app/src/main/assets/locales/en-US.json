@@ -59,7 +59,7 @@
   "localAgent.backupRestoring": "Restoring DSH backup…",
   "localAgent.backupStopHint": "The local engine must stop. Running tasks will be interrupted.",
   "localAgent.backupStopContinue": "Stop engine and continue",
-  "localAgent.backupReplaceHint": "Restoring will replace local DSH sessions, settings, and credentials.",
+  "localAgent.backupReplaceHint": "Restoring will erase existing local DSH data, including sessions, settings, and credentials, and replace it with the backup.",
   "localAgent.backupReplace": "Replace and restore",
   "localAgent.backupSaved": "Backup saved",
   "localAgent.backupRestored": "DSH backup restored",

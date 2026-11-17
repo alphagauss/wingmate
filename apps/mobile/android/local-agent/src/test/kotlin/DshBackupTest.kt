@@ -20,8 +20,10 @@ import org.junit.Test
 class DshBackupTest {
     private val base = Files.createTempDirectory("dsh-backup").toFile()
     private val live = File(base, "root/.dsh").apply { mkdirs() }
+    private val rollback = File(live.parentFile, ".dsh-restore-rollback")
+    private val previous = File(live.parentFile, ".dsh-before-restore")
     private val staging = File(base, "staging").apply { mkdir() }
-    private val backup = DshBackup(live.parentFile!!)
+    private val backup = DshBackup(live.parentFile!!) {}
 
     @After
     fun cleanup() {
@@ -29,7 +31,7 @@ class DshBackupTest {
     }
 
     @Test
-    fun roundTripRestoresHiddenCredentialsAndSessionsAndRetainsThePreviousHome() {
+    fun roundTripRestoresHiddenCredentialsAndSessionsAndRemovesThePreviousHome() {
         val credentials = File(live, ".credentials.yaml").apply { writeText("version: 1") }
         val permissions = PosixFilePermissions.fromString("rw-------")
         val posix = Files.getFileStore(live.toPath()).supportsFileAttributeView("posix")
@@ -45,13 +47,10 @@ class DshBackupTest {
         val prepared = DshBackup.unpack(bytes.inputStream(), staging)
 
         assertEquals("before restore", credentials.readText())
-        backup.restore(prepared) {}
+        backup.restore(prepared)
         assertEquals("version: 1", credentials.readText())
         assertArrayEquals(contents, File(live, relative).readBytes())
-        assertEquals(
-            "before restore",
-            File(live.parentFile, ".dsh-before-restore/.credentials.yaml").readText(),
-        )
+        assertFalse(rollback.exists())
         if (posix) assertEquals(permissions, Files.getPosixFilePermissions(credentials.toPath()))
     }
 
@@ -110,13 +109,61 @@ class DshBackupTest {
     }
 
     @Test
+    fun rollsBackIfTheStagedHomeDisappearsBeforeItCanBeMoved() {
+        val current = File(live, "settings.yml").apply { writeText("original") }
+        val prepared = File(staging, ".dsh").apply { mkdir() }
+        val restore = DshBackup(live.parentFile!!) { deleteRuntimeTree(prepared) }
+
+        assertThrows(IOException::class.java) { restore.restore(prepared) }
+
+        assertEquals("original", current.readText())
+        assertFalse(rollback.exists())
+    }
+
+    @Test
     fun recoversThePreviousHomeIfRestoreWasInterruptedBeforeInstallingTheReplacement() {
         File(live, "settings.yml").writeText("original")
-        Files.move(live.toPath(), File(live.parentFile, ".dsh-before-restore").toPath())
+        Files.move(live.toPath(), rollback.toPath())
 
         backup.recover()
 
         assertEquals("original", File(live, "settings.yml").readText())
+        assertFalse(rollback.exists())
+    }
+
+    @Test
+    fun removesThePreviousHomeIfRestoreWasInterruptedAfterInstallingTheReplacement() {
+        File(live, "settings.yml").writeText("replacement")
+        rollback.mkdir()
+        File(rollback, "settings.yml").writeText("original")
+
+        backup.recover()
+
+        assertEquals("replacement", File(live, "settings.yml").readText())
+        assertFalse(rollback.exists())
+    }
+
+    @Test
+    fun leavesTheBackupSavedByAnEarlierVersionWhenThereIsALiveHome() {
+        File(live, "settings.yml").writeText("current")
+        previous.mkdir()
+        val saved = File(previous, "settings.yml").apply { writeText("saved") }
+
+        backup.recover()
+
+        assertEquals("current", File(live, "settings.yml").readText())
+        assertEquals("saved", saved.readText())
+    }
+
+    @Test
+    fun recoversThePreviousHomeIfAnEarlierVersionWasInterruptedBeforeReplacement() {
+        File(live, "settings.yml").writeText("original")
+        Files.move(live.toPath(), previous.toPath())
+
+        backup.recover()
+
+        assertEquals("original", File(live, "settings.yml").readText())
+        assertFalse(previous.exists())
     }
 
     private fun archive(entry: TarArchiveEntry): ByteArray {

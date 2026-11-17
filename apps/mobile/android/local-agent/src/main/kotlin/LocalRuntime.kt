@@ -119,7 +119,7 @@ object LocalRuntime {
             if (!isInstalled(app)) {
                 RuntimeInstaller(app, RuntimeManifest.load(app)).prepare {}
             }
-            installedBackup(app).restore(backup.home, ::syncFilesystems)
+            installedBackup(app).restore(backup.home)
         }
     }
 
