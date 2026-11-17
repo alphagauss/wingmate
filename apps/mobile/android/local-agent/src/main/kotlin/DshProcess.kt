@@ -82,7 +82,14 @@ internal class DshProcess(
             )
         fun expand(s: String) = vars.entries.fold(s) { acc, (k, v) -> acc.replace(k, v) }
 
-        val effectiveGuestEnv = guestEnv + ("DSH_GO_RUNTIME_ROOT" to rootfs.canonicalPath)
+        val workspaceIdentity = Os.stat(workspace.absolutePath)
+        val effectiveGuestEnv =
+            guestEnv +
+                mapOf(
+                    "DSH_GO_RUNTIME_ROOT" to rootfs.canonicalPath,
+                    "WINGMATE_WORKSPACE_ID" to
+                        "${workspaceIdentity.st_dev}:${workspaceIdentity.st_ino}",
+                )
         val argv =
             manifest.launchArgv.flatMap { arg ->
                 if (arg == GUEST_ENV) effectiveGuestEnv.map { (key, value) -> "$key=$value" }

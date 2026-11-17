@@ -58,8 +58,14 @@ object LocalRuntime {
         context.startService(Intent(context, DshService::class.java).setAction(DshService.RESTART))
     }
 
-    fun isInstalled(context: Context): Boolean =
-        File(context.filesDir, "runtime/rootfs.version").isFile
+    fun isInstalled(context: Context): Boolean {
+        val runtime = File(context.filesDir, "runtime")
+        return runtime.resolve("rootfs.version").isFile && runtime.resolve("rootfs").isDirectory
+    }
+
+    fun hasBackupData(context: Context): Boolean =
+        DshBackup(uninstalledDshHome(context)).hasData() ||
+            DshBackup(File(context.filesDir, "runtime/rootfs/root")).hasData()
 
     class PreparedBackup internal constructor(internal val directory: File, internal val home: File)
 
@@ -91,7 +97,7 @@ object LocalRuntime {
     fun exportBackup(context: Context, target: Uri, completed: (Result<String?>) -> Unit) {
         val app = context.applicationContext
         withStoppedEngine(completed) {
-            val backup = installedBackup(app)
+            val backup = backupForStoppedEngine(app)
             val resolver = app.contentResolver
             checkNotNull(resolver.openOutputStream(target, "wt")).use(backup::export)
             runCatching {
@@ -116,18 +122,26 @@ object LocalRuntime {
                 completed(result)
             },
         ) {
-            if (!isInstalled(app)) {
-                RuntimeInstaller(app, RuntimeManifest.load(app)).prepare {}
-            }
-            installedBackup(app).restore(backup.home)
+            backupForStoppedEngine(app).restore(backup.home)
         }
     }
 
-    private fun installedBackup(context: Context): DshBackup {
-        check(isInstalled(context)) { "Local engine is not installed" }
+    private fun uninstalledDshHome(context: Context) = File(context.filesDir, "restored-dsh")
+
+    private fun backupForStoppedEngine(context: Context): DshBackup {
         val rootfs = File(context.filesDir, "runtime/rootfs")
-        // A previous process can leave owned tracees behind after the service goes away.
-        DshProcess(context, rootfs, Run(context)).prepare()
+        // An interrupted engine upgrade can leave the rootfs intact without a version marker.
+        val hasRootfs = rootfs.isDirectory
+        if (hasRootfs) {
+            // A previous process can leave owned tracees behind after the service goes away.
+            DshProcess(context, rootfs, Run(context)).prepare()
+        }
+        val uninstalledHome = uninstalledDshHome(context)
+        val restored = DshBackup(uninstalledHome)
+        if (!hasRootfs || restored.hasData()) {
+            Files.createDirectories(uninstalledHome.toPath())
+            return restored
+        }
         return DshBackup(File(rootfs, "root"))
     }
 
@@ -214,7 +228,9 @@ object LocalRuntime {
                     finish(RuntimeStatus.Stopped)
                     return
                 }
-                DshBackup(File(rootfs, "root")).recover()
+                val backup = DshBackup(File(rootfs, "root"))
+                DshBackup(uninstalledDshHome(context)).moveInto(backup)
+                backup.recover()
                 Files.createDirectories(
                     File(rootfs, SharedWorkspace.guestPath.removePrefix("/")).toPath(),
                 )

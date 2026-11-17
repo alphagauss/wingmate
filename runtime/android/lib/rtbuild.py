@@ -1129,6 +1129,10 @@ def launch_template():
     ] + guest_env + [
         "{GUEST_ENV}",
         "/bin/sh", "-c",
+        'if [ "$(stat -Lc %d:%i /Workspace)" != "$WINGMATE_WORKSPACE_ID" ] || '
+        '[ ! -r /Workspace ] || [ ! -w /Workspace ] || [ ! -x /Workspace ]; then '
+        'echo "Shared workspace could not be mounted at /Workspace" >&2; exit 1; fi; '
+        'unset WINGMATE_WORKSPACE_ID; '
         "echo $$ > /tmp/dsh-web.pid; exec /usr/local/bin/dsh web --patch " + DSH_WEB_PATCH
         + " --host 127.0.0.1 --port {PORT} --no-open",
     ]

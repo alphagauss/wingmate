@@ -23,6 +23,14 @@ internal class DshBackup(guestHome: File, private val sync: () -> Unit = ::syncF
     private val home = guestHome.resolve(".dsh")
     private val rollback = guestHome.resolve(".dsh-restore-rollback")
     private val previous = guestHome.resolve(".dsh-before-restore")
+    private val linkStore = guestHome.resolve(".l2s")
+
+    fun hasData(): Boolean = home.isDirectory || rollback.isDirectory || previous.isDirectory
+
+    fun moveInto(destination: DshBackup) {
+        recover()
+        if (home.isDirectory) destination.restore(home)
+    }
 
     fun recover() {
         if (Files.exists(home.toPath(), NOFOLLOW_LINKS)) {
@@ -57,19 +65,22 @@ internal class DshBackup(guestHome: File, private val sync: () -> Unit = ::syncF
     private fun write(tar: TarArchiveOutputStream, file: File, name: String) {
         val path = file.toPath()
         val directory = Files.isDirectory(path, NOFOLLOW_LINKS)
-        val regular = Files.isRegularFile(path, NOFOLLOW_LINKS)
+        val link = if (Files.isSymbolicLink(path)) Files.readSymbolicLink(path) else null
+        val contents = link?.let(::prootBackingFile) ?: path
+        val regular = Files.isRegularFile(contents, NOFOLLOW_LINKS)
         val entry =
             when {
-                Files.isSymbolicLink(path) -> {
-                    val link = Files.readSymbolicLink(path).toString()
-                    checkLink(home.toPath(), path, link)
-                    TarArchiveEntry(name, TarConstants.LF_SYMLINK).apply { linkName = link }
-                }
                 directory -> TarArchiveEntry("$name/")
-                regular -> TarArchiveEntry(name).apply { size = Files.size(path) }
+                regular -> TarArchiveEntry(name).apply { size = Files.size(contents) }
+                link != null -> {
+                    checkLink(home.toPath(), path, link.toString())
+                    TarArchiveEntry(name, TarConstants.LF_SYMLINK).apply {
+                        linkName = link.toString()
+                    }
+                }
                 else -> error("Unsupported DSH backup entry")
             }
-        val permissions = posix(path)?.readAttributes()?.permissions().orEmpty()
+        val permissions = posix(contents)?.readAttributes()?.permissions().orEmpty()
         entry.mode =
             if (permissions.isEmpty()) {
                 if (directory) 448 else 384 // 0700 and 0600
@@ -79,11 +90,27 @@ internal class DshBackup(guestHome: File, private val sync: () -> Unit = ::syncF
                 }
             }
         tar.putArchiveEntry(entry)
-        if (regular) file.inputStream().use { it.copyTo(tar) }
+        if (regular) Files.newInputStream(contents, NOFOLLOW_LINKS).use { it.copyTo(tar) }
         tar.closeArchiveEntry()
         if (directory) {
             for (child in checkNotNull(file.listFiles())) write(tar, child, "$name/${child.name}")
         }
+    }
+
+    private fun prootBackingFile(link: Path): Path? {
+        // PRoot emulates hard links using absolute symlinks into its private .l2s directory.
+        if (!link.isAbsolute || !Files.isDirectory(linkStore.toPath(), NOFOLLOW_LINKS)) return null
+        val store = linkStore.toPath().toRealPath()
+        if (link.parent != store || !link.fileName.toString().startsWith(".l2s.")) return null
+        val target = link.toRealPath()
+        check(
+            target.parent == store &&
+                target.fileName.toString().startsWith(".l2s.") &&
+                Files.isRegularFile(target, NOFOLLOW_LINKS),
+        ) {
+            "Invalid PRoot backup backing file"
+        }
+        return target
     }
 
     fun restore(staged: File) {
@@ -108,7 +135,7 @@ internal class DshBackup(guestHome: File, private val sync: () -> Unit = ::syncF
         fun unpack(input: InputStream, staging: File): File {
             val root = staging.resolve(".dsh").toPath()
             val directories = linkedMapOf<Path, Int>()
-            GZIPInputStream(input.buffered()).use { gzip ->
+            GZIPInputStream(input, 64 * 1024).use { gzip ->
                 DshTarInputStream(gzip).use { tar ->
                     while (true) {
                         val entry = tar.nextEntry ?: break

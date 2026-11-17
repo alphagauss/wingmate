@@ -100,17 +100,17 @@ internal class EngineBackupSettings(
 
     private fun confirmRestore(backup: LocalRuntime.PreparedBackup) {
         var confirmed = false
-        val installed = LocalRuntime.isInstalled(activity)
+        val hasData = LocalRuntime.hasBackupData(activity)
         val message =
             labels[
-                if (installed) "localAgent.backupReplaceHint" else "localAgent.backupInstallHint"] +
+                if (hasData) "localAgent.backupReplaceHint" else "localAgent.backupRestoreHint"] +
                 if (engineRunning) "\n\n" + labels["localAgent.backupStopHint"] else ""
         AlertDialog.Builder(activity)
             .setTitle(labels["localAgent.backupImport"])
             .setMessage(message)
             .setNegativeButton(labels["common.cancel"], null)
             .setPositiveButton(
-                labels[if (installed) "localAgent.backupReplace" else "localAgent.backupRestore"],
+                labels[if (hasData) "localAgent.backupReplace" else "localAgent.backupRestore"],
             ) { _, _ ->
                 confirmed = true
                 val progress = progress("localAgent.backupRestoring")

@@ -15,6 +15,8 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeNoException
 import org.junit.Test
 
 class DshBackupTest {
@@ -52,6 +54,45 @@ class DshBackupTest {
         assertArrayEquals(contents, File(live, relative).readBytes())
         assertFalse(rollback.exists())
         if (posix) assertEquals(permissions, Files.getPosixFilePermissions(credentials.toPath()))
+    }
+
+    @Test
+    fun exportsProotSessionLinksAsPortableFiles() {
+        val store = File(live.parentFile, ".l2s").apply { mkdir() }.toPath().toRealPath()
+        val backing = store.resolve(".l2s.session.0001")
+        Files.write(backing, byteArrayOf(0, 1, -1))
+        val indirection = store.resolve(".l2s.session")
+        try {
+            Files.createSymbolicLink(indirection, backing)
+            Files.createSymbolicLink(File(live, "session.jsonl.zstd").toPath(), indirection)
+        } catch (error: IOException) {
+            assumeNoException(error)
+        }
+
+        val bytes = ByteArrayOutputStream().also(backup::export).toByteArray()
+        val restored = File(DshBackup.unpack(bytes.inputStream(), staging), "session.jsonl.zstd")
+
+        assertFalse(Files.isSymbolicLink(restored.toPath()))
+        assertArrayEquals(byteArrayOf(0, 1, -1), restored.readBytes())
+    }
+
+    @Test
+    fun restoredDataCanBeExportedBeforeItMovesIntoAnInstalledEngine() {
+        val deferred = DshBackup(File(base, "restored-dsh").apply { mkdir() }) {}
+        val staged =
+            DshBackup.unpack(archive(TarArchiveEntry(".dsh/settings.yml")).inputStream(), staging)
+        deferred.restore(staged)
+        File(live, "old.yml").writeText("old")
+
+        assertTrue(deferred.hasData())
+        val data = ByteArrayOutputStream().also(deferred::export).toByteArray()
+        assertTrue(File(DshBackup.unpack(data.inputStream(), staging), "settings.yml").isFile)
+        deferred.moveInto(backup)
+
+        assertFalse(deferred.hasData())
+        assertTrue(File(live, "settings.yml").isFile)
+        assertFalse(File(live, "old.yml").exists())
+        assertFalse(rollback.exists())
     }
 
     @Test

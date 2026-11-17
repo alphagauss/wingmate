@@ -31,15 +31,15 @@ private class EngineSettings(
     private val labels = ConnectionStrings(activity)
     private val backup = EngineBackupSettings(activity, labels, ::startWithWorkspace)
     private val workspaceChanged = MutableLiveData(Unit)
-    private var startAfterGrant = false
     private val storagePermission =
         activity.registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             result ->
             val granted = SharedWorkspace.hasPermission(activity)
+            if (granted) LocalRuntime.start(activity) else statusBeforeStart = null
             workspaceChanged.value = Unit
-            if (granted && startAfterGrant) LocalRuntime.start(activity)
             if (
                 !granted &&
+                    !activity.isFinishing &&
                     result.any { (permission, allowed) ->
                         !allowed && !activity.shouldShowRequestPermissionRationale(permission)
                     }
@@ -57,7 +57,6 @@ private class EngineSettings(
                     }
                     .show()
             }
-            startAfterGrant = false
         }
     private val preferences =
         activity.getSharedPreferences("local_engine", AppCompatActivity.MODE_PRIVATE)
@@ -79,12 +78,7 @@ private class EngineSettings(
         get() = preferences.getBoolean("auto_start", false)
 
     override val shouldStartOnLaunch: Boolean
-        get() =
-            autoStartOnLaunch &&
-                installed &&
-                !backupBusy &&
-                SharedWorkspace.hasPermission(activity) &&
-                status != RuntimeStatus.Stopping
+        get() = autoStartOnLaunch && installed && !backupBusy && status != RuntimeStatus.Stopping
 
     override val launchPending: Boolean
         get() =
@@ -96,7 +90,7 @@ private class EngineSettings(
         val state = status
         if (state == RuntimeStatus.Stopped || state is RuntimeStatus.Failed) {
             statusBeforeStart = state
-            LocalRuntime.start(activity)
+            startWithWorkspace()
         }
     }
 
@@ -104,13 +98,8 @@ private class EngineSettings(
         if (SharedWorkspace.hasPermission(activity)) {
             LocalRuntime.start(activity)
         } else {
-            requestWorkspacePermission(start = true)
+            storagePermission.launch(SharedWorkspace.missingPermissions(activity).toTypedArray())
         }
-    }
-
-    private fun requestWorkspacePermission(start: Boolean) {
-        startAfterGrant = start
-        storagePermission.launch(SharedWorkspace.missingPermissions(activity).toTypedArray())
     }
 
     private fun openCurrentWorkbench() {
@@ -280,16 +269,6 @@ private class EngineSettings(
                         maxSubtitleLines = Int.MAX_VALUE,
                     ),
                 )
-                if (!granted) {
-                    addView(
-                        row(
-                            labels["localAgent.workspacePermission"],
-                            action = {
-                                requestWorkspacePermission(start = false)
-                            },
-                        ),
-                    )
-                }
                 val canBackup =
                     !backupBusy &&
                         status !is RuntimeStatus.Installing &&
@@ -298,7 +277,10 @@ private class EngineSettings(
                 addView(
                     row(
                         labels["localAgent.backupExport"],
-                        action = if (installed && canBackup) backup::pickExport else null,
+                        action =
+                            if (canBackup && LocalRuntime.hasBackupData(activity))
+                                backup::pickExport
+                            else null,
                     ),
                 )
                 addView(
