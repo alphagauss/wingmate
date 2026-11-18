@@ -7,14 +7,14 @@ import android.os.Environment
 import java.io.File
 
 object SharedWorkspace {
-    const val guestPath = "/Workspace"
+    const val guestPath = "/root/workspace"
 
     @Suppress("DEPRECATION")
     val directory: File
         get() =
             File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
-                "Wingmate/Workspaces",
+                "Wingmate",
             )
 
     private val permissions =

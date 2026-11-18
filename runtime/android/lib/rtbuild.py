@@ -687,7 +687,6 @@ def overlay_entries(runtime_info, patch_path):
         f(DSH_WEB_PATCH.lstrip("/"), source.read())
     d("root/.dsh", 0o700)
     d("root/.l2s", 0o700)          # PROOT_L2S_DIR: hard-link backing files (kept with /root on upgrade)
-    d("root/workspace", 0o755)
     d("var/lib/dsh-app", 0o755)
     d("var/lib/dsh-app/shm", 0o1777)    # bound to /dev/shm
     d("var/lib/dsh-app/empty", 0o755)   # bound over /sys/fs/selinux so dpkg/libselinux see no SELinux
@@ -1095,6 +1094,7 @@ def cmd_assemble(args):
 # ---------------------------------------------------------------------------
 def launch_template():
     """The proot invocation the app runs (placeholders expanded by DshProcess.kt)."""
+    workspace_path = "/root/workspace"
     guest_env = [
         "HOME=/root", "USER=root", "LOGNAME=root", "SHELL=/bin/bash",
         "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -1112,7 +1112,7 @@ def launch_template():
         "{NATIVE_LIB_DIR}/libproot.so",
         "--kill-on-exit", "--link2symlink", "--sysvipc", "-L", "-0",
         "--rootfs={ROOTFS}", "--cwd=/root",
-        "-b", "{WORKSPACE}:/Workspace",
+        "-b", "{WORKSPACE}:" + workspace_path,
         "-b", "/dev",
         "-b", "/dev/urandom:/dev/random",
         "-b", "/proc",
@@ -1129,9 +1129,9 @@ def launch_template():
     ] + guest_env + [
         "{GUEST_ENV}",
         "/bin/sh", "-c",
-        'if [ "$(stat -Lc %d:%i /Workspace)" != "$WINGMATE_WORKSPACE_ID" ] || '
-        '[ ! -r /Workspace ] || [ ! -w /Workspace ] || [ ! -x /Workspace ]; then '
-        'echo "Shared workspace could not be mounted at /Workspace" >&2; exit 1; fi; '
+        f'if [ "$(stat -Lc %d:%i {workspace_path})" != "$WINGMATE_WORKSPACE_ID" ] || '
+        f'[ ! -r {workspace_path} ] || [ ! -w {workspace_path} ] || [ ! -x {workspace_path} ]; then '
+        f'echo "Shared workspace could not be mounted at {workspace_path}" >&2; exit 1; fi; '
         'unset WINGMATE_WORKSPACE_ID; '
         "echo $$ > /tmp/dsh-web.pid; exec /usr/local/bin/dsh web --patch " + DSH_WEB_PATCH
         + " --host 127.0.0.1 --port {PORT} --no-open",
@@ -1148,7 +1148,7 @@ def launch_template():
         "placeholders": {
             "{NATIVE_LIB_DIR}": "applicationInfo.nativeLibraryDir (libs must be extracted: useLegacyPackaging=true)",
             "{ROOTFS}": "filesDir/runtime/rootfs",
-            "{WORKSPACE}": "Android shared Documents/Wingmate/Workspaces directory",
+            "{WORKSPACE}": "Android shared Documents/Wingmate directory",
             "{TMP}": "app-private writable dir for PROOT_TMP_DIR (e.g. cacheDir/proot-tmp)",
             "{FILES_DIR}": "context.filesDir (unused by this template)",
             "{PORT}": "loopback port chosen by the app",
