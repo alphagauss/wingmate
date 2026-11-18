@@ -7,5 +7,14 @@
     "sha256": "dfc3544eb894c74b340a4c4c63a8c125fd2e983df9efed5885712574af994e62",
     "before": "if (browser === void 0 || initiallyAvailable === void 0) return () => {};",
     "after": "if (browser === void 0 || initiallyAvailable === void 0 || isLoopbackHostname(browser.location.hostname)) return () => {};"
+  },
+  {
+    "id": "open-directory-picker-in-shared-workspace",
+    "package": "@deepseek-ai/dsh-host-directory-picker-browse",
+    "version": "0.2.2-rc.1",
+    "file": "lib/index.js",
+    "sha256": "20d82ef343a4ee06f1ace8d56521b3e6c7cbbf52816acf056e9977839d31c54b",
+    "before": "const target = resolve(path ?? home);",
+    "after": "const target = resolve(path ?? \"/root/workspace\");"
   }
 ]

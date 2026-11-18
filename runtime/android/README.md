@@ -12,7 +12,7 @@ DSH 使用 Wingmate 的 npm 锁安装 Linux ARM64 glibc 依赖，复用 [Office 
 
 本机工作台通过回环地址连接 DSH。Android 没有默认网络时，WebView 会报告离线，回环地址仍然可用。Android 载荷对回环页面使用实际的连接状态。升级 DSH 时，复验手机离线下的自动连接；上游能独立处理回环连接后可移除此补丁。
 
-来宾没有桌面环境的 XDG 目录查询工具，因此 DSH 的 Documents 路径配置使用 PRoot 的共享工作区挂载点。挂载点设在来宾主目录下，方便从 DSH 目录选择器进入。用户路径与备份入口见 [Wingmate Android](../../apps/mobile/README.md#工程布局)。
+来宾没有桌面环境的 XDG 目录查询工具，因此 DSH 的 Documents 路径配置使用 PRoot 的共享工作区挂载点。目录选择器的起点通过 Android 载荷补丁设在同一挂载点。上游支持配置起点后，可用配置替换补丁。用户路径与备份入口见 [Wingmate Android](../../apps/mobile/README.md#工程布局)。
 
 资源包的安装、启停与构建入口见 [Wingmate Android](../../apps/mobile/README.md)。
 
