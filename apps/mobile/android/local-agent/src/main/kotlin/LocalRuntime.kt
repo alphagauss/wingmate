@@ -10,6 +10,9 @@ import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import dev.wingmate.mobile.runtime.phone.PhoneBridge
+import dev.wingmate.mobile.runtime.phone.PhoneControl
+import dev.wingmate.mobile.runtime.phone.PhoneGuest
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
@@ -186,7 +189,7 @@ object LocalRuntime {
         if (run.stopping) return
         run.stopping = true
         state.value = RuntimeStatus.Stopping
-        worker.execute { run.engine?.stop() }
+        worker.execute { run.stop() }
     }
 
     internal fun networkChanged() {
@@ -208,6 +211,7 @@ object LocalRuntime {
         // Accessed by the worker. The main thread owns the active run reference.
         var engine: DshProcess? = null
         private lateinit var rootfs: File
+        private var phone: PhoneBridge? = null
 
         fun launch() {
             try {
@@ -236,13 +240,46 @@ object LocalRuntime {
                 )
                 refreshNetwork()
                 update(RuntimeStatus.Starting)
-                process.start(manifest, workspace, mapOf("TZ" to TimeZone.getDefault().id))
+                startPhone()
+                process.start(
+                    manifest,
+                    workspace,
+                    mapOf("TZ" to TimeZone.getDefault().id),
+                    phone != null,
+                )
                 engine = process
             } catch (error: Exception) {
                 val message = LogRedactor.redact(error.message ?: error.javaClass.simpleName)
                 onLog(message, "system")
                 finish(RuntimeStatus.Failed(message))
             }
+        }
+
+        private fun startPhone() {
+            val control = PhoneControl.get(context)
+            try {
+                val bridge = PhoneBridge(control, rootfs)
+                phone = bridge
+                PhoneGuest.write(rootfs, bridge.name, bridge.token)
+                bridge.start()
+                control.attach(bridge)
+            } catch (error: Exception) {
+                closePhone()
+                onLog("Phone tools unavailable (${error.javaClass.simpleName})", "system")
+            }
+        }
+
+        fun stop() {
+            closePhone()
+            engine?.stop()
+        }
+
+        private fun closePhone() {
+            val bridge = phone ?: return
+            phone = null
+            bridge.close()
+            PhoneControl.get(context).detach(bridge, "The local engine stopped.")
+            runCatching { PhoneGuest.clear(rootfs) }
         }
 
         fun refreshNetwork() {
@@ -286,6 +323,7 @@ object LocalRuntime {
         }
 
         private fun finish(value: RuntimeStatus) {
+            closePhone()
             main.post {
                 if (active === this) {
                     active = null

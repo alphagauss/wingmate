@@ -24,11 +24,29 @@ Android 工程沿用 Gradle 默认源码集，应用 Kotlin 源码在 `android/a
 
 `android/local-agent/` 提供本地运行时的安装、进程和前台服务，只有本地版依赖该模块。本机引擎页提供安装、启动、停止、重启、日志及后台运行指引。运行就绪后，应用通过 DSH 的回环地址和登录令牌打开工作台。返回首页、关闭工作台和切换远程连接都不会停止本机进程。
 
+`android/phone-control/` 提供 Android 手机操控与共用的 MCP 工具定义，可以独立构建。本机 DSH 的 MCP 启动配置、套接字桥接和技能保存由 `local-agent` 接入。应用的本地版装配两个模块，纯远程版均不打包。
+
 本机引擎的「存储与备份」显示共享工作区在手机和 DSH 中的路径。启动引擎时如缺少共享存储权限，应用先请求该权限。只有确认手机的 `Documents/Wingmate` 已挂载到 DSH 的 `~/workspace`（`/root/workspace`）并可读写后，才启动 DSH。首次初始化的默认工作区位于共享目录下的 `deepseek-harness/default-workspace`。「添加工作区」默认打开共享目录，可以直接在这里新建文件夹。
 
 「导出 DSH 备份」通过系统文件选择器保存未加密的 `.tar.gz`，其中包含 `.dsh` 内的会话、设置及保存过的凭据。工作区文件保存在各自的工作区目录。导入会先校验归档，确认后停止引擎并替换 `.dsh`。旧目录仅在替换期间临时保留，替换成功后删除，移入新目录失败时恢复旧目录。全新安装可直接导入和导出数据，Linux 运行时在首次启动引擎时释放。导出时如引擎仍在运行，也会在选好文件后请求停机。
 
 首次安装从 APK 释放完整环境。之后在基础环境身份相同的情况下，只更新 DSH、Node 和应用管理的文件，保留 Linux 环境、Python 用户包、会话和工作区。基础环境不兼容时报告原因，保留现有目录。载荷构建和移植来源见 [Android 本地运行载荷](../../runtime/android/README.md)，真机验收范围见 [D1](../../ARCHITECTURE_PLAN.md#d1-android-本地运行版)。
+
+## 手机操控
+
+Android 本地版的「设置 → 手机操控」默认关闭。启用后，本机 DSH 可通过 `phone` MCP 工具读取主屏的无障碍元素、打开应用、点按、滚动、输入文字和按返回键。打开应用和其他写操作在手机上单独确认。测试读屏的结果只显示在手机上，Agent 调用读屏时的文字和所请求的截图可能进入已配置模型的请求。
+
+Android 11 及以上可用 `screen(image: true)` 请求当前应用的截图。遇到受保护内容、重叠窗口或系统拒绝截取时，工具返回可用的文字及原因。元素无法定位时可用 `tap_xy` 点按最近截图中的像素坐标。每张图只能用于一次已批准的坐标操作，批准后会重新核对画面。
+
+让本机 Agent 把已跑通的操作整理成手机技能时，`save_skill` 会在手机上显示名称、用途和步骤。确认后，技能以 `phone-` 开头的名称加入本机 DSH 技能目录。使用时从技能列表选择它，Agent 按当前页面重新定位，每次操作仍由手机端确认。
+
+「独立后台屏」要求 Android 14 或更新版本、已启动并授权的 Shizuku 13 或更新版本，以及 Wingmate 无障碍服务。在「设置 → 手机操控」可查看状态、授权 Shizuku 和关闭后台屏。Agent 使用 `open(background: true)` 打开应用，用 `screen(background: true)` 读屏，也可同时传入 `image: true` 请求截图。省略 `background` 或传 `false` 时操作主屏。后台屏不可用时，显式请求后台屏会返回原因，操作不会转到主屏。
+
+主屏读屏编号以 `s` 开头，后台屏以 `b` 开头。`tap`、`tap_xy`、`scroll` 和 `type` 按编号定位显示屏。应用启动及写操作仍需手机端确认。在设置中关闭后台屏后，可以打开另一应用。关手机操控、停本机引擎、熄屏、撤销无障碍或 Shizuku 断开会释放后台屏。
+
+在手机操控页进入 Android 无障碍设置开启 Wingmate 服务，返回后可核对连接状态并测试读屏。相机和系统通知权限集中在「通用 → 系统权限」。部分手机在打开应用时会额外显示 Android 系统确认，可直接在手机上处理。运行时切换手机操控会刷新本机工具列表。关闭功能、熄屏或撤销无障碍会取消待确认操作。手机侧桥接随本机引擎启停，通过同应用 UID 的本地套接字连接。
+
+手机操控移植自 [dsh-Go 0a15d4c](https://github.com/ccch1mneyyy/dsh-Go/tree/0a15d4cea9ea9a6e8b670f7c60fa50323b39f2e7/app/android/app/src/main/kotlin/io/github/ccch1mneyyy/dsh_app/phone)，沿用本地版的 [AGPLv3 许可](../../runtime/android/LICENSE.dsh-go)。原生执行与浮层参考 dsh-Go 中源于 Phase 的实现，[Phase 的 MIT 声明](android/phone-control/src/main/assets/licenses/LICENSE.phase)随本地版 APK 提供。
 
 ## 开发与构建
 
@@ -38,7 +56,7 @@ Android 工程沿用 Gradle 默认源码集，应用 Kotlin 源码在 `android/a
 .\apps\mobile\android\gradlew.bat -p apps/mobile/android :app:assembleRemoteRelease
 .\apps\mobile\android\gradlew.bat -p apps/mobile/android :app:assembleLocalRelease
 node --test apps/mobile/test/*.test.mjs
-.\apps\mobile\android\gradlew.bat -p apps/mobile/android :app:testRemoteDebugUnitTest :app:testLocalDebugUnitTest :local-agent:testDebugUnitTest
+.\apps\mobile\android\gradlew.bat -p apps/mobile/android :app:testRemoteDebugUnitTest :app:testLocalDebugUnitTest :local-agent:testDebugUnitTest :phone-control:testDebugUnitTest
 ```
 
 Release 产物分别在 `android/app/build/outputs/apk/remote/release/` 和 `android/app/build/outputs/apk/local/release/`，用 Android SDK 的 `apksigner` 签名后可安装。远程版延用 `dev.wingmate.mobile`、`targetSdk 36`，APK 只包含 DEX 和资源。本地版使用 `dev.wingmate.mobile.local`、`targetSdk 28` 和 ARM64 原生库，可与远程版并装。连接历史、Cookie 与本机运行数据归各自包名所有。同一应用覆盖安装需要沿用签名。

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="phone_control_service">Wingmate Phone Control</string>
+    <string name="phone_control_service_description">Lets the local Wingmate agent read visible app elements and perform actions that you approve on the phone.</string>
+    <string name="phone_control_confirmation">Wingmate phone action</string>
+    <string name="phone_control_allow_once">Allow once</string>
+    <string name="phone_control_open">Open %1$s</string>
+    <string name="phone_control_back">Press Back in %1$s</string>
+    <string name="phone_control_tap">Tap %1$s in %2$s</string>
+    <string name="phone_control_tap_coordinates">Tap screenshot position (%1$d, %2$d) in %3$s</string>
+    <string name="phone_background_open">Open %1$s on the independent background screen</string>
+    <string name="phone_background_action">Background screen\n%1$s</string>
+    <string name="phone_control_long_press">Long-press %1$s in %2$s</string>
+    <string name="phone_control_type">Replace text in %1$s (%2$s) with:\n%3$s</string>
+    <string name="phone_control_scroll">Scroll %1$s in %2$s</string>
+</resources>

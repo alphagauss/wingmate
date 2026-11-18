@@ -5,6 +5,7 @@ import android.os.Process as AndroidProcess
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
+import dev.wingmate.mobile.runtime.phone.PhoneGuest
 import java.io.File
 import java.io.IOException
 import java.net.InetAddress
@@ -61,7 +62,12 @@ internal class DshProcess(
         }
     }
 
-    fun start(manifest: RuntimeManifest, workspace: File, guestEnv: Map<String, String>) {
+    fun start(
+        manifest: RuntimeManifest,
+        workspace: File,
+        guestEnv: Map<String, String>,
+        withPhone: Boolean,
+    ) {
         check(process == null)
         val pidFile = File(rootfs, "tmp/dsh-web.pid")
         pidFile.delete() // also removes a stale/dangling symlink; never reuse a previous run's PID
@@ -93,7 +99,7 @@ internal class DshProcess(
         val argv =
             manifest.launchArgv.flatMap { arg ->
                 if (arg == GUEST_ENV) effectiveGuestEnv.map { (key, value) -> "$key=$value" }
-                else listOf(expand(arg))
+                else listOf(expand(if (withPhone) PhoneGuest.launchArg(arg) else arg))
             }
 
         val builder = ProcessBuilder(argv).directory(context.filesDir)

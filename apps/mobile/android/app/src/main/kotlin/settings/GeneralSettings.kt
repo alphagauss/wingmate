@@ -153,6 +153,14 @@ internal class GeneralSettings(
     private fun showLicenses() {
         val paths =
             listOf("licenses/LICENSE.wingmate") +
+                activity.assets
+                    .list("licenses")
+                    .orEmpty()
+                    .filter { it != "LICENSE.wingmate" }
+                    .sorted()
+                    .map {
+                        "licenses/$it"
+                    } +
                 activity.assets.list("runtime/licenses").orEmpty().sorted().map {
                     "runtime/licenses/$it"
                 }

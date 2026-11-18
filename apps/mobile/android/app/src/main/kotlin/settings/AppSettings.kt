@@ -9,6 +9,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.widget.doAfterTextChanged
 import dev.wingmate.mobile.R
 import dev.wingmate.mobile.i18n.ConnectionStrings
+import dev.wingmate.mobile.phoneSettings
 import dev.wingmate.mobile.remote.ConnectionFlow
 import dev.wingmate.mobile.remote.RemoteHostSettings
 import dev.wingmate.mobile.theme.ConnectionUi
@@ -25,6 +26,7 @@ internal class AppSettings(
     private val languageChanged: () -> Unit = {},
 ) {
     private val labels = ConnectionStrings(activity)
+    private val phone = phoneSettings(activity)
     private var theme = "system"
     private var ui = SettingsUi(activity, theme)
     private val overlay =
@@ -45,6 +47,7 @@ internal class AppSettings(
     private var fromSearch = false
 
     init {
+        phone?.observe { if (page == Page.HOME || page == Page.PHONE) refresh() }
         localEngine?.observe {
             when (page) {
                 Page.HOME,
@@ -164,6 +167,7 @@ internal class AppSettings(
                     Page.DIAGNOSTICS -> general.diagnostics(ui, this, remote.currentName)
                     Page.ABOUT -> general.about(ui, this)
                     Page.LOCAL -> localEngine?.render(ui, this)
+                    Page.PHONE -> phone?.render(ui, this, ::refresh)
                 }
             },
             direction,
@@ -204,6 +208,16 @@ internal class AppSettings(
                         ),
                     )
                 }
+                phone?.let {
+                    addView(
+                        row(
+                            labels["phone.title"],
+                            value = it.summary,
+                            icon = R.drawable.ic_settings_phone,
+                            action = { navigate(Page.PHONE) },
+                        ),
+                    )
+                }
             }
             for ((group, tone, entries) in groups()) {
                 body.section(labels[group]) {
@@ -238,6 +252,7 @@ internal class AppSettings(
                     item(Page.REMOTE, R.drawable.ic_settings_host) +
                     listOfNotNull(
                         localEngine?.let { item(Page.LOCAL, R.drawable.ic_settings_engine) },
+                        phone?.let { item(Page.PHONE, R.drawable.ic_settings_phone) },
                     )
             fun update(query: String) {
                 matches.removeAllViews()
@@ -312,5 +327,6 @@ internal class AppSettings(
         DIAGNOSTICS("settings.diagnostics"),
         ABOUT("settings.about"),
         LOCAL("localAgent.title"),
+        PHONE("phone.title"),
     }
 }

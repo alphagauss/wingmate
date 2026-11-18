@@ -22,3 +22,5 @@ rootProject.name = "wingmate-android"
 include(":app")
 
 include(":local-agent")
+
+include(":phone-control")

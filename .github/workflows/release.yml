@@ -87,6 +87,7 @@ jobs:
         working-directory: apps/mobile/android
         run: |
           ./gradlew :app:testRemoteDebugUnitTest :app:testLocalDebugUnitTest :local-agent:testDebugUnitTest \
+            :phone-control:testDebugUnitTest \
             :app:assembleRemoteRelease :app:assembleLocalRelease --no-daemon
       - name: Sign and verify both APKs
         env:
