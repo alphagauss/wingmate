@@ -12,8 +12,8 @@ use std::{
     time::Duration,
 };
 use tauri::{
-    Manager, PhysicalPosition, PhysicalSize, Rect, State, Url, Webview, WebviewBuilder, WebviewUrl,
-    Window,
+    ipc::CapabilityBuilder, Manager, PhysicalPosition, PhysicalSize, Rect, State, Url, Webview,
+    WebviewBuilder, WebviewUrl, Window,
 };
 use wingmate_launcher::service::{self, ShareCommand, ShareStatus};
 
@@ -434,9 +434,25 @@ pub(super) async fn connect_remote(
     let parent = main.window();
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let label = format!("remote-workbench-{}", NEXT.fetch_add(1, Ordering::Relaxed));
+    app.add_capability(
+        CapabilityBuilder::new(&label)
+            .webview(&label)
+            .local(false)
+            .remote(format!("{origin}/*"))
+            .permission("allow-return-local"),
+    )
+    .map_err(|error| error.to_string())?;
+    let expected_origin = serde_json::json!(origin);
     let popup_app = app.clone();
     let builder = WebviewBuilder::new(label, WebviewUrl::External(url))
         .focused(false)
+        .initialization_script(format!(
+            r#"if (window === window.top && location.origin === {expected_origin}) {{
+                Object.defineProperty(window, '__WINGMATE_RETURN_LOCAL__', {{
+                    value: () => window.__TAURI_INTERNALS__.invoke('return_local')
+                }});
+            }}"#,
+        ))
         .on_navigation(move |target| target.origin() == origin_guard)
         .on_new_window(move |url, features| super::popup::open(&popup_app, url, features));
     let builder = if wingmate_launcher::IS_DEV {
@@ -496,9 +512,22 @@ pub(super) fn return_local(
     webview: Webview,
     desktop: State<'_, Arc<Desktop>>,
 ) -> Result<(), String> {
-    connection_panel::local_entry(&webview, &desktop)?;
+    let source = webview.url().map_err(|error| error.to_string())?;
+    let local = connection_panel::local_entry(&webview, &desktop).is_ok();
+    let main = webview
+        .app_handle()
+        .get_webview(&desktop.window_label)
+        .ok_or("主窗口已关闭")?;
     let remote = {
         let mut current = desktop.connection.lock().unwrap();
+        if !local
+            && !current.remote.as_ref().is_some_and(|remote| {
+                remote.view.label() == webview.label()
+                    && remote.origin == source.origin().ascii_serialization()
+            })
+        {
+            return Err("此页面不能退出远程工作台".into());
+        }
         let Some(remote) = current.remote.take() else {
             return Ok(());
         };
@@ -506,44 +535,9 @@ pub(super) fn return_local(
         remote
     };
     let _ = remote.view.close();
-    let _ = webview.eval("document.querySelector('[data-wingmate-remote-header]')?.remove()");
-    let _ = webview.set_focus();
+    let _ = main.eval("document.querySelector('[data-wingmate-remote-header]')?.remove()");
+    let _ = main.set_focus();
     Ok(())
-}
-
-#[derive(serde::Serialize)]
-pub(super) struct ShareReply {
-    #[serde(flatten)]
-    status: ShareStatus,
-    pairings: Vec<SharePairing>,
-}
-
-#[derive(serde::Serialize)]
-struct SharePairing {
-    url: String,
-    qr: String,
-}
-
-fn pairings(status: &ShareStatus) -> Result<Vec<SharePairing>> {
-    use qrcode::render::svg;
-
-    let urls = if status.pairing_urls.is_empty() {
-        status.pairing_url.as_slice()
-    } else {
-        &status.pairing_urls
-    };
-    urls.iter()
-        .map(|url| {
-            let qr = qrcode::QrCode::new(url.as_bytes())?
-                .render::<svg::Color>()
-                .min_dimensions(192, 192)
-                .build();
-            Ok(SharePairing {
-                url: url.clone(),
-                qr,
-            })
-        })
-        .collect()
 }
 
 #[tauri::command]
@@ -552,7 +546,7 @@ pub(super) async fn local_share(
     desktop: State<'_, Arc<Desktop>>,
     command: ShareCommand,
     instance: Option<String>,
-) -> Result<ShareReply, String> {
+) -> Result<ShareStatus, String> {
     if connection_panel::local_panel(&webview, &desktop).is_err() {
         if matches!(
             command,
@@ -569,17 +563,16 @@ pub(super) async fn local_share(
         )?;
     }
     let home = desktop.home.clone();
-    tauri::async_runtime::spawn_blocking(move || -> Result<ShareReply> {
-        let status = service::share(&home, &command)?;
-        let pairings = if matches!(
+    tauri::async_runtime::spawn_blocking(move || -> Result<ShareStatus> {
+        let mut status = service::share(&home, &command)?;
+        // Support continuing with an older service until the user restarts it.
+        if matches!(
             command,
             ShareCommand::Pair | ShareCommand::TunnelPair { .. }
         ) {
-            pairings(&status)?
-        } else {
-            Vec::new()
-        };
-        Ok(ShareReply { status, pairings })
+            status.fill_pairing_qr()?;
+        }
+        Ok(status)
     })
     .await
     .map_err(|error| error.to_string())?

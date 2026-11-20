@@ -109,10 +109,9 @@ fn run() -> Result<()> {
         _ => None,
     };
     if let Some(command) = share {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&service::share(&home, &command)?)?
-        );
+        let mut status = service::share(&home, &command)?;
+        status.pairings.clear();
+        println!("{}", serde_json::to_string_pretty(&status)?);
         return Ok(());
     }
     if matches!(

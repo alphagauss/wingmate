@@ -255,11 +255,15 @@ export function createConnectionDetails(react, primitives, SettingRow, styles) {
     const [localNotice, setLocalNotice] = useState('');
     const [localLink, setLocalLink] = useState('');
     const [duration, setDuration] = useState('5m');
+    const local = Boolean(bridge.openLanPassword);
     const tunnel = status.tunnel;
     const selectedMode = mode ?? tunnel?.mode ?? 'quick';
     const named = selectedMode === 'named';
     const running = Boolean(tunnel?.url);
     const switching = running && tunnel.mode !== selectedMode;
+    const canManageQuick =
+      status.quick_tunnel_control && tunnel?.mode !== 'named';
+    const quick = { action: 'quick_tunnel' };
     const progress = tunnel?.progress;
     const percent = progress?.total
       ? Math.min(100, Math.floor((progress.received * 100) / progress.total))
@@ -273,7 +277,9 @@ export function createConnectionDetails(react, primitives, SettingRow, styles) {
         : (stages[progress?.stage] ??
           (running
             ? `运行中 · ${tunnel.mode === 'named' ? '具名隧道' : '临时隧道'}`
-            : '已关闭')));
+            : !local && tunnel?.mode === 'named'
+              ? '已启用 · 具名隧道'
+              : '已关闭')));
     const startLabel = switching
       ? '切换并重启'
       : running
@@ -300,80 +306,92 @@ export function createConnectionDetails(react, primitives, SettingRow, styles) {
 
     return (
       <div style={panels}>
-        <section aria-label="本机浏览器">
-          <SettingRow
-            label="本机浏览器"
-            last
-            compact
-            control={
-              <Button
-                size="sm"
-                variant="outline"
-                aria-label="复制本机配对链接"
-                disabled={pending || !status.local_address}
-                onClick={localPair}
-              >
-                复制配对链接
-              </Button>
-            }
-          >
-            <code style={valueStyle}>
-              {status.local_address
-                ? `http://${status.local_address}`
-                : '本机 Web 入口不可用'}
-            </code>
-            {localNotice && (
-              <span style={detailStyle} role="status">
-                {localNotice}
-              </span>
-            )}
-            {localLink && <code style={valueStyle}>{localLink}</code>}
-          </SettingRow>
-        </section>
+        {local && (
+          <section aria-label="本机浏览器">
+            <SettingRow
+              label="本机浏览器"
+              last
+              compact
+              control={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  aria-label="复制本机配对链接"
+                  disabled={pending || !status.local_address}
+                  onClick={localPair}
+                >
+                  复制配对链接
+                </Button>
+              }
+            >
+              <code style={valueStyle}>
+                {status.local_address
+                  ? `http://${status.local_address}`
+                  : '本机 Web 入口不可用'}
+              </code>
+              {localNotice && (
+                <span style={detailStyle} role="status">
+                  {localNotice}
+                </span>
+              )}
+              {localLink && <code style={valueStyle}>{localLink}</code>}
+            </SettingRow>
+          </section>
+        )}
         <section aria-label="局域网分享" style={section}>
           <SettingRow
             label="局域网分享"
             last
             compact
             control={
-              <Switch
-                label="允许局域网访问"
-                checked={Boolean(status.address)}
-                disabled={pending}
-                onChange={(enabled) =>
-                  enabled
-                    ? run({ action: 'enable', address: null })
-                    : confirm('关闭局域网分享', '当前局域网连接会断开。', {
-                        action: 'disable',
-                      })
-                }
-              />
+              local && (
+                <Switch
+                  label="允许局域网访问"
+                  checked={Boolean(status.address)}
+                  disabled={pending}
+                  onChange={(enabled) =>
+                    enabled
+                      ? run({ action: 'enable', address: null })
+                      : confirm('关闭局域网分享', '当前局域网连接会断开。', {
+                          action: 'disable',
+                        })
+                  }
+                />
+              )
             }
           >
-            <span style={detailStyle}>通过 HTTP 连接，适用于可信网络。</span>
+            <span style={detailStyle}>
+              {local
+                ? '通过 HTTP 连接，适用于可信网络。'
+                : status.address
+                  ? '已开启'
+                  : '已关闭'}
+            </span>
           </SettingRow>
           <div style={{ display: 'grid', gap: 10, paddingInlineStart: 12 }}>
-            <SettingRow
-              label="局域网密码"
-              last
-              compact
-              control={
-                bridge.openLanPassword && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => bridge.openLanPassword().catch(report)}
-                  >
-                    {status.lan_password_enabled ? '管理密码' : '设置密码'}
-                  </Button>
-                )
-              }
-            >
-              <span style={detailStyle}>
-                {status.lan_password_enabled ? '已设置' : '未设置'}
-                {!bridge.openLanPassword && ' · 在标题栏的远程连接浮窗中管理'}
-              </span>
-            </SettingRow>
+            {local && (
+              <SettingRow
+                label="局域网密码"
+                last
+                compact
+                control={
+                  bridge.openLanPassword && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => bridge.openLanPassword().catch(report)}
+                    >
+                      {status.lan_password_enabled ? '管理密码' : '设置密码'}
+                    </Button>
+                  )
+                }
+              >
+                <span style={detailStyle}>
+                  {status.lan_password_enabled ? '已设置' : '未设置'}
+                  {!bridge.openLanPassword && ' · 在标题栏的远程连接浮窗中管理'}
+                </span>
+              </SettingRow>
+            )}
             {status.address && (
               <SettingRow
                 label="局域网配对"
@@ -407,7 +425,7 @@ export function createConnectionDetails(react, primitives, SettingRow, styles) {
             compact
             wrap
             control={
-              tunnel && (
+              local && tunnel ? (
                 <div style={actionsStyle}>
                   <select
                     aria-label="隧道模式"
@@ -450,11 +468,65 @@ export function createConnectionDetails(react, primitives, SettingRow, styles) {
                     </Button>
                   )}
                 </div>
-              )
+              ) : canManageQuick ? (
+                <div style={actionsStyle}>
+                  {!running && !progress && (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      disabled={pending}
+                      onClick={() => run({ ...quick, operation: 'start' })}
+                    >
+                      {tunnel?.mode === 'quick' && tunnel.error
+                        ? '重试开启'
+                        : '开启临时隧道'}
+                    </Button>
+                  )}
+                  {running && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={pending}
+                      onClick={() =>
+                        confirm(
+                          '更换公网地址',
+                          '旧地址和邀请会失效。公网设备需使用新链接重新配对。',
+                          {
+                            ...quick,
+                            operation: 'replace_address',
+                            expected_url: tunnel.url,
+                          },
+                        )
+                      }
+                    >
+                      更换公网地址
+                    </Button>
+                  )}
+                  {tunnel?.mode === 'quick' && (
+                    <Button
+                      size="sm"
+                      disabled={pending}
+                      onClick={() =>
+                        confirm(
+                          '关闭隧道',
+                          '当前公网设备会断开，仍可从此页面重新开启。',
+                          {
+                            ...quick,
+                            operation: 'stop',
+                            expected_url: tunnel.url,
+                          },
+                        )
+                      }
+                    >
+                      关闭隧道
+                    </Button>
+                  )}
+                </div>
+              ) : undefined
             }
           >
             <span style={detailStyle} role="status">
-              {tunnel ? tunnelStatus : '请更新 Wingmate 管理服务'}
+              {tunnel || !local ? tunnelStatus : '请更新 Wingmate 管理服务'}
             </span>
             {tunnel?.url && <code style={valueStyle}>{tunnel.url}</code>}
           </SettingRow>
@@ -463,21 +535,22 @@ export function createConnectionDetails(react, primitives, SettingRow, styles) {
           )}
           {tunnel && (
             <>
-              {named ? (
-                <NamedTunnel
-                  tunnel={tunnel}
-                  pending={pending}
-                  run={run}
-                  expanded={expanded}
-                />
-              ) : (
-                running &&
-                !switching && (
-                  <span style={detailStyle}>
-                    临时隧道重启后会分配新地址，需要重新配对。
-                  </span>
-                )
-              )}
+              {local &&
+                (named ? (
+                  <NamedTunnel
+                    tunnel={tunnel}
+                    pending={pending}
+                    run={run}
+                    expanded={expanded}
+                  />
+                ) : (
+                  running &&
+                  !switching && (
+                    <span style={detailStyle}>
+                      临时隧道重启后会分配新地址，需要重新配对。
+                    </span>
+                  )
+                ))}
               {((running && !switching) ||
                 (named && status.tunnel_invite_expires_at)) && (
                 <SettingRow
@@ -1017,20 +1090,22 @@ export function createConnectionDetails(react, primitives, SettingRow, styles) {
                     label={device.id.slice(0, 8)}
                     last={index === status.devices.length - 1}
                     control={
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={pending}
-                        onClick={() =>
-                          confirm(
-                            '撤销设备',
-                            '该设备的连接会断开，再次访问时需重新配对。',
-                            { action: 'revoke', id: device.id },
-                          )
-                        }
-                      >
-                        撤销
-                      </Button>
+                      device.id === status.current_device ? undefined : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={pending}
+                          onClick={() =>
+                            confirm(
+                              '撤销设备',
+                              '该设备的连接会断开，再次访问时需重新配对。',
+                              { action: 'revoke', id: device.id },
+                            )
+                          }
+                        >
+                          撤销
+                        </Button>
+                      )
                     }
                   >
                     <span style={detailStyle}>
@@ -1040,6 +1115,7 @@ export function createConnectionDetails(react, primitives, SettingRow, styles) {
                         ]
                       }{' '}
                       · {new Date(device.paired_at * 1000).toLocaleString()}
+                      {device.id === status.current_device && ' · 当前设备'}
                     </span>
                   </SettingRow>
                 ))}

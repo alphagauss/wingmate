@@ -26,6 +26,9 @@ window.__ModuleLoader__.load({
       Button,
       IconCopyOutlineRegular,
       IconFolderOpenOutlineRegular,
+      IconGlobeOutlineRegular,
+      IconChevronLeftOutlineRegular,
+      Menu,
       Modal,
       Switch,
       Tag,
@@ -35,6 +38,18 @@ window.__ModuleLoader__.load({
     let remoteHost = null;
     const getRemoteHost = () => remoteHost;
     const recovery = '/_wingmate/recovery';
+    const webSharing = {
+      async share(command) {
+        const response = await fetch('/_wingmate/share', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(command),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        return response.json();
+      },
+    };
     const detailStyle = {
       color: 'var(--dsw-alias-label-secondary)',
       fontSize: 12,
@@ -190,11 +205,33 @@ window.__ModuleLoader__.load({
 
     function ShareSettings({ openSettings }) {
       const bridge = useSyncExternalStore(subscribe, getBridge);
+      const host = useSyncExternalStore(subscribe, getRemoteHost);
+      const sharing = bridge?.share
+        ? bridge
+        : host?.share_management
+          ? webSharing
+          : null;
+      const transport = { local: '本机浏览器', lan: '局域网', public: '公网' }[
+        host?.transport
+      ];
       return h(
         'div',
         { style: { ...detailSection, gap: 20, maxWidth: 680 } },
-        bridge?.share && h(ConnectionDetails, { bridge }),
-        openSettings &&
+        !bridge &&
+          transport &&
+          h(
+            'section',
+            { 'aria-label': '当前主机', style: { ...detailSection, gap: 4 } },
+            h('h2', { style: detailHeading }, host.name || location.host),
+            h(
+              'span',
+              { style: valueStyle },
+              `${transport} · ${location.origin}`,
+            ),
+          ),
+        sharing && h(ConnectionDetails, { bridge: sharing }),
+        (bridge || host) &&
+          openSettings &&
           h(
             'section',
             { style: detailSection, 'aria-label': '后台服务设置' },
@@ -213,10 +250,128 @@ window.__ModuleLoader__.load({
               h(
                 'div',
                 { style: detailStyle },
-                '查看运行状态，管理后台启停和本机命令。',
+                bridge
+                  ? '查看运行状态，管理后台启停和本机命令。'
+                  : '查看运行状态，管理后台启停。',
               ),
             ),
           ),
+      );
+    }
+
+    function RemoteFooter({ wide, desktop, openDetails }) {
+      const host = useSyncExternalStore(subscribe, getRemoteHost);
+      const [menuOpen, setMenuOpen] = useState(false);
+      const [leaving, setLeaving] = useState(false);
+      const [error, setError] = useState('');
+      if (!['lan', 'public'].includes(host?.transport)) return null;
+
+      const returnLocal = window.__WINGMATE_RETURN_LOCAL__;
+      const canLeave = returnLocal || (!desktop && host.share_management);
+      const action = returnLocal ? '返回本机' : '退出此主机';
+      const title = `远程 · ${host.name || location.host}`;
+      async function leave() {
+        setLeaving(true);
+        setError('');
+        try {
+          if (returnLocal) {
+            await returnLocal();
+          } else {
+            const response = await fetch('/_wingmate/logout', {
+              method: 'POST',
+              signal: AbortSignal.timeout(5000),
+            });
+            if (!response.ok) throw new Error(await response.text());
+            location.replace('/?pair=1');
+          }
+        } catch (failure) {
+          setError(String(failure));
+          setLeaving(false);
+        }
+      }
+
+      const hostButton = h(
+        Button,
+        {
+          size: 'sm',
+          title,
+          'aria-label': title,
+          'aria-haspopup': wide ? undefined : 'menu',
+          'aria-expanded': wide ? undefined : menuOpen,
+          onClick: wide ? openDetails : () => setMenuOpen(!menuOpen),
+          style: { minWidth: 0, maxWidth: '100%' },
+        },
+        wide
+          ? h(
+              'span',
+              {
+                style: {
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                },
+              },
+              title,
+            )
+          : h(IconGlobeOutlineRegular, { size: 16 }),
+      );
+
+      return h(
+        'div',
+        {
+          style: { marginInlineStart: wide ? 'auto' : undefined, minWidth: 0 },
+        },
+        wide
+          ? h(
+              'div',
+              {
+                style: {
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: detailStyle.color,
+                },
+              },
+              hostButton,
+              canLeave &&
+                h(
+                  Button,
+                  {
+                    size: 'sm',
+                    title: action,
+                    'aria-label': action,
+                    disabled: leaving,
+                    onClick: leave,
+                    style: { flexShrink: 0 },
+                  },
+                  h(IconChevronLeftOutlineRegular, { size: 16 }),
+                ),
+            )
+          : h(Menu, {
+              open: menuOpen,
+              autoFocus: true,
+              portal: true,
+              side: 'right',
+              anchor: hostButton,
+              items: [
+                { id: 'details', label: 'Wingmate 后台服务' },
+                ...(canLeave
+                  ? [{ id: 'leave', label: action, disabled: leaving }]
+                  : []),
+              ],
+              onClose: () => setMenuOpen(false),
+              onSelect: (target) => {
+                setMenuOpen(false);
+                if (target === 'leave') void leave();
+                else openDetails();
+              },
+            }),
+        h(Modal, {
+          open: Boolean(error),
+          title: '无法退出主机',
+          description: error,
+          closeLabel: '关闭',
+          onClose: () => setError(''),
+        }),
       );
     }
 
@@ -534,7 +689,7 @@ window.__ModuleLoader__.load({
           if (disposed || (!remoteHost && [401, 404].includes(response.status)))
             return;
           if (response.status === 401 && remoteHost?.phase !== 'unavailable') {
-            remoteHost = { phase: 'unavailable' };
+            remoteHost = { ...remoteHost, phase: 'unavailable' };
             window.dispatchEvent(new Event(bridgeEvent));
           }
           if (response.ok) {
@@ -557,7 +712,10 @@ window.__ModuleLoader__.load({
             if (status.phase === 'running') runningInstance = status.instance;
             if (
               remoteHost?.phase !== status.phase ||
-              remoteHost?.instance !== status.instance
+              remoteHost?.instance !== status.instance ||
+              remoteHost?.transport !== status.transport ||
+              remoteHost?.name !== status.name ||
+              remoteHost?.share_management !== status.share_management
             ) {
               remoteHost = status;
               window.dispatchEvent(new Event(bridgeEvent));
@@ -587,7 +745,6 @@ window.__ModuleLoader__.load({
             itemContext,
             react,
             { Button, Tag },
-            desktop,
             ShareSettings,
           );
         });
@@ -603,25 +760,40 @@ window.__ModuleLoader__.load({
               BackendSettings,
             ),
           );
-        if (desktop) {
-          ctx.inject(['pluginNavigation'], (scope) => {
+        ctx.inject(['pluginNavigation'], (scope) => {
+          const openDetails = () => {
+            scope.pluginNavigation.openList();
+            const entry = scope.slots
+              .entries('main')
+              .find((item) => item.options.key === 'plugins');
+            entry?.store
+              ?.create()
+              .actions.setView({ kind: 'item', id: 'dsh-wingmate-web' });
+          };
+          scope.slots.inject('sidebar.footer.action', () =>
+            scope.slots.register(
+              {
+                name: 'sidebar.footer.action',
+                id: 'wingmate-remote-host',
+                order: 90,
+              },
+              ({ wide }) => h(RemoteFooter, { wide, desktop, openDetails }),
+            ),
+          );
+          if (desktop) {
             scope.effect(() => {
               const open = () => {
                 if (!getBridge()) return;
                 revealTunnelSettings();
-                scope.pluginNavigation.openList();
-                const entry = scope.slots
-                  .entries('main')
-                  .find((item) => item.options.key === 'plugins');
-                entry?.store
-                  ?.create()
-                  .actions.setView({ kind: 'item', id: 'dsh-wingmate-web' });
+                openDetails();
               };
               window.addEventListener('wingmate:tunnel-settings', open);
               return () =>
                 window.removeEventListener('wingmate:tunnel-settings', open);
             }, 'Wingmate tunnel settings navigation');
-          });
+          }
+        });
+        if (desktop) {
           ctx.effect(() => {
             let unregister;
             const registerTitlebar = () => {

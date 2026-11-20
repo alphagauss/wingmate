@@ -108,7 +108,6 @@ export function registerPreinstalledItems(
   ctx: ClientContext,
   react: typeof import('react'),
   { Button, Tag }: Primitives,
-  desktop: boolean,
   ShareSettings: ComponentType<{ openSettings?: () => void }>,
 ) {
   const { createElement: h, useEffect, useState, useSyncExternalStore } = react;
@@ -154,7 +153,7 @@ export function registerPreinstalledItems(
     }, [refresh]);
 
     const settings =
-      desktop && plugin.id === 'dsh-wingmate-web'
+      plugin.id === 'dsh-wingmate-web'
         ? ctx.slots.entries('sidebar.settings')[0]?.store
         : undefined;
     const status = statusOf(entries, plugin);

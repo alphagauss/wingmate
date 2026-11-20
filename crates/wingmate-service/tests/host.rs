@@ -81,6 +81,7 @@ fn tunnel_ready(endpoint: &host::Endpoint) -> Result<String> {
 #[test]
 fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
     use host::{ShareCommand as Share, TunnelMode};
+    use serde_json::{json, Value};
     let _serial = TEST_HOSTS.lock().unwrap_or_else(|error| error.into_inner());
 
     let temp = tempfile::tempdir()?;
@@ -107,19 +108,59 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(3))
         .build()?;
-    host::share(
+    let initial = host::share(&endpoint, &Share::Status)?;
+    let enabled = host::share(
         &endpoint,
-        &Share::TunnelStart {
-            mode: TunnelMode::Quick,
+        &Share::Enable {
+            address: initial.suggested_address,
         },
     )?;
+    let local = enabled.local_address.context("缺少本机入口")?;
+    let loopback = format!("http://{local}");
+    let lan = format!("http://{}", enabled.address.context("缺少局域网入口")?);
+    let pair = |command, origin: &str| -> Result<String> {
+        let link = host::share(&endpoint, &command)?
+            .pairing_url
+            .context("缺少配对链接")?;
+        let code = link.split_once("/?auth=").unwrap().1;
+        let reply = client
+            .post(format!("{origin}/?auth"))
+            .header("Origin", origin)
+            .body(code.to_owned())
+            .send()?
+            .error_for_status()?;
+        Ok(reply.headers()["set-cookie"]
+            .to_str()?
+            .split(';')
+            .next()
+            .unwrap()
+            .into())
+    };
+    let local_cookie = pair(Share::PairLocal, &loopback)?;
+    let lan_cookie = pair(Share::Pair, &lan)?;
+    let share_web = |origin: &str, cookie: &str, command: Value| {
+        client
+            .post(format!("{origin}/_wingmate/share"))
+            .header("Origin", origin)
+            .header("Cookie", cookie)
+            .json(&command)
+            .send()
+    };
+    let start = json!({"action": "quick_tunnel", "operation": "start"});
+    assert_eq!(share_web(&loopback, "", start.clone())?.status(), 401);
+    let started: Value = share_web(&loopback, &local_cookie, start.clone())?
+        .error_for_status()?
+        .json()?;
+    assert_eq!(started["quick_tunnel_control"], true);
+    assert_eq!(started["tunnel"]["mode"], "quick");
     let public = tunnel_ready(&endpoint)?;
-    let loopback = fs::read_to_string(&origin_path)?;
     let authority = public.trim_start_matches("https://");
-    let local = host::share(&endpoint, &Share::Status)?
-        .local_address
-        .unwrap();
-    assert_eq!(loopback, format!("http://{local}"));
+    assert_eq!(fs::read_to_string(&origin_path)?, loopback);
+    let repeated: Value = share_web(&lan, &lan_cookie, start.clone())?
+        .error_for_status()?
+        .json()?;
+    assert_eq!(repeated["quick_tunnel_control"], true);
+    assert_eq!(repeated["tunnel"]["url"], public);
     assert_eq!(client.get(&loopback).send()?.status(), 401);
     let identity = |host: Option<&str>| -> Result<serde_json::Value> {
         let mut request = client.get(format!("{loopback}/_wingmate"));
@@ -171,6 +212,29 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
     let cookie = paired.headers()["set-cookie"].to_str()?;
     assert!(cookie.ends_with("; Secure"));
     let cookie = cookie.split(';').next().unwrap();
+    let public_share = |command: Value| {
+        client
+            .post(format!("{loopback}/_wingmate/share"))
+            .header("Host", authority)
+            .header("Origin", &public)
+            .header("Cookie", cookie)
+            .json(&command)
+            .send()
+    };
+    let status: Value = public_share(json!({"action": "status"}))?
+        .error_for_status()?
+        .json()?;
+    assert_eq!(status["quick_tunnel_control"], false);
+    assert_eq!(status["tunnel"]["url"], public);
+    for operation in ["start", "replace_address", "stop"] {
+        assert_eq!(
+            public_share(
+                json!({"action": "quick_tunnel", "operation": operation, "expected_url": public})
+            )?
+            .status(),
+            403
+        );
+    }
     assert_eq!(exchange(&public)?.status(), 401);
     let reopen = client
         .get(format!("{loopback}/?auth={code}"))
@@ -219,6 +283,61 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
     let business = started.business.context("缺少已启动的业务实例")?;
     host::call(&endpoint, "stop", Some(&business.instance))?;
 
+    let pending: Value = public_share(json!({"action": "tunnel_pair"}))?
+        .error_for_status()?
+        .json()?;
+    let old_invite = pending["pairings"][0]["url"]
+        .as_str()
+        .unwrap()
+        .split_once("/?auth=")
+        .unwrap()
+        .1;
+    let replace =
+        json!({"action": "quick_tunnel", "operation": "replace_address", "expected_url": public});
+    assert_eq!(share_web(&lan, &lan_cookie, replace.clone())?.status(), 200);
+    let replacement = tunnel_ready(&endpoint)?;
+    assert_ne!(replacement, public);
+    let current: Value = share_web(&lan, &lan_cookie, json!({"action": "status"}))?
+        .error_for_status()?
+        .json()?;
+    assert_eq!(current["tunnel"]["url"], replacement);
+    assert!(current["tunnel_pairing_id"].is_null());
+    assert_eq!(share_web(&loopback, &local_cookie, replace)?.status(), 409);
+    let stale_stop = json!({"action": "quick_tunnel", "operation": "stop", "expected_url": public});
+    assert_eq!(share_web(&lan, &lan_cookie, stale_stop)?.status(), 409);
+    let replacement_authority = replacement.strip_prefix("https://").unwrap();
+    assert_eq!(
+        client
+            .get(format!("{loopback}/_wingmate/session"))
+            .header("Host", replacement_authority)
+            .header("Cookie", cookie)
+            .send()?
+            .status(),
+        401
+    );
+    assert_eq!(
+        client
+            .post(format!("{loopback}/?auth"))
+            .header("Host", replacement_authority)
+            .header("Origin", &replacement)
+            .body(old_invite.to_owned())
+            .send()?
+            .status(),
+        401
+    );
+    let fresh: Value = share_web(&lan, &lan_cookie, json!({"action": "tunnel_pair"}))?
+        .error_for_status()?
+        .json()?;
+    assert_eq!(
+        fresh["pairings"][0]["url"]
+            .as_str()
+            .unwrap()
+            .split_once("/?auth=")
+            .unwrap()
+            .0,
+        replacement
+    );
+
     let named = "wingmate.example.test";
     let configured = host::share(
         &endpoint,
@@ -230,8 +349,14 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
     assert!(!serde_json::to_string(&configured)?.contains("test-tunnel-token"));
     assert_eq!(
         configured.tunnel.unwrap().url.as_deref(),
-        Some(public.as_str())
+        Some(replacement.as_str())
     );
+    let stop = json!({"action": "quick_tunnel", "operation": "stop", "expected_url": replacement});
+    let stopped: Value = share_web(&lan, &lan_cookie, stop.clone())?
+        .error_for_status()?
+        .json()?;
+    assert!(stopped["tunnel"]["url"].is_null());
+    assert!(stopped["tunnel"]["mode"].is_null());
     host::share(
         &endpoint,
         &Share::TunnelStart {
@@ -239,6 +364,8 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
         },
     )?;
     assert_eq!(tunnel_ready(&endpoint)?, format!("https://{named}"));
+    assert_eq!(share_web(&lan, &lan_cookie, start)?.status(), 409);
+    assert_eq!(share_web(&loopback, &local_cookie, stop)?.status(), 409);
     assert_eq!(
         client
             .get(&loopback)
@@ -281,23 +408,53 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
             .body(code.to_owned())
             .send()
     };
-    assert_eq!(redeem(code)?.status(), 204);
+    let named_session = redeem(code)?;
+    assert_eq!(named_session.status(), 204);
+    let named_cookie = named_session.headers()["set-cookie"]
+        .to_str()?
+        .split(';')
+        .next()
+        .unwrap();
     assert_eq!(redeem(code)?.status(), 401);
     assert!(host::share(&endpoint, &Share::Status)?
         .tunnel_invite_expires_at
         .is_none());
-    let second = create_invite(&endpoint)?;
+    let web_request = |path: &str| {
+        client
+            .post(format!("{loopback}/_wingmate/{path}"))
+            .header("Host", named)
+            .header("Origin", &named_origin)
+            .header("Cookie", named_cookie)
+    };
+    let web_share = |command: serde_json::Value| web_request("share").json(&command).send();
+    let second: serde_json::Value = web_share(serde_json::json!({
+        "action": "tunnel_pair", "long_lived": false,
+    }))?
+    .error_for_status()?
+    .json()?;
     assert_ne!(
-        second.tunnel_pairing_id.as_deref(),
+        second["tunnel_pairing_id"].as_str(),
         Some(invite_id.as_str())
     );
-    let second = second.pairing_url.unwrap();
-    host::share(&endpoint, &Share::TunnelRevoke)?;
+    assert_eq!(second["tunnel"]["url"], named_origin);
+    let second = second["pairings"][0]["url"].as_str().unwrap();
+    let (invite_origin, second_code) = second.split_once("/?auth=").unwrap();
+    assert_eq!(invite_origin, named_origin);
+    assert_eq!(
+        web_share(serde_json::json!({ "action": "tunnel_revoke" }))?.status(),
+        200
+    );
     assert!(host::share(&endpoint, &Share::Status)?
         .tunnel_pairing_id
         .is_none());
+    assert_eq!(redeem(second_code)?.status(), 401);
+    let logout = web_request("logout").send()?;
+    assert_eq!(logout.status(), 204);
+    let expired_cookie = logout.headers()["set-cookie"].to_str()?;
+    assert!(expired_cookie.contains("Max-Age=0"));
+    assert!(expired_cookie.ends_with("; Secure"));
     assert_eq!(
-        redeem(second.split_once("?auth=").unwrap().1)?.status(),
+        web_share(serde_json::json!({ "action": "status" }))?.status(),
         401
     );
     assert_eq!(
@@ -517,7 +674,8 @@ process.on('SIGTERM', () => process.exit(0));
 
 #[test]
 fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> Result<()> {
-    use host::ShareCommand::{Disable, Enable, Pair, Revoke, Status};
+    use host::ShareCommand::{Disable, Enable, Pair, PairLocal, Status};
+    use serde_json::{json, Value};
     let _serial = TEST_HOSTS.lock().unwrap_or_else(|error| error.into_inner());
     let home = tempfile::tempdir()?;
     runtime(home.path())?;
@@ -600,6 +758,116 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
         .next()
         .unwrap();
     assert_eq!(exchange(&origin)?.status(), 401);
+    let web_share = |auth: Option<&str>, source: Option<&str>, command: Value| {
+        let mut request = client.post(url("/_wingmate/share")).json(&command);
+        if let Some(auth) = auth {
+            request = request.header("Cookie", auth);
+        }
+        if let Some(source) = source {
+            request = request.header("Origin", source);
+        }
+        request.send()
+    };
+    let share_from_lan = |command| web_share(Some(cookie), Some(&origin), command);
+    assert_eq!(
+        web_share(None, Some(&origin), json!({"action": "status"}))?.status(),
+        401
+    );
+    assert_eq!(
+        web_share(Some(cookie), None, json!({"action": "pair"}))?.status(),
+        403
+    );
+    assert_eq!(
+        web_share(
+            Some(cookie),
+            Some("http://unrelated.invalid"),
+            json!({"action": "pair"})
+        )?
+        .status(),
+        403
+    );
+    for action in [
+        "enable",
+        "disable",
+        "pair_local",
+        "lan_password_reveal",
+        "tunnel_start",
+        "tunnel_stop",
+        "tunnel_configure",
+    ] {
+        assert_eq!(share_from_lan(json!({"action": action}))?.status(), 400);
+    }
+    let info: Value = client
+        .get(url("/_wingmate/status"))
+        .header("Cookie", cookie)
+        .send()?
+        .json()?;
+    assert_eq!(info["transport"], "lan");
+    assert_eq!(info["share_management"], true);
+    let local = format!("http://{}", enabled.local_address.unwrap());
+    let local_link = share(PairLocal)?.pairing_url.unwrap();
+    let local_code = local_link.split_once("?auth=").unwrap().1;
+    assert_eq!(
+        client
+            .post(format!("{local}/?auth"))
+            .header("Origin", &local)
+            .body(local_code.to_owned())
+            .send()?
+            .status(),
+        204
+    );
+    let status: Value = share_from_lan(json!({"action": "status"}))?
+        .error_for_status()?
+        .json()?;
+    let current = &status["current_device"];
+    let current_id = uuid::Uuid::parse_str(current.as_str().unwrap())?;
+    let local_device = share(Status)?
+        .devices
+        .into_iter()
+        .find(|device| device.id != current_id)
+        .unwrap();
+    assert_eq!(status["devices"].as_array().unwrap().len(), 1);
+    assert_eq!(*current, status["devices"][0]["id"]);
+    assert!(status.get("local_address").is_none());
+    assert!(status["tunnel"].get("named_service").is_none());
+    assert_eq!(
+        share_from_lan(json!({"action": "revoke", "id": current}))?.status(),
+        400
+    );
+    assert_eq!(
+        share_from_lan(json!({"action": "revoke", "id": local_device.id}))?.status(),
+        409
+    );
+
+    let invitation: Value = share_from_lan(json!({"action": "pair"}))?
+        .error_for_status()?
+        .json()?;
+    assert!(invitation["pairings"][0]["qr"]
+        .as_str()
+        .unwrap()
+        .contains("<svg"));
+    let invited_url = invitation["pairings"][0]["url"].as_str().unwrap();
+    let invited_code = invited_url.strip_prefix(&prefix).unwrap();
+    let invited = client
+        .post(url("/?auth"))
+        .header("Origin", &origin)
+        .body(invited_code.to_owned())
+        .send()?;
+    assert_eq!(invited.status(), 204);
+    let invited_cookie = invited.headers()["set-cookie"]
+        .to_str()?
+        .split(';')
+        .next()
+        .unwrap();
+    let status: Value = share_from_lan(json!({"action": "status"}))?
+        .error_for_status()?
+        .json()?;
+    let devices = status["devices"].as_array().unwrap();
+    assert_eq!(devices.len(), 2);
+    let invited_id = &devices
+        .iter()
+        .find(|device| &device["id"] != current)
+        .unwrap()["id"];
     assert_eq!(
         client
             .get(url("/"))
@@ -698,7 +966,7 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
     );
     let mut socket = TcpStream::connect(address)?;
     socket.set_read_timeout(Some(Duration::from_secs(5)))?;
-    write!(socket, "GET /api/remote.mux HTTP/1.1\r\nHost: {address}\r\nOrigin: {origin}\r\nCookie: {cookie}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")?;
+    write!(socket, "GET /api/remote.mux HTTP/1.1\r\nHost: {address}\r\nOrigin: {origin}\r\nCookie: {invited_cookie}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")?;
     let mut socket = BufReader::new(socket);
     let mut line = String::new();
     socket.read_line(&mut line)?;
@@ -707,9 +975,40 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
         line.clear();
         assert_ne!(socket.read_line(&mut line)?, 0);
     }
-    let id = share(Status)?.devices[0].id;
-    share(Revoke { id })?;
+    assert_eq!(
+        share_from_lan(json!({"action": "revoke", "id": invited_id}))?.status(),
+        200
+    );
     assert_eq!(socket.read_line(&mut line)?, 0);
+    let session_status = |cookie: &str| {
+        client
+            .get(url("/_wingmate/session"))
+            .header("Cookie", cookie)
+            .send()
+    };
+    assert_eq!(session_status(invited_cookie)?.status(), 401);
+    assert_eq!(session_status(cookie)?.status(), 204);
+    let logout = |source: &str| {
+        client
+            .post(url("/_wingmate/logout"))
+            .header("Origin", source)
+            .header("Cookie", cookie)
+            .send()
+    };
+    assert_eq!(logout("http://unrelated.invalid")?.status(), 403);
+    let logged_out = logout(&origin)?;
+    assert_eq!(logged_out.status(), 204);
+    assert!(logged_out.headers()["set-cookie"]
+        .to_str()?
+        .contains("Max-Age=0"));
+    assert_eq!(session_status(cookie)?.status(), 401);
+    assert_eq!(
+        host::call(&endpoint, "status", None)?
+            .business
+            .unwrap()
+            .phase,
+        "running"
+    );
     assert_eq!(
         client
             .get(url("/"))

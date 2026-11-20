@@ -21,7 +21,7 @@ use std::{
     fs, io,
     net::{IpAddr, Ipv4Addr, SocketAddrV4},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio_util::sync::CancellationToken;
@@ -63,11 +63,40 @@ pub enum Command {
         mode: tunnel::Mode,
     },
     TunnelStop,
+    #[serde(skip)]
+    QuickTunnel(QuickTunnelCommand),
     TunnelPair {
         #[serde(default)]
         long_lived: bool,
     },
     TunnelRevoke,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+enum WebShareCommand {
+    Status,
+    Pair,
+    TunnelPair {
+        #[serde(default)]
+        long_lived: bool,
+    },
+    TunnelRevoke,
+    QuickTunnel {
+        #[serde(flatten)]
+        command: QuickTunnelCommand,
+    },
+    Revoke {
+        id: Uuid,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case")]
+pub enum QuickTunnelCommand {
+    Start,
+    ReplaceAddress { expected_url: String },
+    Stop { expected_url: Option<String> },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -81,6 +110,8 @@ pub struct ShareStatus {
     pub pairing_url: Option<String>,
     #[serde(default)]
     pub pairing_urls: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pairings: Vec<Pairing>,
     pub pairing_expires_at: Option<u64>,
     pub tunnel_invite_expires_at: Option<u64>,
     pub lan_pairing_id: Option<String>,
@@ -94,6 +125,38 @@ pub struct ShareStatus {
     pub tunnel: Option<tunnel::Status>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct Pairing {
+    url: String,
+    qr: String,
+}
+
+impl ShareStatus {
+    pub fn fill_pairing_qr(&mut self) -> Result<()> {
+        if self.pairings.is_empty() {
+            let urls = if self.pairing_urls.is_empty() {
+                self.pairing_url.as_slice()
+            } else {
+                &self.pairing_urls
+            };
+            self.pairings = urls
+                .iter()
+                .map(|url| {
+                    let qr = qrcode::QrCode::new(url.as_bytes())?
+                        .render::<qrcode::render::svg::Color>()
+                        .min_dimensions(192, 192)
+                        .build();
+                    Ok(Pairing {
+                        url: url.clone(),
+                        qr,
+                    })
+                })
+                .collect::<Result<_>>()?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Access {
@@ -101,6 +164,12 @@ pub enum Access {
     #[default]
     Lan,
     Public,
+}
+
+impl Access {
+    fn can_manage_quick_tunnel(self) -> bool {
+        matches!(self, Self::Local | Self::Lan)
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -193,6 +262,18 @@ struct DesktopTicket {
 }
 
 impl Auth {
+    fn revoke(&mut self, home: &Path, id: Uuid) -> Result<()> {
+        self.save(home, Some(id), None)?;
+        self.sessions.retain(|_, session| {
+            if session.device.id != id {
+                return true;
+            }
+            session.revoked.cancel();
+            false
+        });
+        Ok(())
+    }
+
     fn load(home: &Path) -> Result<Self> {
         let (devices, named_invite) = match read(&home.join("share-devices.json"))? {
             Some(SavedAuth::Current {
@@ -339,6 +420,7 @@ impl Auth {
 
 struct Gateway {
     manager: Arc<host::Manager>,
+    control: Weak<Control>,
     address: SocketAddrV4,
     access: Access,
     origin: String,
@@ -394,11 +476,12 @@ struct Bindings {
 
 pub(super) struct Control {
     manager: Arc<host::Manager>,
+    weak: Weak<Self>,
     ports: &'static [u16],
     web: Mutex<Web>,
     public: PublicGateway,
     auth: Arc<Mutex<Auth>>,
-    runtime: tokio::runtime::Runtime,
+    runtime: tokio::runtime::Handle,
     host_name: Arc<str>,
     login_workers: Arc<tokio::sync::Semaphore>,
 }
@@ -425,7 +508,10 @@ impl Control {
         self.web.lock().unwrap().local_address()
     }
 
-    pub(super) fn new(manager: Arc<host::Manager>, ports: &'static [u16]) -> Result<Self> {
+    pub(super) fn new(
+        manager: Arc<host::Manager>,
+        ports: &'static [u16],
+    ) -> Result<(Arc<Self>, tokio::runtime::Runtime)> {
         let mut auth = Auth::load(&manager.home).unwrap_or_else(|error| {
             eprintln!("无法读取分享设备：{error:#}");
             Auth::default()
@@ -434,8 +520,13 @@ impl Control {
             eprintln!("无法读取局域网密码配置：{error:#}");
             None
         });
-        let control = Self {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()?;
+        let control = Arc::new_cyclic(|weak| Self {
             manager,
+            weak: weak.clone(),
             ports,
             web: Mutex::default(),
             public: Arc::default(),
@@ -452,11 +543,8 @@ impl Control {
                 .unwrap_or_default()
                 .into(),
             login_workers: Arc::new(tokio::sync::Semaphore::new(2)),
-            runtime: tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
-                .enable_all()
-                .build()?,
-        };
+            runtime: runtime.handle().clone(),
+        });
         {
             let mut web = control.web.lock().unwrap();
             match read::<WebConfig>(&control.config_path()) {
@@ -500,7 +588,7 @@ impl Control {
             }
             control.restore_tunnel(&mut web);
         }
-        Ok(control)
+        Ok((control, runtime))
     }
 
     fn config_path(&self) -> PathBuf {
@@ -642,6 +730,7 @@ impl Control {
     ) -> Result<Arc<Gateway>> {
         Ok(Arc::new(Gateway {
             manager: self.manager.clone(),
+            control: self.weak.clone(),
             address,
             access,
             origin: format!("http://{address}"),
@@ -704,10 +793,49 @@ impl Control {
         Ok(())
     }
 
+    fn set_tunnel_mode(
+        &self,
+        web: &mut Web,
+        mut config: tunnel::Config,
+        mode: Option<tunnel::Mode>,
+    ) -> Result<()> {
+        if let Some(mode) = mode {
+            config.check(mode)?;
+        }
+        config.enabled = mode;
+        config.save(&self.manager.home)?;
+        if let Some(mode) = mode {
+            if let Err(error) = self.start_tunnel(web, config, mode) {
+                web.tunnel.failed(error);
+            }
+        } else {
+            self.stop_tunnel(web);
+        }
+        Ok(())
+    }
+
     pub(super) fn call(&self, command: Command) -> Result<ShareStatus> {
-        let local_addresses = lan_addresses();
+        self.call_as(command, None)
+    }
+
+    fn call_as(
+        &self,
+        command: Command,
+        web_session: Option<(&Session, &CancellationToken)>,
+    ) -> Result<ShareStatus> {
+        let local_addresses = if web_session.is_none() {
+            lan_addresses()
+        } else {
+            Vec::new()
+        };
         let home = &self.manager.home;
         let mut web = self.web.lock().unwrap();
+        // An entrance or session can close while a request waits for this lock.
+        if let Some((session, closed)) = web_session {
+            anyhow::ensure!(!closed.is_cancelled(), "分享入口已关闭");
+            anyhow::ensure!(session.active(), "配对会话已失效");
+        }
+        let with_qr = matches!(command, Command::Pair | Command::TunnelPair { .. });
         let mut pairing_urls = Vec::new();
         let mut pairing_expires_at = None;
         let mut lan_password = None;
@@ -847,14 +975,16 @@ impl Control {
             }
             Command::Revoke { id } => {
                 let mut auth = self.auth.lock().unwrap();
-                auth.save(home, Some(id), None)?;
-                auth.sessions.retain(|_, session| {
-                    if session.device.id != id {
-                        return true;
-                    }
-                    session.revoked.cancel();
-                    false
-                });
+                if let Some((session, _)) = web_session {
+                    anyhow::ensure!(
+                        session.device.access == Access::Local
+                            || !auth.sessions.values().any(|target| {
+                                target.device.id == id && target.device.access == Access::Local
+                            }),
+                        "本机设备请在主机上管理"
+                    );
+                }
+                auth.revoke(home, id)?;
             }
             Command::TunnelConfigure { hostname, token } => {
                 let mut config = tunnel::Config::load(home)?;
@@ -866,19 +996,41 @@ impl Control {
                 config.save(home)?;
             }
             Command::TunnelStart { mode } => {
-                let mut config = tunnel::Config::load(home)?;
-                config.check(mode)?;
-                config.enabled = Some(mode);
-                config.save(home)?;
-                if let Err(error) = self.start_tunnel(&mut web, config, mode) {
-                    web.tunnel.failed(error);
-                }
+                self.set_tunnel_mode(&mut web, tunnel::Config::load(home)?, Some(mode))?;
             }
             Command::TunnelStop => {
-                let mut config = tunnel::Config::load(home)?;
-                config.enabled = None;
-                config.save(home)?;
-                self.stop_tunnel(&mut web);
+                self.set_tunnel_mode(&mut web, tunnel::Config::load(home)?, None)?;
+            }
+            Command::QuickTunnel(command) => {
+                let config = tunnel::Config::load(home)?;
+                let quick = Some(tunnel::Mode::Quick);
+                anyhow::ensure!(
+                    config.enabled != Some(tunnel::Mode::Named),
+                    "当前使用具名隧道，请在本机管理"
+                );
+                let status = web.tunnel.status(home, web.local_address());
+                match command {
+                    QuickTunnelCommand::Start => {
+                        if status.url.is_none() && status.progress.is_none() {
+                            self.set_tunnel_mode(&mut web, config, quick)?;
+                        }
+                    }
+                    QuickTunnelCommand::ReplaceAddress { expected_url } => {
+                        anyhow::ensure!(
+                            config.enabled == quick && status.url.as_deref() == Some(&expected_url),
+                            "临时隧道地址已变化，请刷新后重试"
+                        );
+                        self.set_tunnel_mode(&mut web, config, quick)?;
+                    }
+                    QuickTunnelCommand::Stop { expected_url } if config.enabled == quick => {
+                        anyhow::ensure!(
+                            status.url == expected_url,
+                            "临时隧道地址已变化，请刷新后重试"
+                        );
+                        self.set_tunnel_mode(&mut web, config, None)?;
+                    }
+                    QuickTunnelCommand::Stop { .. } => {}
+                }
             }
             Command::TunnelPair { long_lived } => {
                 let status = web.tunnel.status(home, web.local_address());
@@ -940,7 +1092,7 @@ impl Control {
                 .filter(|(_, deadline)| *deadline > Instant::now())
                 .map(|(code, _)| digest(&code.to_string()))
         };
-        Ok(ShareStatus {
+        let mut status = ShareStatus {
             address: lan_addresses.first().copied(),
             local_address: web.local_address(),
             web_error: web.error.clone(),
@@ -948,6 +1100,7 @@ impl Control {
             lan_addresses,
             pairing_url: pairing_urls.first().cloned(),
             pairing_urls,
+            pairings: Vec::new(),
             pairing_expires_at,
             tunnel_invite_expires_at: invite.map(|invite| invite.expires_at),
             lan_pairing_id: pairing_id(Access::Lan),
@@ -960,7 +1113,13 @@ impl Control {
             lan_password,
             devices,
             tunnel: Some(tunnel),
-        })
+        };
+        drop(auth);
+        drop(web);
+        if with_qr {
+            status.fill_pairing_qr()?;
+        }
+        Ok(status)
     }
 }
 
@@ -1112,6 +1271,12 @@ impl Gateway {
                 response(StatusCode::UNAUTHORIZED, "")
             };
         }
+        if request.method() == Method::POST && path == "/_wingmate/logout" {
+            if headers.get(header::ORIGIN).is_none() {
+                return response(StatusCode::FORBIDDEN, "不接受此来源的请求");
+            }
+            return self.logout(session).await;
+        }
         if request.method() == Method::POST && path == "/_wingmate/login" {
             if self.access != Access::Lan {
                 return response(StatusCode::NOT_FOUND, "此入口不接受局域网密码");
@@ -1165,6 +1330,7 @@ impl Gateway {
                     Bytes::from_static(include_bytes!("../../../src-tauri/icons/logo.svg")),
                 ),
                 (&Method::POST, "/_wingmate/manage") => self.manage(request, session).await,
+                (&Method::POST, "/_wingmate/share") => self.share(request, session).await,
                 _ => response(StatusCode::NOT_FOUND, ""),
             };
         }
@@ -1190,6 +1356,101 @@ impl Gateway {
             return recovery();
         }
         response(StatusCode::SERVICE_UNAVAILABLE, "业务后台未就绪")
+    }
+
+    async fn share(&self, request: Request<Incoming>, session: Session) -> Response<Body> {
+        if request.headers().get(header::ORIGIN).is_none() {
+            return response(StatusCode::FORBIDDEN, "不接受此来源的请求");
+        }
+        let command = match bounded(request.into_body(), 1024).await {
+            Some(body) => serde_json::from_slice::<WebShareCommand>(&body).ok(),
+            None => None,
+        };
+        let quick_tunnel_control = self.access.can_manage_quick_tunnel();
+        let command = match command {
+            Some(WebShareCommand::Status) => Command::Status,
+            Some(WebShareCommand::Pair) => Command::Pair,
+            Some(WebShareCommand::TunnelPair { long_lived }) => Command::TunnelPair { long_lived },
+            Some(WebShareCommand::TunnelRevoke) => Command::TunnelRevoke,
+            Some(WebShareCommand::QuickTunnel { command }) if quick_tunnel_control => {
+                Command::QuickTunnel(command)
+            }
+            Some(WebShareCommand::QuickTunnel { .. }) => {
+                return response(StatusCode::FORBIDDEN, "请从本机或局域网管理临时隧道");
+            }
+            Some(WebShareCommand::Revoke { id }) if id != session.device.id => {
+                Command::Revoke { id }
+            }
+            _ => return response(StatusCode::BAD_REQUEST, "分享操作无效"),
+        };
+        let Some(control) = self.control.upgrade() else {
+            return response(StatusCode::SERVICE_UNAVAILABLE, "管理服务正在退出");
+        };
+        let current = session.device.id;
+        let closed = self.closed.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            control.call_as(command, Some((&session, &closed)))
+        })
+        .await;
+        match result {
+            Ok(Ok(mut status)) => {
+                if self.access != Access::Local {
+                    status
+                        .devices
+                        .retain(|device| device.access != Access::Local);
+                }
+                json(serde_json::json!({
+                    "address": status.address,
+                    "lan_addresses": status.lan_addresses,
+                    "pairings": status.pairings,
+                    "pairing_expires_at": status.pairing_expires_at,
+                    "lan_pairing_id": status.lan_pairing_id,
+                    "tunnel_pairing_id": status.tunnel_pairing_id,
+                    "tunnel_invite_expires_at": status.tunnel_invite_expires_at,
+                    "quick_tunnel_control": quick_tunnel_control,
+                    "tunnel": status.tunnel.map(|tunnel| {
+                        let quick = quick_tunnel_control && tunnel.mode != Some(tunnel::Mode::Named);
+                        serde_json::json!({
+                            "url": tunnel.url,
+                            "mode": tunnel.mode,
+                            "progress": if quick { tunnel.progress } else { None },
+                            "error": (quick && tunnel.error.is_some()).then_some("临时隧道启动失败，请重试"),
+                        })
+                    }),
+                    "devices": status.devices,
+                    "current_device": current,
+                }))
+            }
+            Ok(Err(error)) => content(
+                StatusCode::CONFLICT,
+                "text/plain; charset=utf-8",
+                Bytes::from(error.to_string()),
+            ),
+            Err(_) => response(StatusCode::INTERNAL_SERVER_ERROR, "无法管理分享"),
+        }
+    }
+
+    async fn logout(&self, session: Option<Session>) -> Response<Body> {
+        if let Some(session) = session {
+            let Some(control) = self.control.upgrade() else {
+                return response(StatusCode::SERVICE_UNAVAILABLE, "管理服务正在退出");
+            };
+            let result = tokio::task::spawn_blocking(move || {
+                let _web = control.web.lock().unwrap();
+                control
+                    .auth
+                    .lock()
+                    .unwrap()
+                    .revoke(&control.manager.home, session.device.id)
+            })
+            .await;
+            if !matches!(result, Ok(Ok(()))) {
+                return response(StatusCode::INTERNAL_SERVER_ERROR, "无法退出主机，请重试");
+            }
+        }
+        let mut reply = response(StatusCode::NO_CONTENT, "");
+        self.session_cookie(&mut reply, "", 0);
+        reply
     }
 
     async fn manage(&self, request: Request<Incoming>, session: Session) -> Response<Body> {
@@ -1377,6 +1638,10 @@ impl Gateway {
     }
 
     fn set_cookie(&self, reply: &mut Response<Body>, token: Uuid) {
+        self.session_cookie(reply, &token.to_string(), SESSION_AGE);
+    }
+
+    fn session_cookie(&self, reply: &mut Response<Body>, token: &str, age: u64) {
         let secure = if self.access == Access::Public {
             "; Secure"
         } else {
@@ -1385,7 +1650,7 @@ impl Gateway {
         reply.headers_mut().insert(
             header::SET_COOKIE,
             format!(
-                "{}={token}; Path=/; Max-Age={SESSION_AGE}; HttpOnly; SameSite=Strict{secure}",
+                "{}={token}; Path=/; Max-Age={age}; HttpOnly; SameSite=Strict{secure}",
                 self.cookie
             )
             .parse()
@@ -1404,6 +1669,9 @@ impl Gateway {
             "phase": snapshot.map_or("stopped", |state| state.phase.as_str()),
             "instance": snapshot.map(|state| &state.instance),
             "dsh_origin": dsh_origin,
+            "transport": self.access,
+            "name": self.host_name.as_ref(),
+            "share_management": true,
         }))
     }
 }

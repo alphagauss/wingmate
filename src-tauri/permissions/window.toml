@@ -9,6 +9,11 @@ description = "Allows the home page or verified local workbench to open the conn
 commands.allow = ["open_connections", "return_local"]
 
 [[permission]]
+identifier = "allow-return-local"
+description = "Allows a remote workbench to return to the local workbench."
+commands.allow = ["return_local"]
+
+[[permission]]
 identifier = "allow-remote-workbench"
 description = "Allows the connection popover to connect to a remote workbench and close itself."
 commands.allow = ["connect_remote", "scan_lan", "cancel_lan_scan", "connection_history", "close_connections", "open_tunnel_settings"]

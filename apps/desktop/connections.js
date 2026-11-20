@@ -890,7 +890,7 @@ async function updateTunnel(command = { action: 'status' }) {
     if (status.tunnel?.url !== tunnel?.url) showTunnelPairing(null);
     tunnel = status.tunnel;
     tunnelInviteExpires = status.tunnel_invite_expires_at;
-    if (command.action === 'tunnel_pair' && status.pairings[0]) {
+    if (command.action === 'tunnel_pair' && status.pairings?.[0]) {
       showTunnelPairing({
         ...status.pairings[0],
         id: status.tunnel_pairing_id,

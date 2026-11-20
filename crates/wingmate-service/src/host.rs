@@ -234,7 +234,7 @@ pub fn run(home: &Path, ports: &'static [u16]) -> Result<()> {
         stopping: AtomicBool::new(false),
         mutations: Mutex::new(()),
     });
-    let gateway = Arc::new(gateway::Control::new(manager.clone(), ports)?);
+    let (gateway, _web_runtime) = gateway::Control::new(manager.clone(), ports)?;
     let mut workers = Vec::new();
     for _ in 0..4 {
         let (server, manager, gateway) = (server.clone(), manager.clone(), gateway.clone());
