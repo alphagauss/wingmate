@@ -1,18 +1,56 @@
 use super::{titlebar::Theme, Desktop};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 use tauri::{
-    AppHandle, LogicalSize, Manager, PhysicalPosition, State, Webview, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, WindowEvent,
+    webview::WebviewBuilder, AppHandle, Manager, PhysicalPosition, State, Webview, WebviewUrl,
 };
 
 const PREFIX: &str = "wingmate-connections-";
-const WIDTH: f64 = 356.;
-const TOP: f64 = 44.;
-const MIN_HEIGHT: u32 = 120;
-const MAX_HEIGHT: u32 = 560;
+
+#[derive(Clone, Copy, serde::Deserialize, serde::Serialize)]
+pub(super) struct Anchor {
+    pub right: f64,
+    pub top: f64,
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn install_overlay(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    use gtk::prelude::*;
+
+    let native = window.gtk_window()?;
+    let content = window.default_vbox()?;
+    let overlay = gtk::Overlay::new();
+    native.remove(&content);
+    overlay.add(&content);
+    native.add(&overlay);
+    overlay.show();
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn place_in_overlay(view: &Webview, top: i32) -> tauri::Result<()> {
+    use gtk::prelude::*;
+
+    view.with_webview(move |native| {
+        let widget = native.inner();
+        if let Some(content) = widget.parent().and_downcast::<gtk::Box>() {
+            if let Some(overlay) = content.parent().and_downcast::<gtk::Overlay>() {
+                // Tauri adds Linux child webviews to the vertical box by default.
+                content.remove(&widget);
+                widget.set_margin_top(top);
+                overlay.add_overlay(&widget);
+                if top > 0 {
+                    // Leave the workbench header exposed and keep the panel above the workbench.
+                    overlay.reorder_overlay(&widget, 0);
+                } else {
+                    widget.grab_focus();
+                }
+            }
+        }
+    })
+}
 
 pub(super) fn local_entry(webview: &Webview, desktop: &Desktop) -> Result<(), String> {
     let url = webview.url().map_err(|error| error.to_string())?;
@@ -29,29 +67,36 @@ pub(super) fn local_entry(webview: &Webview, desktop: &Desktop) -> Result<(), St
     Ok(())
 }
 
-pub(super) fn local_panel(webview: &Webview, desktop: &Desktop) -> Result<WebviewWindow, String> {
+pub(super) fn local_panel(webview: &Webview, desktop: &Desktop) -> Result<Webview, String> {
     let app = webview.app_handle();
     if webview.label().starts_with(PREFIX)
+        && webview.window().label() == desktop.window_label
         && webview
             .url()
             .is_ok_and(|url| url == desktop.page.connections())
     {
-        if let Some(panel) = app.get_webview_window(webview.label()) {
+        if let Some(panel) = app.get_webview(webview.label()) {
             return Ok(panel);
         }
     }
     Err("Wingmate 连接浮层已关闭".into())
 }
 
-fn panel(app: &AppHandle) -> Option<WebviewWindow> {
-    app.webview_windows()
+fn panel(app: &AppHandle) -> Option<Webview> {
+    app.webviews()
         .into_values()
-        .find(|window| window.label().starts_with(PREFIX))
+        .find(|view| view.label().starts_with(PREFIX))
+}
+
+fn close_panel(panel: &Webview, desktop: &Desktop) -> tauri::Result<()> {
+    panel.close()?;
+    super::remote::cancel_scan(desktop, panel.label(), None);
+    Ok(())
 }
 
 pub(super) fn dismiss(app: &AppHandle) {
     if let Some(panel) = panel(app) {
-        let _ = panel.destroy();
+        let _ = close_panel(&panel, &app.state::<Arc<Desktop>>());
     }
 }
 
@@ -64,7 +109,14 @@ pub(super) fn sync_theme(app: &AppHandle, theme: Theme) {
     }
 }
 
-fn open(webview: &Webview, desktop: &Desktop) -> Result<(), String> {
+pub(super) fn open(
+    webview: &Webview,
+    desktop: &Desktop,
+    anchor: Option<Anchor>,
+) -> Result<(), String> {
+    // Callers run off the UI thread so WebView2 can finish creating the child.
+    static OPEN: Mutex<()> = Mutex::new(());
+    let _open = OPEN.lock().unwrap();
     local_entry(webview, desktop)?;
     let app = webview.app_handle();
     if let Some(panel) = panel(app) {
@@ -79,101 +131,76 @@ fn open(webview: &Webview, desktop: &Desktop) -> Result<(), String> {
         )
     };
     let owner = webview.window();
-    let scale = owner.scale_factor().map_err(|error| error.to_string())?;
     let size = owner.inner_size().map_err(|error| error.to_string())?;
-    let position = owner.inner_position().map_err(|error| error.to_string())?;
-    let right = if cfg!(windows) { 144. } else { 12. };
-    let left = (size.width as f64 / scale - WIDTH - right).max(8.);
-    let max_height =
-        (size.height as f64 / scale - TOP - 8.).clamp(f64::from(MIN_HEIGHT), f64::from(MAX_HEIGHT));
-    let args = serde_json::json!({"theme": theme, "origin": origin, "maxHeight": max_height});
+    let anchor = anchor.unwrap_or(Anchor {
+        right: 12.,
+        top: 40.,
+    });
+    let args = serde_json::json!({"theme": theme, "origin": origin, "anchor": anchor});
     let url = desktop.page.connections();
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let label = format!("{PREFIX}{}", NEXT.fetch_add(1, Ordering::Relaxed));
-    let builder =
-        WebviewWindowBuilder::new(app, &label, WebviewUrl::App("connections.html".into()))
-            .title("远程连接")
-            .decorations(false)
-            .resizable(false)
-            .skip_taskbar(true)
-            .visible(false)
-            .inner_size(WIDTH, 180.)
-            .on_navigation(move |target| target == &url)
-            .initialization_script(format!("window.wingmateConnections = {args};"));
-    #[cfg(windows)]
-    let builder = builder.owner_raw(owner.hwnd().map_err(|error| error.to_string())?);
-    #[cfg(target_os = "macos")]
-    let builder = builder.parent_raw(owner.ns_window().map_err(|error| error.to_string())?);
+    let builder = WebviewBuilder::new(label, WebviewUrl::App("connections.html".into()))
+        .transparent(true)
+        .on_navigation(move |target| target == &url)
+        .initialization_script(format!("window.wingmateConnections = {args};"));
     #[cfg(target_os = "linux")]
-    let builder =
-        builder.transient_for_raw(&owner.gtk_window().map_err(|error| error.to_string())?);
+    let builder = builder.focused(false);
+    #[cfg(not(target_os = "linux"))]
+    let builder = builder.auto_resize();
     let builder = if wingmate_launcher::IS_DEV {
         builder.data_directory(desktop.home.join("webview"))
     } else {
         builder
     };
-    let panel = builder.build().map_err(|error| error.to_string())?;
-    let floating = panel.clone();
-    panel.on_window_event(move |event| {
-        if matches!(event, WindowEvent::Focused(false)) {
-            let _ = floating.destroy();
-        }
-        if matches!(event, WindowEvent::Destroyed) {
-            let desktop = floating.state::<Arc<Desktop>>();
-            super::remote::cancel_scan(&desktop, floating.label(), None);
-        }
-    });
-    if let Err(error) = panel.set_position(PhysicalPosition::new(
-        position.x + (left * scale).round() as i32,
-        position.y + (TOP * scale).round() as i32,
-    )) {
-        let _ = panel.destroy();
+    let panel = owner
+        .add_child(builder, PhysicalPosition::new(0, 0), size)
+        .map_err(|error| error.to_string())?;
+    if let Err(error) = local_entry(webview, desktop) {
+        let _ = close_panel(&panel, desktop);
+        return Err(error);
+    }
+    #[cfg(target_os = "linux")]
+    if let Err(error) = place_in_overlay(&panel, 0) {
+        let _ = close_panel(&panel, desktop);
         return Err(error.to_string());
     }
     Ok(())
 }
 
 #[tauri::command]
-pub(super) async fn open_connections(webview: Webview) -> Result<(), String> {
-    let (reply, result) = tokio::sync::oneshot::channel();
-    let caller = webview.clone();
-    webview
-        .run_on_main_thread(move || {
-            let desktop = caller.app_handle().state::<Arc<Desktop>>();
-            let _ = reply.send(open(&caller, &desktop));
-        })
-        .map_err(|error| error.to_string())?;
-    result.await.map_err(|error| error.to_string())?
-}
-
-#[tauri::command]
-pub(super) fn resize_connections(
+pub(super) async fn open_connections(
     webview: Webview,
     desktop: State<'_, Arc<Desktop>>,
-    height: u32,
+    anchor: Option<Anchor>,
 ) -> Result<(), String> {
-    let panel = local_panel(&webview, &desktop)?;
-    panel
-        .set_size(LogicalSize::new(
-            WIDTH,
-            f64::from(height.clamp(MIN_HEIGHT, MAX_HEIGHT)),
-        ))
-        .map_err(|error| error.to_string())?;
-    if !panel.is_visible().map_err(|error| error.to_string())? {
-        panel.show().map_err(|error| error.to_string())?;
-        panel.set_focus().map_err(|error| error.to_string())?;
-    }
-    Ok(())
+    open(&webview, &desktop, anchor)
 }
 
 #[tauri::command]
 pub(super) fn close_connections(
     webview: Webview,
     desktop: State<'_, Arc<Desktop>>,
+    restore_focus: bool,
 ) -> Result<(), String> {
-    local_panel(&webview, &desktop)?
-        .destroy()
-        .map_err(|error| error.to_string())
+    let panel = local_panel(&webview, &desktop)?;
+    close_panel(&panel, &desktop).map_err(|error| error.to_string())?;
+    if !restore_focus {
+        return Ok(());
+    }
+    let workbench = desktop
+        .connection
+        .lock()
+        .unwrap()
+        .remote
+        .as_ref()
+        .map(|remote| remote.view.clone());
+    if let Some(view) =
+        workbench.or_else(|| webview.app_handle().get_webview(&desktop.window_label))
+    {
+        let _ = view.set_focus();
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -202,11 +229,11 @@ pub(super) fn open_tunnel_settings(
     {
         return Err("请先打开本机工作台，再配置具名隧道".into());
     }
-    super::remote::return_local(main.clone(), desktop)?;
+    super::remote::return_local(main.clone(), desktop.clone())?;
     main.eval(format!(
         "if (location.origin === {} && window.__WINGMATE_BACKEND__) window.dispatchEvent(new Event('wingmate:tunnel-settings'));",
         serde_json::json!(origin)
     )).map_err(|error| error.to_string())?;
-    let _ = panel.destroy();
+    let _ = close_panel(&panel, &desktop);
     Ok(())
 }

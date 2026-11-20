@@ -13,7 +13,7 @@
 - 「设置 → 后台服务」从已验证的工作台请求停止、重启或更新，并绑定后台实例。普通重启和网关调用同一个 DSH 重启操作。检测到待切换组件时，本机的「重启并更新」通过发行入口执行。首页的启动、重试和组件切换使用独立的本地页面权限。
 - 打开桌面时，管理服务或 DSH 运行包的指纹变化会在首页列出待更新组件。用户可继续使用或重启并更新。后台更新请求绑定当时的管理服务与业务实例；更新流程由[发行入口](../crates/wingmate-launcher/README.md)执行。
 - 同一版本可以同时打开多个桌面窗口。发行版「重启并更新」在后台就绪后正常关闭同一管理目录下的旧窗口，再打开一个窗口。打开新版入口遇到桌面文件占用时，使用首页的更新卡片。只更新桌面时，正在运行的任务继续运行。关窗前的失败会在原窗口显示，重开请求失败可单独重试。关窗后的错误记录在管理目录的 `desktop-update.log`。
-- 远程工作台使用独立 WebView，连接浮层和标题栏由本地应用提供。远程页面经当前主机的网关管理其后台。本机命令注册、系统目录与窗口权限只授予本地应用和经验证的本机工作台。
+- 远程工作台使用独立 WebView，连接浮层由主窗口内单独的本地 WebView 承载。远程页面经当前主机的网关管理其后台。本机命令注册、系统目录与窗口权限只授予本地应用和经验证的本机工作台。
 - Windows、macOS 及支持 XDG Autostart 的 Linux 桌面可在发行版的「设置 → 后台服务」为当前用户注册登录启动，默认关闭。登录时调用 Wingmate 的 `start`，使用能找到 Node 的 PATH。Windows 和 Linux 沿用登录会话的 PATH，macOS 登录项使用注册时 Wingmate 进程的 PATH。请将可执行文件放在固定位置，移动后可从设置重新注册。
 - Windows、macOS 和 Linux 的发行版可在「设置 → 后台服务」启用终端命令，默认关闭。打开新终端后，`wingmate --help` 或 `wingmate -h` 会列出后台管理命令。启动器指向注册时的 Wingmate 程序和后台管理目录，`dsh` 则使用该后台的 DSH 运行时和数据目录，并按上游规则启动独立的 Profile。移动 Wingmate 或切换运行包后，可在设置中重新注册。
 - Windows 将启动器目录放在用户 PATH 的最前面，系统 PATH 和 shell 别名仍可优先。macOS 和 Linux 通过 Bash 的交互和登录配置、Zsh 的交互配置、Fish 的用户配置，将 `~/.wingmate/bin` 放到 PATH 前面。使用其他 shell 时可在其配置中加入该目录。关闭开关会删除 Wingmate 启动器及其管理的 PATH 配置，已安装的其他 `dsh` 可继续使用。
@@ -31,11 +31,13 @@
 
 窗口走默认定位时优先居中。如果中心位置与同一管理目录下已打开窗口的左上角太接近，按 32 DIP 向右下层叠，到工作区边缘后检查其余候选位置。候选位置用尽时居中。窗口坐标只在运行期间登记，最小化的窗口不占位置，临时窗口的布局不用于恢复。异常退出留下的登记在下次启动时清理。
 
-## Windows 标题栏
+## 桌面标题栏
 
-首页和工作台共用 40 DIP 的自绘窗口控件。工作台沿用 [DSH 桌面布局](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.1/packages/client/ui-layout/README.zh.md#窗口-chrome-座) 的顶栏避让和主题颜色。首页初次打开跟随系统，返回首页时沿用本窗口上次收到的 DSH 明暗主题选择。三个按钮的绘制参考 [Electron Windows 窗口按钮](https://github.com/electron/electron/blob/v44.7.0/shell/browser/ui/views/win_caption_button.cc)，窗口操作由 Tauri 执行。标题栏拖动和双击使用 WebView2 的拖动区域。
+Windows 和 macOS 的首页与工作台共用 40 DIP 的 Web 顶栏。首页初次打开跟随系统，返回首页时沿用本窗口上次收到的 DSH 明暗主题选择。Windows 使用 [DSH 桌面布局](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.1/packages/client/ui-layout/README.zh.md#窗口-chrome-座) 的顶栏避让和主题颜色。窗口按钮参考 [Electron Windows 窗口按钮](https://github.com/electron/electron/blob/v44.7.0/shell/browser/ui/views/win_caption_button.cc)，拖动和双击使用 WebView2 的拖动区域。
 
-Windows 桌面窗口以无系统标题栏的形式打开，导航时保留当前边框。新页面未在 5 秒内挂载自绘控件时恢复系统标题栏，旧后台和页面加载失败时仍可操作窗口。窗口操作权限仅授予桌面窗口的首页和已验证的工作台来源。
+macOS 在 Web 顶栏就绪后启用 `Overlay`，保留原生红黄绿按钮，并为它们和工作台内容留出空间。Linux 使用 GTK HeaderBar，沿用系统主题、标题栏手势和窗口按钮布局。当系统仅配置关闭按钮时，Wingmate 在关闭按钮同侧补上最小化和最大化，便于在只提供关闭按钮的桌面会话中操作窗口。各平台的标题栏都提供同一个「远程连接」入口。Linux 子 WebView 使用 GTK Overlay，使远程工作台填充连接栏以下的区域，连接浮层可以覆盖当前工作台。
+
+Windows 首次打开时隐藏系统标题栏。页面导航时维持窗口样式，若新页面 5 秒内没有挂载 Web 顶栏，Windows 恢复系统标题栏，macOS 将原生标题栏移回内容上方。窗口操作权限仅授予桌面窗口的首页和已验证的工作台来源。
 
 ## 品牌与桌面图标
 

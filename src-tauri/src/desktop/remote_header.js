@@ -1,4 +1,4 @@
-([origin, theme, windows, transport]) => {
+([origin, theme, platform, transport]) => {
   let header = document.querySelector('[data-wingmate-remote-header]');
   if (!header) {
     header = document.createElement('div');
@@ -17,7 +17,8 @@
         :host([data-theme="system"]) { background: var(--dsw-specific-sidebar-fill, #1b1b1c); color: var(--dsw-alias-label-primary, #f9fafb); }
       }
       header { display: flex; align-items: center; gap: 10px; height: 100%; padding: 0 12px; app-region: drag; }
-      :host([data-windows]) header { padding-right: 188px; }
+      :host([data-platform="windows"]) header { padding-right: 188px; }
+      :host([data-platform="macos"]) header { padding-inline: 88px 44px; }
       span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       button { flex: none; padding: 4px 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; app-region: no-drag; }
       button:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
@@ -32,7 +33,14 @@
     shadow.querySelector('button').addEventListener('click', () => {
       window.__TAURI_INTERNALS__.invoke('return_local').catch(report);
     });
-    if (!windows) {
+    if (platform === 'macos') {
+      shadow.querySelector('header').addEventListener('mousedown', (event) => {
+        if (!event.target.closest('button')) {
+          window.__WINGMATE_TITLEBAR__?.drag(event);
+        }
+      });
+    }
+    if (!['windows', 'macos', 'linux'].includes(platform)) {
       const connection = document.createElement('button');
       connection.type = 'button';
       connection.textContent = '远程连接';
@@ -44,7 +52,7 @@
     document.body.append(header);
   }
   header.dataset.theme = theme;
-  header.toggleAttribute('data-windows', windows);
+  header.dataset.platform = platform;
   const label = { local: '本机', lan: '局域网', public: '公网' }[transport];
   header.shadowRoot.querySelector('[role="status"]').textContent =
     label + ' · ' + new URL(origin).host;

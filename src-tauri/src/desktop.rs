@@ -580,7 +580,6 @@ pub fn run(home: PathBuf) -> Result<()> {
             bridge::dsh_command,
             titlebar::window_chrome,
             connection_panel::open_connections,
-            connection_panel::resize_connections,
             connection_panel::close_connections,
             remote::connect_remote,
             remote::scan_lan,
@@ -607,6 +606,7 @@ pub fn run(home: PathBuf) -> Result<()> {
                         match event.event() {
                             PageLoadEvent::Started => {
                                 popup::close_all(window.app_handle());
+                                connection_panel::dismiss(window.app_handle());
                             }
                             PageLoadEvent::Finished => {
                                 page_load.page.loaded(&window, event.url());
@@ -620,10 +620,17 @@ pub fn run(home: PathBuf) -> Result<()> {
                         let service_update = current.service_update;
                         let theme = current.titlebar_theme;
                         let navigation = current.titlebar.navigation();
-                        let source = current
-                            .titlebar
-                            .bind(event.url(), &page_load.page, workspace.as_ref())
-                            .cloned();
+                        // WebView2 can evaluate on the outgoing document when navigation starts.
+                        let source = if event.event() == PageLoadEvent::Finished
+                            && event.url().path() != "/_wingmate/desktop"
+                        {
+                            current
+                                .titlebar
+                                .bind(event.url(), &page_load.page, workspace.as_ref())
+                                .cloned()
+                        } else {
+                            None
+                        };
                         drop(current);
                         if let (PageLoadEvent::Finished, Some(state)) = (event.event(), &workspace)
                         {
@@ -642,12 +649,21 @@ pub fn run(home: PathBuf) -> Result<()> {
                     .decorations(!cfg!(windows))
                     .visible(false)
                     .inner_size(size.width, size.height);
+            #[cfg(target_os = "macos")]
+            let window = window
+                .title_bar_style(tauri::TitleBarStyle::Transparent)
+                .hidden_title(true);
             let window = if wingmate_launcher::IS_DEV {
                 window.data_directory(desktop.home.join("webview"))
             } else {
                 window
             };
             let window = window.build()?;
+            #[cfg(target_os = "linux")]
+            {
+                connection_panel::install_overlay(&window)?;
+                titlebar::install_native(&window)?;
+            }
             window_state::initialize(&window, &desktop.home, primary);
             if !cfg!(windows) {
                 window.show()?;
@@ -661,9 +677,8 @@ pub fn run(home: PathBuf) -> Result<()> {
                     popup::close_all(&popup_app);
                     connection_panel::dismiss(&popup_app);
                 }
-                tauri::WindowEvent::Moved(_) => connection_panel::dismiss(&popup_app),
+                #[cfg(not(target_os = "linux"))]
                 tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. } => {
-                    connection_panel::dismiss(&popup_app);
                     let desktop = popup_app.state::<Arc<Desktop>>();
                     let view = desktop
                         .connection

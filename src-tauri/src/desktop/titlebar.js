@@ -1,11 +1,14 @@
-([address, instance, theme, dev, navigation]) => {
+([address, instance, theme, dev, navigation, macos]) => {
   const home = instance === null;
   if (
     window !== window.top ||
-    (home ? location.href : location.origin) !== address ||
-    window.__WINGMATE_TITLEBAR__
+    (home ? location.href : location.origin) !== address
   )
     return;
+  if (window.__WINGMATE_TITLEBAR__) {
+    window.__WINGMATE_TITLEBAR__.rebind(navigation);
+    return;
+  }
 
   const height = '40px';
   const invoke = (action) =>
@@ -16,8 +19,24 @@
     });
   const controls = document.createElement('div');
   controls.dataset.wingmateTitlebar = '';
+  controls.toggleAttribute('data-macos', macos);
   if (home) controls.dataset.homeTheme = theme;
   const shadow = controls.attachShadow({ mode: 'open' });
+  const layout = macos ? new CSSStyleSheet() : null;
+  layout?.replaceSync(`
+    #root {
+      box-sizing: border-box;
+      padding-top: ${height};
+      background: var(--dsw-specific-sidebar-fill, Canvas);
+    }
+    :root {
+      --dsh-frame-chrome-top: ${height};
+      --dsh-frame-overlay-top: calc(${height} + 20px);
+    }
+    :root:has([data-wingmate-remote-header]) {
+      --wingmate-local-drag-display: none;
+    }
+  `);
   const stylesheet = new CSSStyleSheet();
   stylesheet.replaceSync(`
       :host {
@@ -31,7 +50,7 @@
         color: var(--dsw-alias-label-primary, #0f1115);
         --caption-fill: var(--dsw-specific-sidebar-fill, #f9fafb);
       }
-      :host([data-home-theme]) {
+      :host([data-home-theme]:not([data-macos])) {
         background: var(--caption-fill);
       }
       :host([data-home-theme="dark"]) { --caption-fill: #1b1b1c; color: #f9fafb; }
@@ -41,7 +60,11 @@
         pointer-events: auto;
         app-region: drag;
       }
-      :host(:not([data-home-theme])) .drag { display: none; }
+      :host(:not([data-home-theme]):not([data-macos])) .drag { display: none; }
+      :host([data-macos]) .drag {
+        inset: 0 44px 0 88px;
+        display: var(--wingmate-local-drag-display, block);
+      }
       .status {
         position: absolute;
         inset: 0 145px 0 145px;
@@ -50,6 +73,7 @@
         font: 12px system-ui, sans-serif;
         app-region: drag;
       }
+      :host([data-macos]) .status { inset-inline: 88px; }
       .buttons {
         display: flex;
         pointer-events: auto;
@@ -98,7 +122,11 @@
   shadow.innerHTML = `
     <div class="drag"></div>
     <span class="status" role="status" hidden></span>
-    <div class="buttons" role="group">
+    <div class="buttons"${macos ? '' : ' role="group"'}>
+      ${
+        macos
+          ? ''
+          : `
       <button type="button" data-action="minimize">
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <path fill="currentColor" d="M0 5h10v1H0z"/>
@@ -113,19 +141,25 @@
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <path stroke="currentColor" d="m.5.5 9 9m0-9-9 9"/>
         </svg>
-      </button>
+      </button>`
+      }
     </div>`;
   const buttons = [...shadow.querySelectorAll('button')];
-  const maximizeIcon = buttons[1].querySelector('path');
+  const maximizeIcon = buttons[1]?.querySelector('path');
   const connection = document.createElement('button');
   connection.type = 'button';
   connection.className = 'connections';
   connection.setAttribute('aria-haspopup', 'dialog');
   connection.ariaLabel = connection.title = '远程连接';
   connection.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="13" rx="2"/><path d="M12 17.5v3m-4 0h8"/></svg>`;
-  connection.addEventListener('click', () =>
-    window.__TAURI_INTERNALS__.invoke('open_connections').catch(report),
-  );
+  connection.addEventListener('click', () => {
+    const { right, bottom } = connection.getBoundingClientRect();
+    window.__TAURI_INTERNALS__
+      .invoke('open_connections', {
+        anchor: { right: window.innerWidth - right, top: bottom },
+      })
+      .catch(report);
+  });
   shadow.querySelector('.buttons').prepend(connection);
   const status = shadow.querySelector('.status');
   let maximized = false;
@@ -143,6 +177,7 @@
 
   function setMaximized(value) {
     maximized = value;
+    if (macos) return;
     const chinese = /^zh\b/i.test(document.documentElement.lang);
     const labels = chinese
       ? ['最小化', value ? '还原' : '最大化', '关闭窗口']
@@ -154,7 +189,7 @@
       button.ariaLabel = labels[i];
       button.title = labels[i];
     });
-    maximizeIcon.setAttribute(
+    maximizeIcon?.setAttribute(
       'd',
       value
         ? 'M2 0h8v8H8v2H0V2h2zm1 1v1h5v5h1V1zM1 3v6h6V3z'
@@ -163,6 +198,12 @@
   }
 
   const report = (error) => console.error('Wingmate title bar', error);
+  function drag(event) {
+    if (macos && event.button === 0 && !event.defaultPrevented) {
+      invoke(event.detail === 2 ? 'toggleMaximize' : 'drag').catch(report);
+    }
+  }
+  if (macos) shadow.querySelector('.drag').addEventListener('mousedown', drag);
   for (const button of buttons) {
     button.addEventListener('click', () => {
       const { action } = button.dataset;
@@ -176,11 +217,34 @@
 
   function prepare() {
     const root = document.documentElement;
-    root.toggleAttribute('data-windows-titlebar', !home);
-    root.style.setProperty('--dsh-windows-titlebar-height', height);
+    if (layout) {
+      if (!document.adoptedStyleSheets.includes(layout)) {
+        document.adoptedStyleSheets = [...document.adoptedStyleSheets, layout];
+      }
+    } else {
+      root.toggleAttribute('data-windows-titlebar', !home);
+      root.style.setProperty('--dsh-windows-titlebar-height', height);
+    }
+    root.style.setProperty('--wingmate-titlebar-height', height);
   }
 
+  let mounted = false;
+  function ready() {
+    const requestedNavigation = navigation;
+    invoke('ready')
+      .then((value) => {
+        if (mounted && navigation === requestedNavigation) setMaximized(value);
+      })
+      .catch((error) => {
+        if (!mounted || navigation !== requestedNavigation) return;
+        unmount();
+        report(error);
+      });
+  }
+
+  let unmount;
   function mount() {
+    if (mounted) return;
     prepare();
     setMaximized(maximized);
     const root = document.documentElement;
@@ -201,28 +265,27 @@
     });
     syncTheme();
     document.body.append(controls);
-    let mounted = true;
+    mounted = true;
     if (home) root.dataset.wingmateHomeTitlebar = theme;
-    const remove = () => {
+    unmount = () => {
       mounted = false;
       presentation.disconnect();
       controls.remove();
+      if (layout) {
+        document.adoptedStyleSheets = document.adoptedStyleSheets.filter(
+          (sheet) => sheet !== layout,
+        );
+      } else {
+        root.removeAttribute('data-windows-titlebar');
+        root.style.removeProperty('--dsh-windows-titlebar-height');
+      }
       delete root.dataset.wingmateHomeTitlebar;
-      root.removeAttribute('data-windows-titlebar');
-      root.style.removeProperty('--dsh-windows-titlebar-height');
+      root.style.removeProperty('--wingmate-titlebar-height');
     };
-    invoke('ready')
-      .then((value) => {
-        if (mounted) setMaximized(value);
-      })
-      .catch((error) => {
-        if (!mounted) return;
-        remove();
-        report(error);
-      });
+    ready();
     return () => {
       if (!mounted) return;
-      remove();
+      unmount();
       invoke('fallback').catch(report);
     };
   }
@@ -233,14 +296,24 @@
       mount,
       setMaximized,
       setDisconnected,
+      drag,
+      rebind(nextNavigation) {
+        if (nextNavigation <= navigation) return;
+        // Consecutive navigations to the same URL can expose the same document twice.
+        navigation = nextNavigation;
+        if (mounted) ready();
+        else mount();
+      },
     }),
   });
-  if (home) {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', mount, { once: true });
-    } else {
-      mount();
-    }
+  // The DSH preview and sign-in screens can appear before the workbench slots mount.
+  const mountApp = () => {
+    if (home || document.getElementById('root')) mount();
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mountApp, { once: true });
+  } else {
+    mountApp();
   }
   window.dispatchEvent(new Event('wingmate:titlebar'));
 };

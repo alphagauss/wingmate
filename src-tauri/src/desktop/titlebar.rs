@@ -2,6 +2,89 @@ use super::{connection_panel, Desktop, StartupPage, Workspace};
 use std::{cell::Cell, sync::Arc, time::Duration};
 use tauri::{Manager, Url, Webview, WebviewWindow, Window, WindowEvent};
 
+const WEB_TITLEBAR: bool = cfg!(any(windows, target_os = "macos"));
+
+#[cfg(target_os = "linux")]
+fn close_only_layout(layout: &str) -> Option<String> {
+    let mut buttons = layout.split([',', ':']);
+    if buttons
+        .clone()
+        .any(|button| matches!(button, "minimize" | "maximize"))
+        || !buttons.any(|button| button == "close")
+    {
+        return None;
+    }
+    let mut expanded = String::new();
+    for button in layout.split_inclusive([',', ':']) {
+        if button.trim_end_matches([',', ':']) == "close" {
+            expanded.push_str("minimize,maximize,");
+        }
+        expanded.push_str(button);
+    }
+    Some(expanded)
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn install_native(window: &WebviewWindow) -> tauri::Result<()> {
+    use gtk::prelude::*;
+
+    let native = window.gtk_window()?;
+    let header = gtk::HeaderBar::new();
+    header.set_show_close_button(true);
+    if let Some(settings) = native.settings() {
+        settings
+            .bind_property("gtk-decoration-layout", &header, "decoration-layout")
+            .transform_to(|_, layout: Option<&str>| Some(layout.and_then(close_only_layout)))
+            .sync_create()
+            .build();
+    }
+    header.set_title(native.title().as_deref());
+    let connections = gtk::Button::with_label("远程连接");
+    let content = window.default_vbox()?;
+    let app = window.app_handle().clone();
+    let label = window.label().to_owned();
+    connections.connect_clicked(move |button| {
+        let anchor = button
+            .translate_coordinates(
+                &content,
+                button.allocated_width(),
+                button.allocated_height(),
+            )
+            .map(|(x, y)| connection_panel::Anchor {
+                right: f64::from(content.allocated_width() - x),
+                top: f64::from(y),
+            });
+        if let Some(webview) = app.get_webview(&label) {
+            tauri::async_runtime::spawn_blocking(move || {
+                let desktop = webview.app_handle().state::<Arc<Desktop>>();
+                if let Err(error) = connection_panel::open(&webview, &desktop, anchor) {
+                    eprintln!("无法打开远程连接：{error}");
+                }
+            });
+        }
+    });
+    header.pack_end(&connections);
+    native.set_titlebar(Some(&header));
+    header.show_all();
+    Ok(())
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[test]
+fn close_only_titlebar_keeps_the_system_button_side() {
+    assert_eq!(
+        close_only_layout("menu:close").as_deref(),
+        Some("menu:minimize,maximize,close")
+    );
+    assert_eq!(
+        close_only_layout("close:menu").as_deref(),
+        Some("minimize,maximize,close:menu")
+    );
+    assert_eq!(close_only_layout("close,minimize:maximize"), None);
+    assert_eq!(close_only_layout(":maximize,close"), None);
+    assert_eq!(close_only_layout("menu:"), None);
+}
+
 #[derive(Clone)]
 pub(super) struct Source {
     address: String,
@@ -39,7 +122,8 @@ pub(super) fn expose(window: &WebviewWindow, source: &Source, theme: Theme, navi
         source.instance,
         theme,
         wingmate_launcher::IS_DEV,
-        navigation
+        navigation,
+        cfg!(target_os = "macos")
     ]);
     let script = include_str!("titlebar.js");
     let _ = window.eval(&format!(
@@ -72,7 +156,7 @@ impl Frame {
         page: &StartupPage,
         workspace: Option<&Workspace>,
     ) -> Option<&Source> {
-        if !cfg!(windows) {
+        if !WEB_TITLEBAR {
             return None;
         }
         if self.source.is_none() {
@@ -91,7 +175,7 @@ impl Frame {
 }
 
 pub(super) fn watch(app: &tauri::AppHandle, navigation: u32) {
-    if !cfg!(windows) {
+    if !WEB_TITLEBAR {
         return;
     }
     let app = app.clone();
@@ -107,7 +191,10 @@ pub(super) fn watch(app: &tauri::AppHandle, navigation: u32) {
             if needs_fallback {
                 if let Some(webview) = handle.get_webview(&desktop.window_label) {
                     let window = webview.window();
+                    #[cfg(windows)]
                     let _ = window.set_decorations(true);
+                    #[cfg(target_os = "macos")]
+                    let _ = window.set_title_bar_style(tauri::TitleBarStyle::Transparent);
                     let _ = show_if_hidden(&window);
                 }
             }
@@ -151,7 +238,7 @@ pub(super) fn connection_title(window: &WebviewWindow, title: &str, disconnected
     let _ = window.run_on_main_thread(move || {
         if main.title().ok().as_deref() != Some(title.as_str()) {
             let _ = main.set_title(&title);
-            if cfg!(windows) {
+            if WEB_TITLEBAR {
                 let _ = main.eval(format!(
                     "window.__WINGMATE_TITLEBAR__?.setDisconnected({disconnected})"
                 ));
@@ -165,6 +252,7 @@ pub(super) fn connection_title(window: &WebviewWindow, title: &str, disconnected
 pub(super) enum Action {
     Ready,
     Fallback,
+    Drag,
     Minimize,
     ToggleMaximize,
     Close,
@@ -189,7 +277,7 @@ pub(super) fn window_chrome(
     navigation: u32,
 ) -> Result<bool, String> {
     let url = webview.url().map_err(|error| error.to_string())?;
-    if !cfg!(windows)
+    if !WEB_TITLEBAR
         || webview.label() != desktop.window_label
         || !desktop.connection.lock().unwrap().titlebar.allows(
             &url,
@@ -203,9 +291,12 @@ pub(super) fn window_chrome(
     let result: tauri::Result<()> = match action {
         Action::Ready => {
             let ready = || -> tauri::Result<bool> {
+                #[cfg(windows)]
                 if window.is_decorated()? {
                     window.set_decorations(false)?;
                 }
+                #[cfg(target_os = "macos")]
+                window.set_title_bar_style(tauri::TitleBarStyle::Overlay)?;
                 let maximized = window.is_maximized()?;
                 show_if_hidden(&window)?;
                 let mut current = desktop.connection.lock().unwrap();
@@ -229,6 +320,13 @@ pub(super) fn window_chrome(
             connection_panel::sync_theme(webview.app_handle(), theme);
             return Ok(false);
         }
+        Action::Drag if !cfg!(target_os = "macos") => return Err("此平台使用原生拖动区域".into()),
+        Action::Drag => {
+            return window
+                .start_dragging()
+                .map(|()| false)
+                .map_err(|error| error.to_string());
+        }
         Action::Minimize => window.minimize(),
         Action::ToggleMaximize if window.is_maximized().unwrap_or(false) => window.unmaximize(),
         Action::ToggleMaximize => window.maximize(),
@@ -244,7 +342,7 @@ pub(super) fn window_chrome(
         .map_err(|error| error.to_string())
 }
 
-#[cfg(all(test, windows))]
+#[cfg(all(test, any(windows, target_os = "macos")))]
 mod tests {
     use super::*;
 

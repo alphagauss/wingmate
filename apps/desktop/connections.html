@@ -6,6 +6,17 @@
   <style>
   :root {
     color-scheme: light dark;
+    --panel-width: min(356px, calc(100vw - 16px));
+    --panel-top: clamp(
+      8px,
+      calc(var(--anchor-top) + 4px),
+      max(8px, calc(100dvh - 128px))
+    );
+    --panel-right: clamp(
+      8px,
+      var(--anchor-right),
+      calc(100vw - var(--panel-width) - 8px)
+    );
     font:
       13px / 1.5 system-ui,
       sans-serif;
@@ -39,11 +50,35 @@
     --error: light-dark(#b42318, #ffa39e);
     margin: 0;
     color: var(--ink);
-    background: var(--surface);
   }
-  main {
+  dialog {
+    position: fixed;
+    inset: var(--panel-top) var(--panel-right) auto auto;
+    margin: 0;
+    width: var(--panel-width);
+    max-width: none;
+    max-height: min(560px, calc(100dvh - var(--panel-top) - 8px));
     padding: 14px;
     overflow: auto;
+    color: inherit;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: 0 8px 28px light-dark(#0f111533, #0008);
+  }
+  dialog::backdrop {
+    background: transparent;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    dialog[open] {
+      animation: panel-in 150ms ease-out;
+    }
+  }
+  @keyframes panel-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
   }
   header,
   .row {
@@ -546,7 +581,7 @@
     overflow-wrap: anywhere;
   }
   </style>
-  <main aria-labelledby="heading">
+  <dialog aria-labelledby="heading">
     <header>
       <h1 id="heading">远程连接</h1>
       <button id="close" type="button" aria-label="关闭" title="关闭">
@@ -597,6 +632,7 @@
         <div class="row">
           <input
             id="link"
+            autofocus
             type="url"
             required
             autocomplete="off"
@@ -803,6 +839,6 @@
       </div>
     </section>
     <p id="message" role="alert"></p>
-  </main>
+  </dialog>
   <script type="module" src="./connections.js"></script>
 </html>

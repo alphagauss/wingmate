@@ -1,6 +1,6 @@
 const { invoke } = window.__TAURI_INTERNALS__;
-const { theme, origin, maxHeight } = window.wingmateConnections;
-const panel = document.querySelector('main');
+const { theme, origin, anchor } = window.wingmateConnections;
+const panel = document.querySelector('dialog');
 const tabs = [...document.querySelectorAll('[role="tab"]')];
 const form = document.querySelector('form');
 const link = document.getElementById('link');
@@ -23,23 +23,61 @@ const shareAddressOptions = document.getElementById('share-address-options');
 const key = 'wingmate-remote-hosts';
 
 document.documentElement.dataset.theme = theme;
-panel.style.maxHeight = `${maxHeight}px`;
-new ResizeObserver(() => {
-  invoke('resize_connections', {
-    height: Math.ceil(panel.getBoundingClientRect().height),
-  }).catch(report);
-}).observe(panel);
+document.documentElement.style.setProperty('--anchor-top', `${anchor.top}px`);
+document.documentElement.style.setProperty(
+  '--anchor-right',
+  `${anchor.right}px`,
+);
+panel.showModal();
 
 function report(error) {
   message.textContent = String(error);
 }
 
-function close() {
-  invoke('close_connections').catch(report);
+let closing = false;
+async function close(restoreFocus = true) {
+  if (closing) return;
+  closing = true;
+  const animation =
+    !restoreFocus || matchMedia('(prefers-reduced-motion: reduce)').matches
+      ? null
+      : panel.animate(
+          [{ opacity: 1 }, { opacity: 0, transform: 'translateY(-4px)' }],
+          { duration: 120, easing: 'ease-in', fill: 'forwards' },
+        );
+  try {
+    await animation?.finished;
+    await invoke('close_connections', { restoreFocus });
+  } catch (error) {
+    animation?.cancel();
+    closing = false;
+    report(error);
+  }
 }
-document.getElementById('close').addEventListener('click', close);
+document.getElementById('close').addEventListener('click', () => close());
+window.addEventListener('blur', () => {
+  if (!connectionBusy) close(false);
+});
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && !event.defaultPrevented) close();
+  if (event.key === 'Escape' && !event.defaultPrevented) {
+    event.preventDefault();
+    close();
+  }
+});
+panel.addEventListener('cancel', (event) => {
+  event.preventDefault();
+  close();
+});
+document.addEventListener('pointerdown', (event) => {
+  const { left, right, top, bottom } = panel.getBoundingClientRect();
+  if (
+    event.clientX < left ||
+    event.clientX > right ||
+    event.clientY < top ||
+    event.clientY > bottom
+  ) {
+    close();
+  }
 });
 
 function savedHosts() {

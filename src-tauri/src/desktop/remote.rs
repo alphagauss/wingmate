@@ -68,7 +68,7 @@ pub(super) fn cancel_lan_scan(
     Ok(())
 }
 
-const HEADER_HEIGHT: f64 = 40.;
+const HEADER_HEIGHT: i32 = 40;
 
 fn target(link: &str) -> Result<Url> {
     let link = link.trim();
@@ -95,13 +95,14 @@ fn target(link: &str) -> Result<Url> {
 
 fn bounds(window: &Window) -> tauri::Result<Rect> {
     let size = window.inner_size()?;
-    let top = (HEADER_HEIGHT * window.scale_factor()?).round() as u32;
+    let top = (f64::from(HEADER_HEIGHT) * window.scale_factor()?).round() as u32;
     Ok(Rect {
         position: PhysicalPosition::new(0, top as i32).into(),
         size: PhysicalSize::new(size.width, size.height.saturating_sub(top)).into(),
     })
 }
 
+#[cfg(not(target_os = "linux"))]
 pub(super) fn fit(window: &Window, view: &Webview) -> tauri::Result<()> {
     view.set_bounds(bounds(window)?)
 }
@@ -122,7 +123,7 @@ pub(super) fn render_header(app: &tauri::AppHandle) {
         serde_json::json!([
             remote.origin,
             current.titlebar_theme,
-            cfg!(windows),
+            std::env::consts::OS,
             remote.transport
         ])
     };
@@ -133,7 +134,9 @@ pub(super) fn render_header(app: &tauri::AppHandle) {
         return;
     }
     let script = include_str!("remote_header.js");
-    let _ = main.eval(format!("({script})({args})"));
+    let _ = main.eval(format!(
+        "{{ const renderHeader = {script}\nrenderHeader({args}); }}"
+    ));
 }
 
 #[derive(serde::Deserialize)]
@@ -358,6 +361,11 @@ pub(super) async fn connect_remote(
     let view = parent
         .add_child(builder, rect.position, rect.size)
         .map_err(|error| error.to_string())?;
+    #[cfg(target_os = "linux")]
+    if let Err(error) = connection_panel::place_in_overlay(&view, HEADER_HEIGHT) {
+        let _ = view.close();
+        return Err(error.to_string());
+    }
     let panel_open = connection_panel::local_panel(&webview, &desktop).is_ok();
     let mut current = desktop.connection.lock().unwrap();
     if !panel_open || current.revision != revision {
