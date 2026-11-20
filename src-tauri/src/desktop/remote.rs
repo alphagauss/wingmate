@@ -1,7 +1,10 @@
 use super::{connection_panel, Desktop};
 use anyhow::{Context, Result};
 use std::{
+    fs,
+    io::Write,
     net::Ipv4Addr,
+    path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -23,14 +26,80 @@ pub(super) struct LanScan {
     cancel: tokio::sync::oneshot::Sender<()>,
 }
 
+fn authorized(webview: &Webview, desktop: &Desktop, instance: Option<&str>) -> Result<(), String> {
+    match instance {
+        Some(instance) => connection_panel::workspace_source(webview, desktop, instance),
+        None => connection_panel::local_panel(webview, desktop).map(drop),
+    }
+}
+
+fn read_history(path: &Path) -> Result<Vec<String>> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn change_history(home: &Path, update: impl FnOnce(&mut Vec<String>)) -> Result<Vec<String>> {
+    fs::create_dir_all(home)?;
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(home.join("recent-hosts.lock"))?;
+    fs2::FileExt::lock_exclusive(&lock)?;
+    let path = home.join("recent-hosts.json");
+    let mut history = read_history(&path)?;
+    update(&mut history);
+    history.truncate(20);
+    let mut file = tempfile::NamedTempFile::new_in(home)?;
+    file.write_all(&serde_json::to_vec(&history)?)?;
+    file.persist(path)?;
+    Ok(history)
+}
+
+#[tauri::command]
+pub(super) async fn connection_history(
+    webview: Webview,
+    desktop: State<'_, Arc<Desktop>>,
+    instance: Option<String>,
+    legacy: Option<Vec<String>>,
+) -> Result<Vec<String>, String> {
+    authorized(&webview, &desktop, instance.as_deref())?;
+    let home = desktop.home.clone();
+    let legacy = legacy.filter(|items| instance.is_none() && !items.is_empty());
+    tauri::async_runtime::spawn_blocking(move || match legacy {
+        Some(legacy) => change_history(&home, |history| {
+            for origin in legacy
+                .iter()
+                .take(20)
+                .filter_map(|item| target(item).ok())
+                .filter(|url| url.query().is_none())
+                .map(|url| url.origin().ascii_serialization())
+            {
+                if !history.contains(&origin) {
+                    history.push(origin);
+                }
+            }
+        }),
+        None => read_history(&home.join("recent-hosts.json")),
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| format!("无法读取最近连接：{error:#}"))
+}
+
 #[tauri::command]
 pub(super) async fn scan_lan(
     webview: Webview,
     desktop: State<'_, Arc<Desktop>>,
-    saved: Vec<String>,
     scan: u32,
-) -> Result<bool, String> {
-    connection_panel::local_panel(&webview, &desktop)?;
+    instance: Option<String>,
+) -> Result<Option<bool>, String> {
+    authorized(&webview, &desktop, instance.as_deref())?;
+    let saved = read_history(&desktop.home.join("recent-hosts.json")).unwrap_or_default();
     let (cancel, cancelled) = tokio::sync::oneshot::channel();
     *desktop.lan_scan.lock().unwrap() = Some(LanScan {
         panel: webview.label().into(),
@@ -38,8 +107,8 @@ pub(super) async fn scan_lan(
         cancel,
     });
     let result = tokio::select! {
-        _ = cancelled => Ok(false),
-        result = lan::scan(&webview, &desktop, saved, scan) => result.map_err(|error| error.to_string()),
+        _ = cancelled => Ok(None),
+        result = lan::scan(&webview, &desktop, saved, scan, instance.as_deref()) => result.map(Some).map_err(|error| error.to_string()),
     };
     cancel_scan(&desktop, webview.label(), Some(scan));
     result
@@ -62,8 +131,9 @@ pub(super) fn cancel_lan_scan(
     webview: Webview,
     desktop: State<'_, Arc<Desktop>>,
     scan: u32,
+    instance: Option<String>,
 ) -> Result<(), String> {
-    connection_panel::local_panel(&webview, &desktop)?;
+    authorized(&webview, &desktop, instance.as_deref())?;
     cancel_scan(&desktop, webview.label(), Some(scan));
     Ok(())
 }
@@ -189,21 +259,21 @@ pub(super) struct ConnectionReply {
 }
 
 async fn with_cookie_store<T: Send + 'static>(
-    panel: &Webview,
+    source: &Webview,
     desktop: &Desktop,
     use_store: impl FnOnce(Webview) -> tauri::Result<T> + Send + 'static,
 ) -> Result<T> {
-    let app = panel.app_handle().clone();
+    let app = source.app_handle().clone();
     let handle = app.clone();
-    let panel_label = panel.label().to_owned();
+    let source_label = source.label().to_owned();
     let main_label = desktop.window_label.clone();
     let (reply, result) = tokio::sync::oneshot::channel();
-    // Resolve the windows on the UI thread so the cookie getter cannot race a destroyed panel.
+    // Resolve the webviews on the UI thread so cookie access cannot race a destroyed source.
     app.run_on_main_thread(move || {
         let value = (|| {
             handle
-                .get_webview_window(&panel_label)
-                .context("Wingmate 连接浮层已关闭")?;
+                .get_webview(&source_label)
+                .context("Wingmate 连接页面已关闭")?;
             let main = handle.get_webview(&main_label).context("主窗口已关闭")?;
             Ok::<_, anyhow::Error>(use_store(main)?)
         })();
@@ -294,10 +364,33 @@ pub(super) async fn connect_remote(
     desktop: State<'_, Arc<Desktop>>,
     link: String,
     password: Option<String>,
+    requested: Option<String>,
+    instance: Option<String>,
 ) -> Result<ConnectionReply, String> {
-    connection_panel::local_panel(&webview, &desktop)?;
+    authorized(&webview, &desktop, instance.as_deref())?;
     let mut url = target(&link).map_err(|error| error.to_string())?;
+    let requested_origin = requested
+        .and_then(|link| target(&link).ok())
+        .unwrap_or_else(|| url.clone())
+        .origin()
+        .ascii_serialization();
     let client = client(url.scheme() == "http").map_err(|_| "无法初始化远程连接")?;
+    let attempt = {
+        let mut current = desktop.connection.lock().unwrap();
+        if current.busy || current.exit_pending {
+            return Err("后台操作正在进行，请稍后重试".into());
+        }
+        current.revision += 1;
+        (current.revision, current.titlebar.navigation())
+    };
+    let verify_attempt = || -> Result<(), String> {
+        authorized(&webview, &desktop, instance.as_deref())?;
+        let current = desktop.connection.lock().unwrap();
+        if (current.revision, current.titlebar.navigation()) != attempt {
+            return Err("连接已取消，请重试".into());
+        }
+        Ok(())
+    };
     let mut identity = probe(&client, &url, Duration::from_secs(4)).await;
     if identity.is_none() && password.is_none() && url.query().is_none() && url.scheme() == "http" {
         for candidate in lan::alternatives(&url.clone()) {
@@ -312,6 +405,7 @@ pub(super) async fn connect_remote(
             }
         }
     }
+    verify_attempt()?;
     let identity = identity.ok_or("无法连接 Wingmate 主机，请检查地址及网络")?;
     let origin = url.origin().ascii_serialization();
     if password.is_some()
@@ -319,32 +413,25 @@ pub(super) async fn connect_remote(
     {
         return Err("此主机未启用局域网密码登录".into());
     }
-    if identity.transport == "lan"
-        && url.query().is_none()
-        && !lan_session(&webview, &desktop, &client, &url, password)
+    if identity.transport == "lan" && url.query().is_none() {
+        let logged_in = lan_session(&webview, &desktop, &client, &url, password)
             .await
-            .map_err(|error| error.to_string())?
-    {
-        return Ok(ConnectionReply {
-            origin,
-            needs_password: identity.password,
-            needs_pairing: !identity.password,
-        });
+            .map_err(|error| error.to_string())?;
+        verify_attempt()?;
+        if !logged_in {
+            return Ok(ConnectionReply {
+                origin,
+                needs_password: identity.password,
+                needs_pairing: !identity.password,
+            });
+        }
     }
-    connection_panel::local_panel(&webview, &desktop)?;
     let origin_guard = url.origin();
     let app = webview.app_handle().clone();
     let main = app
         .get_webview(&desktop.window_label)
         .ok_or("主窗口已关闭")?;
     let parent = main.window();
-    let revision = {
-        let current = desktop.connection.lock().unwrap();
-        if current.busy || current.exit_pending {
-            return Err("后台操作正在进行，请稍后重试".into());
-        }
-        current.revision
-    };
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let label = format!("remote-workbench-{}", NEXT.fetch_add(1, Ordering::Relaxed));
     let popup_app = app.clone();
@@ -366,24 +453,37 @@ pub(super) async fn connect_remote(
         let _ = view.close();
         return Err(error.to_string());
     }
-    let panel_open = connection_panel::local_panel(&webview, &desktop).is_ok();
-    let mut current = desktop.connection.lock().unwrap();
-    if !panel_open || current.revision != revision {
-        drop(current);
-        let _ = view.close();
-        return Err("连接已取消，请重试".into());
-    }
-    current.revision += 1;
-    let previous = current.remote.replace(Workbench {
-        view,
-        origin: origin.clone(),
-        transport: identity.transport,
-    });
-    drop(current);
+    let source_valid = authorized(&webview, &desktop, instance.as_deref()).is_ok();
+    let previous = {
+        let mut current = desktop.connection.lock().unwrap();
+        if !source_valid || (current.revision, current.titlebar.navigation()) != attempt {
+            drop(current);
+            let _ = view.close();
+            return Err("连接已取消，请重试".into());
+        }
+        current.revision += 1;
+        current.remote.replace(Workbench {
+            view: view.clone(),
+            origin: origin.clone(),
+            transport: identity.transport,
+        })
+    };
     if let Some(previous) = previous {
         let _ = previous.view.close();
     }
     render_header(&app);
+    if instance.is_some() {
+        let _ = view.set_focus();
+    }
+    let home = desktop.home.clone();
+    let connected = origin.clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        change_history(&home, |history| {
+            history.retain(|item| item != &connected && item != &requested_origin);
+            history.insert(0, connected);
+        })
+    })
+    .await;
     Ok(ConnectionReply {
         origin,
         needs_password: false,
@@ -462,15 +562,11 @@ pub(super) async fn local_share(
         ) {
             return Err("请在本机连接浮窗的「局域网」管理密码".into());
         }
-        let url = webview.url().map_err(|error| error.to_string())?;
-        let current = desktop.connection.lock().unwrap();
-        let state = current.workspace().ok_or("本机后台尚未连接")?;
-        if webview.label() != desktop.window_label
-            || instance.as_deref() != Some(state.state.instance.as_str())
-            || state.origin != url.origin().ascii_serialization()
-        {
-            return Err("此页面不能管理本机分享".into());
-        }
+        connection_panel::workspace_source(
+            &webview,
+            &desktop,
+            instance.as_deref().ok_or("此页面不能管理本机分享")?,
+        )?;
     }
     let home = desktop.home.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<ShareReply> {

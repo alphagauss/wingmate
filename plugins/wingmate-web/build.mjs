@@ -8,4 +8,5 @@ await build({
   // The client factory supplies React. The type-checking config emits nothing.
   tsconfigRaw: {},
   jsxFactory: 'h',
+  jsxFragment: 'react.Fragment',
 });

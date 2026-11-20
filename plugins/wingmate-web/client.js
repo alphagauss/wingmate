@@ -3,12 +3,17 @@ import {
   detailSection,
   registerPreinstalledItems,
 } from './preinstalled.tsx';
+import {
+  createConnectionDetails,
+  revealTunnelSettings,
+} from './connections.jsx';
 
 // DSH loads browser plugins as lazy factories and supplies the shared React runtime.
 window.__ModuleLoader__.load({
   id: 'dsh-wingmate-web',
   factory(require) {
     const react = require('react');
+    const primitives = require('@deepseek-ai/dsh-client-ui-primitives');
     const {
       createElement: h,
       useEffect,
@@ -24,7 +29,7 @@ window.__ModuleLoader__.load({
       Modal,
       Switch,
       Tag,
-    } = require('@deepseek-ai/dsh-client-ui-primitives');
+    } = primitives;
     const bridgeEvent = 'wingmate:backend-bridge';
     const getBridge = () => window.__WINGMATE_BACKEND__;
     let remoteHost = null;
@@ -63,12 +68,13 @@ window.__ModuleLoader__.load({
       return () => window.removeEventListener(bridgeEvent, update);
     }
 
-    function SettingRow({ label, children, control, last, compact }) {
+    function SettingRow({ label, children, control, last, compact, wrap }) {
       return h(
         'div',
         {
           style: {
             ...rowStyle,
+            ...(wrap && { flexWrap: 'wrap', gap: '8px 16px' }),
             padding: compact ? 0 : rowStyle.padding,
             borderBottom: last
               ? undefined
@@ -77,11 +83,18 @@ window.__ModuleLoader__.load({
         },
         h(
           'div',
-          { style: { display: 'grid', gap: 4, minWidth: 0, flex: 1 } },
+          {
+            style: {
+              display: 'grid',
+              gap: 4,
+              minWidth: 0,
+              flex: wrap ? '1 1 140px' : 1,
+            },
+          },
           h('div', { style: { fontSize: 14, lineHeight: '20px' } }, label),
           children,
         ),
-        h('div', { style: { flexShrink: 0 } }, control),
+        h('div', { style: { flexShrink: 0, maxWidth: '100%' } }, control),
       );
     }
 
@@ -163,266 +176,28 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function NamedTunnelSettings({ tunnel, pending, save }) {
-      const [notice, setNotice] = useState('');
-      const field = { display: 'grid', gap: 4 };
-      const input = {
-        padding: '6px 8px',
-        borderRadius: 6,
-        border: '1px solid var(--dsw-alias-border-l2)',
-      };
-      async function submit(event) {
-        event.preventDefault();
-        const form = event.currentTarget;
-        const data = new FormData(form);
-        const token = data.get('token')?.trim() || undefined;
-        setNotice('');
-        if (
-          await save({
-            action: 'tunnel_configure',
-            hostname: data.get('hostname'),
-            token,
-          })
-        ) {
-          form.elements.namedItem('token').value = '';
-          setNotice('已保存，下次开启或重启隧道时生效。');
-        }
-      }
-      return h(
-        'section',
-        { 'aria-label': '具名隧道', style: detailSection },
-        h('h2', { style: detailHeading }, '具名隧道'),
-        h(
-          'div',
-          { style: { ...actionsStyle, ...detailStyle } },
-          '在 Cloudflare 发布路由中填写 Service URL',
-          h(
-            'code',
-            { style: valueStyle },
-            tunnel.named_service ?? '本机 Web 入口不可用',
-          ),
-          tunnel.named_service &&
-            h(
-              Button,
-              {
-                size: 'sm',
-                variant: 'outline',
-                onClick: async () => {
-                  try {
-                    await navigator.clipboard.writeText(tunnel.named_service);
-                    setNotice('已复制回源地址。');
-                  } catch {
-                    setNotice('请手动复制回源地址。');
-                  }
-                },
-              },
-              '复制地址',
-            ),
-        ),
-        h(
-          'form',
-          {
-            method: 'post',
-            style: { ...detailSection, maxWidth: 420 },
-            onSubmit: submit,
-          },
-          h(
-            'label',
-            { style: field },
-            '公开域名',
-            h('input', {
-              name: 'hostname',
-              style: input,
-              defaultValue: tunnel.hostname ?? '',
-              required: true,
-              placeholder: 'wingmate.example.com',
-              spellCheck: false,
-              autoComplete: 'off',
-              disabled: pending,
-            }),
-          ),
-          h(
-            'label',
-            { style: field },
-            'Tunnel Token',
-            h('input', {
-              name: 'token',
-              type: 'password',
-              style: input,
-              autoComplete: 'off',
-              disabled: pending,
-              required: !tunnel.hostname,
-              placeholder: tunnel.hostname
-                ? '留空保留已保存的 Token'
-                : '粘贴 Cloudflare Tunnel Token',
-            }),
-          ),
-          h(
-            'div',
-            { style: actionsStyle },
-            h(
-              Button,
-              {
-                type: 'submit',
-                size: 'sm',
-                variant: 'outline',
-                disabled: pending,
-              },
-              '保存',
-            ),
-            h('span', { role: 'status', style: detailStyle }, notice),
-          ),
-        ),
-      );
-    }
+    const ConnectionDetails = createConnectionDetails(
+      react,
+      primitives,
+      SettingRow,
+      {
+        actionsStyle,
+        alertStyle,
+        detailStyle,
+        valueStyle,
+      },
+    );
 
     function ShareSettings({ openSettings }) {
       const bridge = useSyncExternalStore(subscribe, getBridge);
-      const share = bridge?.share;
-      const [status, setStatus] = useState(null);
-      const [pending, setPending] = useState(false);
-      const [error, setError] = useState('');
-
-      useEffect(() => {
-        if (!share) return;
-        let active = true;
-        share({ action: 'status' })
-          .then((value) => {
-            if (active) setStatus(value);
-          })
-          .catch((failure) => {
-            if (active) setError(String(failure));
-          });
-        return () => {
-          active = false;
-        };
-      }, [share]);
-
-      async function run(command) {
-        setPending(true);
-        setError('');
-        try {
-          setStatus(await share(command));
-          return true;
-        } catch (failure) {
-          setError(String(failure));
-          return false;
-        } finally {
-          setPending(false);
-        }
-      }
-
-      const listening = Boolean(status?.address);
-      const addresses = status?.lan_addresses?.length
-        ? status.lan_addresses
-        : [status?.address];
       return h(
-        react.Fragment,
-        null,
-        share &&
-          h(
-            'section',
-            { 'aria-label': '局域网分享', style: detailSection },
-            h('h2', { style: detailHeading }, '局域网分享'),
-            h(
-              SettingRow,
-              {
-                label: '允许局域网访问',
-                compact: true,
-                last: true,
-                control: h(Switch, {
-                  label: '允许局域网访问',
-                  checked: listening,
-                  disabled: pending || !status,
-                  onChange: (enabled) =>
-                    run(
-                      enabled
-                        ? { action: 'enable', address: null }
-                        : { action: 'disable' },
-                    ),
-                }),
-              },
-              !status &&
-                !error &&
-                h('div', { style: detailStyle }, '正在读取分享状态…'),
-              status &&
-                !listening &&
-                h(
-                  'div',
-                  { style: detailStyle },
-                  '开启后，已配对设备可通过本机的局域网地址连接。',
-                ),
-              listening &&
-                h(
-                  'div',
-                  { style: { ...actionsStyle, ...detailStyle } },
-                  '监听地址',
-                  addresses.map((address) =>
-                    h(
-                      'code',
-                      { key: address, style: valueStyle },
-                      'http://' + address,
-                    ),
-                  ),
-                ),
-            ),
-          ),
-        share &&
-          status?.tunnel &&
-          h(NamedTunnelSettings, { tunnel: status.tunnel, pending, save: run }),
-        share && error && h('div', { role: 'alert', style: alertStyle }, error),
-        share &&
-          h(
-            'section',
-            { 'aria-label': '已配对设备', style: detailSection },
-            h(
-              'div',
-              { style: { ...actionsStyle, justifyContent: 'space-between' } },
-              h('h2', { style: detailHeading }, '已配对设备'),
-              h(
-                Button,
-                {
-                  size: 'sm',
-                  variant: 'ghost',
-                  disabled: pending || (!status && !error),
-                  onClick: () => run({ action: 'status' }),
-                },
-                '刷新',
-              ),
-            ),
-            status?.devices.length === 0 &&
-              h('span', { style: detailStyle }, '暂无已配对设备'),
-            status?.devices.map((device, index) =>
-              h(
-                SettingRow,
-                {
-                  key: device.id,
-                  label: device.id.slice(0, 8),
-                  last: index === status.devices.length - 1,
-                  control: h(
-                    Button,
-                    {
-                      size: 'sm',
-                      variant: 'outline',
-                      disabled: pending,
-                      onClick: () => run({ action: 'revoke', id: device.id }),
-                    },
-                    '撤销',
-                  ),
-                },
-                h(
-                  'div',
-                  { style: detailStyle },
-                  `${{ local: '本机', lan: '局域网', public: '公网' }[device.access]} · ${new Date(device.paired_at * 1000).toLocaleString()}`,
-                ),
-              ),
-            ),
-          ),
+        'div',
+        { style: { ...detailSection, gap: 20, maxWidth: 680 } },
+        bridge?.share && h(ConnectionDetails, { bridge }),
         openSettings &&
           h(
             'section',
             { style: detailSection, 'aria-label': '后台服务设置' },
-            h('h2', { style: detailHeading }, '后台服务'),
             h(
               SettingRow,
               {
@@ -833,6 +608,7 @@ window.__ModuleLoader__.load({
             scope.effect(() => {
               const open = () => {
                 if (!getBridge()) return;
+                revealTunnelSettings();
                 scope.pluginNavigation.openList();
                 const entry = scope.slots
                   .entries('main')

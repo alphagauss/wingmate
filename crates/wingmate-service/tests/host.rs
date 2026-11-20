@@ -258,6 +258,7 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
         .as_secs();
     assert!((86_395..=86_400).contains(&expiry.saturating_sub(now)));
     assert_eq!(invite.tunnel_invite_expires_at, Some(expiry));
+    let invite_id = invite.tunnel_pairing_id.context("缺少具名邀请标识")?;
     let link = invite.pairing_url.unwrap();
     let code = link.split_once("?auth=").unwrap().1;
     assert!(!fs::read_to_string(service.home.path().join("share-devices.json"))?.contains(code));
@@ -266,9 +267,11 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
     service.child = spawn_tunnel(service.home.path(), &binary, &origin_path)?;
     let endpoint = wait(service.home.path())?;
     assert_eq!(tunnel_ready(&endpoint)?, named_origin);
+    let status = host::share(&endpoint, &Share::Status)?;
+    assert_eq!(status.tunnel_invite_expires_at, Some(expiry));
     assert_eq!(
-        host::share(&endpoint, &Share::Status)?.tunnel_invite_expires_at,
-        Some(expiry)
+        status.tunnel_pairing_id.as_deref(),
+        Some(invite_id.as_str())
     );
     let redeem = |code: &str| {
         client
@@ -283,8 +286,16 @@ fn tunnel_modes_use_the_paired_public_gateway() -> Result<()> {
     assert!(host::share(&endpoint, &Share::Status)?
         .tunnel_invite_expires_at
         .is_none());
-    let second = create_invite(&endpoint)?.pairing_url.unwrap();
+    let second = create_invite(&endpoint)?;
+    assert_ne!(
+        second.tunnel_pairing_id.as_deref(),
+        Some(invite_id.as_str())
+    );
+    let second = second.pairing_url.unwrap();
     host::share(&endpoint, &Share::TunnelRevoke)?;
+    assert!(host::share(&endpoint, &Share::Status)?
+        .tunnel_pairing_id
+        .is_none());
     assert_eq!(
         redeem(second.split_once("?auth=").unwrap().1)?.status(),
         401
@@ -554,9 +565,14 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
             .status(),
         421
     );
+    let previous = share(Pair)?.lan_pairing_id.context("缺少局域网配对标识")?;
     let pairing = share(Pair)?;
+    assert_ne!(pairing.lan_pairing_id.as_deref(), Some(previous.as_str()));
     let link = pairing.pairing_url.unwrap();
-    share(Enable { address: Some(ip) })?;
+    assert_eq!(
+        share(Enable { address: Some(ip) })?.lan_pairing_id,
+        pairing.lan_pairing_id
+    );
     assert_eq!(pairing.pairing_urls, vec![link.clone()]);
     let prefix = url("/?auth=");
     let code = link.strip_prefix(&prefix).context("配对链接格式错误")?;
@@ -577,6 +593,7 @@ fn gateway_pairs_proxies_and_revokes_without_exposing_upstream_credentials() -> 
     assert_eq!(exchange("http://unrelated.invalid")?.status(), 403);
     let paired = exchange(&origin)?;
     assert_eq!(paired.status(), 204);
+    assert!(share(Status)?.lan_pairing_id.is_none());
     let cookie = paired.headers()["set-cookie"]
         .to_str()?
         .split(';')

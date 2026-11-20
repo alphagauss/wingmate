@@ -66,6 +66,7 @@ pub(super) fn authorize(app: &AppHandle, origin: &str) -> tauri::Result<()> {
             .permission("allow-backend-settings")
             .permission("allow-window-chrome")
             .permission("allow-open-connections")
+            .permission("allow-workspace-connections")
             .permission("allow-local-share"),
     )
 }
@@ -117,6 +118,11 @@ pub(super) fn expose(
                 loginStartup: canRegisterStartup ? enabled => invoke('login_startup', {{ instance, enabled }}) : undefined,
                 dshCommand: canRegisterDsh ? enabled => invoke('dsh_command', {{ instance, enabled }}) : undefined,
                 share: command => invoke('local_share', {{ command, instance }}),
+                connectionHistory: () => invoke('connection_history', {{ instance }}),
+                connectRemote: (link, password, requested) => invoke('connect_remote', {{ link, password, requested, instance }}),
+                scanLan: scan => invoke('scan_lan', {{ scan, instance }}),
+                cancelLanScan: scan => invoke('cancel_lan_scan', {{ scan, instance }}),
+                openLanPassword: () => invoke('open_lan_password', {{ instance }}),
                 openConnections: showConnectionShortcut ? () => invoke('open_connections') : undefined,
                 manage: action => invoke('manage_backend', {{ action, instance }}),
                 restartDsh: () => invoke('manage_backend', {{ action: 'restart_dsh', instance }}),

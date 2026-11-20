@@ -1,5 +1,5 @@
 const { invoke } = window.__TAURI_INTERNALS__;
-const { theme, origin, anchor } = window.wingmateConnections;
+const { theme, origin, anchor, passwordOnly } = window.wingmateConnections;
 const panel = document.querySelector('dialog');
 const tabs = [...document.querySelectorAll('[role="tab"]')];
 const form = document.querySelector('form');
@@ -23,6 +23,10 @@ const shareAddressOptions = document.getElementById('share-address-options');
 const key = 'wingmate-remote-hosts';
 
 document.documentElement.dataset.theme = theme;
+if (passwordOnly) {
+  document.documentElement.dataset.passwordOnly = '';
+  document.getElementById('heading').textContent = '管理局域网密码';
+}
 document.documentElement.style.setProperty('--anchor-top', `${anchor.top}px`);
 document.documentElement.style.setProperty(
   '--anchor-right',
@@ -80,7 +84,7 @@ document.addEventListener('pointerdown', (event) => {
   }
 });
 
-function savedHosts() {
+function legacyHosts() {
   try {
     const saved = JSON.parse(localStorage.getItem(key) ?? '[]');
     return Array.isArray(saved)
@@ -91,8 +95,21 @@ function savedHosts() {
   }
 }
 
-const saved = savedHosts();
-if (saved.length) {
+const recent = passwordOnly
+  ? Promise.resolve([])
+  : invoke('connection_history', { legacy: legacyHosts() })
+      .then((hosts) => {
+        try {
+          localStorage.removeItem(key);
+        } catch {
+          // The shared history remains available without WebView storage.
+        }
+        return hosts;
+      })
+      .catch(legacyHosts);
+
+recent.then((saved) => {
+  if (!saved.length) return;
   const hosts = document.getElementById('saved');
   const trigger = hostPicker;
   const value = document.getElementById('host-value');
@@ -198,7 +215,7 @@ if (saved.length) {
   link.addEventListener('input', () => {
     if (selected && selected !== link.value) selectHost('');
   });
-}
+});
 if (origin) {
   const current = document.getElementById('current');
   current.textContent = '当前主机 · ' + new URL(origin).host;
@@ -268,7 +285,11 @@ async function connectRemote(
   link.disabled = hostPicker.disabled = true;
   errorStatus.textContent = '';
   try {
-    const result = await invoke('connect_remote', { link: address, password });
+    const result = await invoke('connect_remote', {
+      link: address,
+      password,
+      requested: requestedAddress,
+    });
     if (result.needs_password || result.needs_pairing) {
       clearLogin();
       const item = lanLoginTemplate.content.firstElementChild.cloneNode(true);
@@ -302,14 +323,6 @@ async function connectRemote(
       }
       return;
     }
-    const requestedOrigin = new URL(requestedAddress).origin;
-    const recent = savedHosts().filter(
-      (item) => item !== result.origin && item !== requestedOrigin,
-    );
-    localStorage.setItem(
-      key,
-      JSON.stringify([result.origin, ...recent].slice(0, 20)),
-    );
     close();
   } catch (error) {
     errorStatus.textContent = String(error);
@@ -380,8 +393,14 @@ lanSearch.addEventListener('click', () => {
     lanStatus.textContent = '正在搜索…';
     lanSearch.textContent = '取消搜索';
     try {
-      const timedOut = await invoke('scan_lan', { saved: savedHosts(), scan });
+      await recent;
       if (scan !== scanGeneration) return;
+      const timedOut = await invoke('scan_lan', { scan });
+      if (scan !== scanGeneration) return;
+      if (timedOut === null) {
+        lanStatus.textContent = '已取消搜索';
+        return;
+      }
       const count = lanHosts.querySelectorAll('.lan-host').length;
       lanStatus.textContent = timedOut
         ? count
@@ -401,21 +420,60 @@ lanSearch.addEventListener('click', () => {
   })();
 });
 
-async function updateShare(action) {
-  // A new pairing invalidates the previous code even if its reply fails to arrive.
-  if (action === 'pair') shareResult.hidden = true;
-  const status = await invoke('local_share', { command: { action } });
-  localWebStatus.textContent = status.local_address
-    ? `本机浏览器 · ${status.local_address}`
-    : '本机 Web 入口不可用';
-  localPair.hidden = !status.local_address;
-  shareStatus.textContent =
-    status.web_error ??
-    (status.address ? `局域网分享 · ${status.address}` : '局域网分享已关闭');
-  shareEnable.hidden = Boolean(status.address);
-  sharePair.hidden = !status.address;
-  if (action === 'status') renderLanPassword(status.lan_password_enabled);
-  renderPairings(status.pairings ?? []);
+const sharePanel = document.getElementById('share');
+let sharePoll;
+let shareRequest = 0;
+let shareBusy = false;
+let lanPairingId;
+let lanPairingExpires;
+
+async function updateShare(action = 'status') {
+  clearTimeout(sharePoll);
+  const request = ++shareRequest;
+  shareBusy = action !== 'status';
+  if (action === 'pair') renderPairings([]);
+  try {
+    const status = await invoke('local_share', { command: { action } });
+    if (request !== shareRequest) return;
+    localWebStatus.textContent = status.local_address
+      ? `本机浏览器 · ${status.local_address}`
+      : '本机 Web 入口不可用';
+    localPair.hidden = !status.local_address;
+    shareStatus.textContent =
+      status.web_error ??
+      (status.address ? `局域网分享 · ${status.address}` : '局域网分享已关闭');
+    shareEnable.hidden = Boolean(status.address);
+    sharePair.hidden = !status.address;
+    if (
+      lanPasswordForm.hidden ||
+      status.lan_password_enabled !== lanPasswordEnabled
+    )
+      renderLanPassword(status.lan_password_enabled);
+    if (action === 'pair') {
+      lanPairingId = status.lan_pairing_id;
+      lanPairingExpires = status.pairing_expires_at;
+      renderPairings(status.pairings ?? []);
+    } else if (
+      selectedPairing &&
+      (!status.address ||
+        lanPairingExpires * 1000 <= Date.now() ||
+        (lanPairingId && lanPairingId !== status.lan_pairing_id))
+    ) {
+      renderPairings([]);
+    }
+  } catch (error) {
+    if (request === shareRequest) {
+      if (action !== 'status') throw error;
+      shareStatus.textContent = '无法读取分享状态';
+      renderPairings([]);
+      report(error);
+    }
+  } finally {
+    if (request === shareRequest) {
+      shareBusy = false;
+      if (!sharePanel.hidden) sharePoll = setTimeout(updateShare, 1500);
+    }
+  }
 }
 
 const lanPasswordForm = document.getElementById('lan-password-form');
@@ -580,7 +638,6 @@ document.addEventListener('pointerdown', (event) => {
     shareAddressPicker.open = false;
 });
 
-let shareStatusRequest;
 function selectTab(tab) {
   for (const item of tabs) {
     const selected = item === tab;
@@ -591,17 +648,11 @@ function selectTab(tab) {
   }
   message.textContent = '';
   clearTimeout(tunnelPoll);
+  clearTimeout(sharePoll);
   if (tab.id === 'tunnel-tab' && !tunnelBusy) updateTunnel();
   if (tab.id !== 'share-tab' && !lanPasswordForm.hidden)
     renderLanPassword(lanPasswordEnabled);
-  if (tab.id === 'share-tab' && !shareStatusRequest) {
-    shareStatus.textContent = '正在读取分享状态…';
-    shareStatusRequest = updateShare('status').catch((error) => {
-      shareStatusRequest = undefined;
-      shareStatus.textContent = '无法读取分享状态';
-      report(error);
-    });
-  }
+  if (tab.id === 'share-tab' && !shareBusy) updateShare();
 }
 
 for (const tab of tabs) {
@@ -842,19 +893,23 @@ async function updateTunnel(command = { action: 'status' }) {
     if (command.action === 'tunnel_pair' && status.pairings[0]) {
       showTunnelPairing({
         ...status.pairings[0],
+        id: status.tunnel_pairing_id,
         expires: status.pairing_expires_at,
         named: tunnel.mode === 'named',
       });
     } else if (
       tunnelPairing &&
       (tunnelPairing.expires * 1000 <= Date.now() ||
+        (tunnelPairing.id && tunnelPairing.id !== status.tunnel_pairing_id) ||
         (tunnelPairing.named && tunnelInviteExpires !== tunnelPairing.expires))
     )
       showTunnelPairing(null);
   } catch (error) {
     if (id !== tunnelRequest) return;
-    if (command.action === 'status') tunnelReadError = String(error);
-    else if (!tunnelPanel.hidden) report(error);
+    if (command.action === 'status') {
+      tunnelReadError = String(error);
+      showTunnelPairing(null);
+    } else if (!tunnelPanel.hidden) report(error);
   } finally {
     if (id === tunnelRequest) {
       tunnelBusy = false;
@@ -906,3 +961,5 @@ tunnelCopy.addEventListener('click', () =>
     }
   }),
 );
+
+if (passwordOnly) selectTab(document.getElementById('share-tab'));

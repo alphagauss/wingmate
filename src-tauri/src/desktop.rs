@@ -580,10 +580,12 @@ pub fn run(home: PathBuf) -> Result<()> {
             bridge::dsh_command,
             titlebar::window_chrome,
             connection_panel::open_connections,
+            connection_panel::open_lan_password,
             connection_panel::close_connections,
             remote::connect_remote,
             remote::scan_lan,
             remote::cancel_lan_scan,
+            remote::connection_history,
             connection_panel::open_tunnel_settings,
             remote::return_local,
             remote::local_share
@@ -607,6 +609,7 @@ pub fn run(home: PathBuf) -> Result<()> {
                             PageLoadEvent::Started => {
                                 popup::close_all(window.app_handle());
                                 connection_panel::dismiss(window.app_handle());
+                                remote::cancel_scan(&page_load, window.label(), None);
                             }
                             PageLoadEvent::Finished => {
                                 page_load.page.loaded(&window, event.url());

@@ -11,7 +11,12 @@ commands.allow = ["open_connections", "return_local"]
 [[permission]]
 identifier = "allow-remote-workbench"
 description = "Allows the connection popover to connect to a remote workbench and close itself."
-commands.allow = ["connect_remote", "scan_lan", "cancel_lan_scan", "close_connections", "open_tunnel_settings"]
+commands.allow = ["connect_remote", "scan_lan", "cancel_lan_scan", "connection_history", "close_connections", "open_tunnel_settings"]
+
+[[permission]]
+identifier = "allow-workspace-connections"
+description = "Allows the verified local workbench to operate its connection settings."
+commands.allow = ["connect_remote", "scan_lan", "cancel_lan_scan", "connection_history", "open_lan_password"]
 
 [[permission]]
 identifier = "allow-local-share"

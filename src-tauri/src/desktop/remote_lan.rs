@@ -1,4 +1,4 @@
-use super::{client, connection_panel, probe, target, Desktop, Identity};
+use super::{authorized, client, probe, target, Desktop, Identity};
 use anyhow::{ensure, Result};
 use futures_util::{stream, StreamExt};
 use std::{
@@ -36,8 +36,15 @@ pub(super) async fn scan(
     desktop: &Desktop,
     saved: Vec<String>,
     scan: u32,
+    instance: Option<&str>,
 ) -> Result<bool> {
     let client = client(true)?;
+    let origin = webview.url()?.origin().ascii_serialization();
+    let guard = if instance.is_some() {
+        format!("if (location.origin === {}) ", serde_json::json!(origin))
+    } else {
+        String::new()
+    };
     let local: HashSet<Ipv4Addr> = if_addrs::get_if_addrs()?
         .into_iter()
         .filter(|interface| interface.is_oper_up())
@@ -96,9 +103,9 @@ pub(super) async fn scan(
     };
 
     let publish = |url: Url, identity: Identity| -> Result<()> {
-        connection_panel::local_panel(webview, desktop).map_err(anyhow::Error::msg)?;
+        authorized(webview, desktop, instance).map_err(anyhow::Error::msg)?;
         let found = serde_json::json!({"origin": url.origin().ascii_serialization(), "name": identity.name});
-        webview.eval(format!("window.wingmateLanHost?.({scan}, {found})"))?;
+        webview.eval(format!("{guard}window.wingmateLanHost?.({scan}, {found})"))?;
         Ok(())
     };
     let mut probes = search(saved)

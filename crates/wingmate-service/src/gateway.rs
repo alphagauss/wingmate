@@ -83,6 +83,8 @@ pub struct ShareStatus {
     pub pairing_urls: Vec<String>,
     pub pairing_expires_at: Option<u64>,
     pub tunnel_invite_expires_at: Option<u64>,
+    pub lan_pairing_id: Option<String>,
+    pub tunnel_pairing_id: Option<String>,
     #[serde(default)]
     pub lan_password_enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -927,6 +929,17 @@ impl Control {
             .into_iter()
             .flat_map(|share| share.gateways.iter().map(|gateway| gateway.address))
             .collect();
+        let tunnel = web.tunnel.status(home, web.local_address());
+        let invite = auth
+            .named_invite
+            .as_ref()
+            .filter(|invite| invite.expires_at > now());
+        let pairing_id = |access| {
+            auth.pairing
+                .get(&access)
+                .filter(|(_, deadline)| *deadline > Instant::now())
+                .map(|(code, _)| digest(&code.to_string()))
+        };
         Ok(ShareStatus {
             address: lan_addresses.first().copied(),
             local_address: web.local_address(),
@@ -936,15 +949,17 @@ impl Control {
             pairing_url: pairing_urls.first().cloned(),
             pairing_urls,
             pairing_expires_at,
-            tunnel_invite_expires_at: auth
-                .named_invite
-                .as_ref()
-                .filter(|invite| invite.expires_at > now())
-                .map(|invite| invite.expires_at),
+            tunnel_invite_expires_at: invite.map(|invite| invite.expires_at),
+            lan_pairing_id: pairing_id(Access::Lan),
+            tunnel_pairing_id: if tunnel.mode == Some(tunnel::Mode::Named) {
+                invite.map(|invite| invite.hash.clone())
+            } else {
+                pairing_id(Access::Public)
+            },
             lan_password_enabled: auth.password.is_some(),
             lan_password,
             devices,
-            tunnel: Some(web.tunnel.status(home, web.local_address())),
+            tunnel: Some(tunnel),
         })
     }
 }

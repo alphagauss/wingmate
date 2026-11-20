@@ -82,6 +82,24 @@ pub(super) fn local_panel(webview: &Webview, desktop: &Desktop) -> Result<Webvie
     Err("Wingmate 连接浮层已关闭".into())
 }
 
+pub(super) fn workspace_source(
+    webview: &Webview,
+    desktop: &Desktop,
+    instance: &str,
+) -> Result<(), String> {
+    let url = webview.url().map_err(|error| error.to_string())?;
+    let current = desktop.connection.lock().unwrap();
+    let workspace = current.workspace().ok_or("本机后台尚未连接")?;
+    if webview.label() != desktop.window_label
+        || url.path() == "/_wingmate/desktop"
+        || workspace.state.instance != instance
+        || workspace.origin != url.origin().ascii_serialization()
+    {
+        return Err("此页面不能操作本机 Wingmate 连接".into());
+    }
+    Ok(())
+}
+
 fn panel(app: &AppHandle) -> Option<Webview> {
     app.webviews()
         .into_values()
@@ -114,13 +132,29 @@ pub(super) fn open(
     desktop: &Desktop,
     anchor: Option<Anchor>,
 ) -> Result<(), String> {
+    open_panel(webview, desktop, anchor, None)
+}
+
+fn open_panel(
+    webview: &Webview,
+    desktop: &Desktop,
+    anchor: Option<Anchor>,
+    password_instance: Option<&str>,
+) -> Result<(), String> {
     // Callers run off the UI thread so WebView2 can finish creating the child.
     static OPEN: Mutex<()> = Mutex::new(());
     let _open = OPEN.lock().unwrap();
-    local_entry(webview, desktop)?;
+    let authorize = || match password_instance {
+        Some(instance) => workspace_source(webview, desktop, instance),
+        None => local_entry(webview, desktop),
+    };
+    authorize()?;
     let app = webview.app_handle();
     if let Some(panel) = panel(app) {
-        return panel.set_focus().map_err(|error| error.to_string());
+        if password_instance.is_none() {
+            return panel.set_focus().map_err(|error| error.to_string());
+        }
+        close_panel(&panel, desktop).map_err(|error| error.to_string())?;
     }
 
     let (theme, origin) = {
@@ -136,7 +170,10 @@ pub(super) fn open(
         right: 12.,
         top: 40.,
     });
-    let args = serde_json::json!({"theme": theme, "origin": origin, "anchor": anchor});
+    let args = serde_json::json!({
+        "theme": theme, "origin": origin, "anchor": anchor,
+        "passwordOnly": password_instance.is_some(),
+    });
     let url = desktop.page.connections();
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let label = format!("{PREFIX}{}", NEXT.fetch_add(1, Ordering::Relaxed));
@@ -156,7 +193,7 @@ pub(super) fn open(
     let panel = owner
         .add_child(builder, PhysicalPosition::new(0, 0), size)
         .map_err(|error| error.to_string())?;
-    if let Err(error) = local_entry(webview, desktop) {
+    if let Err(error) = authorize() {
         let _ = close_panel(&panel, desktop);
         return Err(error);
     }
@@ -175,6 +212,15 @@ pub(super) async fn open_connections(
     anchor: Option<Anchor>,
 ) -> Result<(), String> {
     open(&webview, &desktop, anchor)
+}
+
+#[tauri::command]
+pub(super) async fn open_lan_password(
+    webview: Webview,
+    desktop: State<'_, Arc<Desktop>>,
+    instance: String,
+) -> Result<(), String> {
+    open_panel(&webview, &desktop, None, Some(&instance))
 }
 
 #[tauri::command]
