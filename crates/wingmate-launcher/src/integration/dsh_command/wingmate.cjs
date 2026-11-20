@@ -6,7 +6,7 @@ import('node:child_process').then(({ spawnSync }) => {
   });
   if (result.error?.code === 'ENOENT') {
     console.error(
-      'Wingmate moved. Register the terminal commands again in Wingmate settings.',
+      'Wingmate moved. Run install using the executable at its new path.',
     );
   } else if (result.error) {
     console.error(result.error.message);

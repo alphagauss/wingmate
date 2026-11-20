@@ -16,8 +16,7 @@
 - 远程工作台使用独立 WebView，连接浮层由主窗口内单独的本地 WebView 承载。远程页面经当前主机的网关管理其后台；桌面仅向当前远程工作台授权「返回本机」。本机命令注册、系统目录与窗口权限只授予本地应用和经验证的本机工作台。
 - 本机工作台的分享详情页可发起连接和局域网搜索。桌面宿主复核来源和业务实例。查看、保存和停用本机局域网密码在独立的本地密码弹窗中执行。
 - Windows、macOS 及支持 XDG Autostart 的 Linux 桌面可在发行版的「设置 → 后台服务」为当前用户注册登录启动，默认关闭。登录时调用 Wingmate 的 `start`，使用能找到 Node 的 PATH。Windows 和 Linux 沿用登录会话的 PATH，macOS 登录项使用注册时 Wingmate 进程的 PATH。请将可执行文件放在固定位置，移动后可从设置重新注册。
-- Windows、macOS 和 Linux 的发行版可在「设置 → 后台服务」启用终端命令，默认关闭。打开新终端后，`wingmate --help` 或 `wingmate -h` 会列出后台管理命令。启动器指向注册时的 Wingmate 程序和后台管理目录，`dsh` 则使用该后台的 DSH 运行时和数据目录，并按上游规则启动独立的 Profile。移动 Wingmate 或切换运行包后，可在设置中重新注册。
-- Windows 将启动器目录放在用户 PATH 的最前面，系统 PATH 和 shell 别名仍可优先。macOS 和 Linux 通过 Bash 的交互和登录配置、Zsh 的交互配置、Fish 的用户配置，将 `~/.wingmate/bin` 放到 PATH 前面。使用其他 shell 时可在其配置中加入该目录。关闭开关会删除 Wingmate 启动器及其管理的 PATH 配置，已安装的其他 `dsh` 可继续使用。
+- Windows、macOS 和 Linux 的发行版可在「设置 → 后台服务」启用 `wingmate` 和 `dsh` 终端命令，默认关闭。移动 Wingmate 或切换运行包后，可在设置中重新注册。启动器和 PATH 的行为见[终端命令注册](../crates/wingmate-launcher/README.md#终端命令注册)。
 - 后台和管理命令通过独立发行入口在没有窗口或 GUI 依赖时工作，界面层不复制一套后台生命周期策略。
 
 自有界面的范围见 [桌面前端](../apps/desktop/README.md)。

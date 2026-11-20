@@ -23,27 +23,18 @@ fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let command = args.next();
     let remaining: Vec<_> = args.collect();
-    let max = if matches!(
-        command.as_deref(),
+    let max = match command.as_deref() {
+        Some("install") => 2,
         Some(
-            "commands"
-                | "login-startup"
-                | "internal-restart"
-                | "share-enable"
-                | "share-revoke"
-                | "tunnel-configure"
-                | "tunnel-start"
-                | "tunnel-pair"
-        )
-    ) {
-        1
-    } else {
-        0
+            "commands" | "login-startup" | "internal-restart" | "share-enable" | "share-revoke"
+            | "tunnel-configure" | "tunnel-start" | "tunnel-pair",
+        ) => 1,
+        _ => 0,
     };
     anyhow::ensure!(remaining.len() <= max, "命令参数过多");
     let mut args = remaining.into_iter();
     if matches!(command.as_deref(), Some("--help" | "-h")) {
-        println!("用法: wingmate [命令]\n\n无参数         打开桌面\nstart          准备运行内容并启动业务后台\nstatus         查看业务后台状态\nstop           停止业务后台，保留管理服务\nrestart        重启业务后台并切换变更的服务和运行内容\nservice-status 查看管理服务状态\nservice-start  启动管理服务\nservice-stop   业务停止后退出管理服务\nservice-restart 业务停止后切换管理服务版本\nshare-status   查看 Web 入口及配对状态\nshare-enable [IPv4] 开启局域网分享\nshare-disable  关闭局域网分享\nshare-pair     生成局域网配对链接\nshare-pair-local 生成本机浏览器配对链接\nshare-revoke <设备 ID> 撤销已配对设备\ncommands [on|off] 注册或撤销终端命令\nlogin-startup [on|off] 设置登录启动\n-h, --help     显示帮助");
+        println!("用法: wingmate [命令]\n\n无参数         打开桌面\ninstall [--shell <powershell|sh|fish>] 为当前用户注册 wingmate，按需输出当前终端的 PATH 更新脚本\nstart          准备运行内容并启动业务后台\nstatus         查看业务后台状态\nstop           停止业务后台，保留管理服务\nrestart        重启业务后台并切换变更的服务和运行内容\nservice-status 查看管理服务状态\nservice-start  启动管理服务\nservice-stop   业务停止后退出管理服务\nservice-restart 业务停止后切换管理服务版本\nshare-status   查看 Web 入口及配对状态\nshare-enable [IPv4] 开启局域网分享\nshare-disable  关闭局域网分享\nshare-pair     生成局域网配对链接\nshare-pair-local 生成本机浏览器配对链接\nshare-revoke <设备 ID> 撤销已配对设备\ncommands [on|off] 注册或撤销终端命令\nlogin-startup [on|off] 设置登录启动\n-h, --help     显示帮助");
         println!("\n局域网密码\nshare-password-set 从标准输入读取密码\nshare-password-disable 停用密码登录\n\n公网隧道\ntunnel-configure <域名> 从标准输入读取 Tunnel Token 并保存具名配置\ntunnel-start <quick|named> 启动或切换公网隧道\ntunnel-status  查看公网隧道状态\ntunnel-stop    关闭公网隧道\ntunnel-pair [5m|24h] 生成公网配对链接\ntunnel-revoke-invite 撤销未使用的具名隧道邀请");
         return Ok(());
     }
@@ -137,6 +128,21 @@ fn run() -> Result<()> {
     let value = match command.as_deref() {
         #[cfg(feature = "desktop")]
         Some("internal-reopen-desktop") => return wingmate_launcher::reopen_desktop(&home),
+        Some("install") => {
+            let refresh = match (args.next().as_deref(), args.next().as_deref()) {
+                (None, None) => None,
+                (Some("--shell"), Some(shell)) => {
+                    Some(integration::dsh_command::shell_path_update(shell)?)
+                }
+                _ => bail!("用法：wingmate install [--shell <powershell|sh|fish>]"),
+            };
+            let status = integration::dsh_command::install(&home)?;
+            if let Some(refresh) = refresh {
+                println!("{refresh}");
+                return Ok(());
+            }
+            serde_json::to_value(status)?
+        }
         Some("start") => public_state(Some(service::start(&home)?)),
         Some("status") => public_state(service::status(&home)?),
         Some("stop") => {

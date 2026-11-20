@@ -49,14 +49,39 @@ pub fn configure(home: &Path, state: Option<Snapshot>, enabled: Option<bool>) ->
             .context("后台未提供 Agent 数据目录，请用当前版本重启后台后再注册")?;
         launcher(&entry, &dsh_home, &agents_home)
     };
+    configure_commands(home, enabled, Some(launcher))
+}
+
+pub fn install(home: &Path) -> Result<Status> {
+    anyhow::ensure!(SUPPORTED, "终端命令注册仅适用于支持此功能的发行版");
+    configure_commands(home, Some(true), None::<fn() -> Result<String>>)
+}
+
+pub fn shell_path_update(shell: &str) -> Result<&'static str> {
+    match shell {
+        #[cfg(windows)]
+        "powershell" => Ok(windows::POWERSHELL_PATH),
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        "sh" => Ok(unix::SH_PATH[0].trim()),
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        "fish" => Ok(unix::FISH_PATH[0].trim()),
+        _ => anyhow::bail!("当前平台不支持此 shell 的 PATH 更新：{shell}"),
+    }
+}
+
+fn configure_commands(
+    home: &Path,
+    enabled: Option<bool>,
+    dsh_launcher: Option<impl FnOnce() -> Result<String>>,
+) -> Result<Status> {
     let wingmate = wingmate_launcher(&super::executable()?, home)?;
     #[cfg(windows)]
-    return windows::configure(enabled, launcher, &wingmate);
+    return windows::configure(enabled, dsh_launcher, &wingmate);
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    return unix::configure(enabled, launcher, &wingmate);
+    return unix::configure(enabled, dsh_launcher, &wingmate);
     #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
-        let _ = (launcher, wingmate);
+        let _ = (enabled, dsh_launcher, wingmate);
         anyhow::bail!("此平台不支持注册终端命令")
     }
 }
