@@ -6,6 +6,8 @@
 
 Windows 发行入口在链接时内嵌 [桌面图标](../../src-tauri/README.md#品牌与桌面图标)，包括 `--headless` 发行。macOS 和 Linux 继续交付裸可执行文件，文件管理器使用系统默认图标。桌面品牌图标由运行中的桌面组件提供。
 
+桌面进程和发行入口的诊断位置见[运行时调试](../../docs/runtime-debugging.md#后台与发行产物)。
+
 引导操作由 `bootstrap.lock` 串行化，业务组件安装和回收与服务启停共用 `operation.lock`。`wingmate restart` 停止业务并切换发行入口携带的变更组件。服务指纹变化时同时更换管理服务。组件发布与回收见[运行时维护指南](../../docs/runtime-maintenance.md#释放与复用)。
 
 `stop` 停止业务并保留管理服务；`service-stop` 仅在业务已停止时退出服务。服务意外退出后，`start` 可恢复管理连接。当前不提供旧发现协议的迁移路径。

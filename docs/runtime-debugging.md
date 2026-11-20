@@ -83,7 +83,9 @@ socket.addEventListener('message', ({ data }) => {
 
 ## 后台与发行产物
 
-后台问题先运行同一构建产物的 `status` 和 `service-status`，区分业务停止与管理服务退出。开发版日志在 `work/dev/wingmate/service.log`，发行版在当前管理目录的 `service.log`。启动或停止异常时，把日志与 CLI 返回的阶段、实例标识及 Node PID 对照。桌面宿主的启动错误看启动终端，前端异常看 CDP Console。分享日志、请求或目标列表前移除凭据和完整登录链接。
+后台问题先运行同一构建产物的 `status` 和 `service-status`，区分业务停止与管理服务退出。开发版日志在 `work/dev/wingmate/service.log`，发行版在当前管理目录的 `service.log`。启动或停止异常时，把日志与 CLI 返回的阶段、实例标识及 Node PID 对照。
+
+Linux 发行版的桌面进程及其 WebKit 子进程将标准输出和错误输出追加到当前管理目录的 `desktop.log`。发行入口自身的错误仍显示在启动终端。开发版的桌面输出看 `pnpm dev` 的启动终端，前端异常看 CDP Console。分享日志、请求或目标列表前移除凭据和完整登录链接。
 
 符合[发行版验证条件](../scripts/README.md#验证边界)时，使用 `pnpm build` 的产物复验。先用 `pnpm test:smoke` 检查复制出来的 EXE、后台生命周期和 DSH Web 认证。需要检查真实发行窗口时，在 `work/tests` 下创建本次专用目录，把复制出的 EXE、调试脚本、浏览器资料和 `WINGMATE_HOME`、`DSH_HOME`、`DSH_AGENTS_HOME`、`WEBVIEW2_USER_DATA_FOLDER` 对应的绝对路径都放在该目录内。设置空闲的 CDP 端口。对只在发行版出现的白屏，在 CDP 中记录首条异常堆栈和失败的资源请求。
 

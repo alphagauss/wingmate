@@ -46,7 +46,7 @@ const executable = join(
 );
 const env = {
   ...process.env,
-  WINGMATE_HOME: join(work, 'wingmate'),
+  WINGMATE_HOME: join(work, 'wingmate-home'),
   DSH_HOME: join(work, 'dsh'),
   DSH_AGENTS_HOME: join(work, 'agents'),
 };

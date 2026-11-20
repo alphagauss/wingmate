@@ -1,9 +1,13 @@
 use crate::{components, service::bootstrap_lock};
+#[cfg(target_os = "linux")]
+use anyhow::Context;
 use anyhow::Result;
+#[cfg(not(target_os = "linux"))]
+use std::process::Stdio;
 use std::{
     io::{self, Write},
     path::Path,
-    process::{Command, Stdio},
+    process::Command,
     thread,
     time::{Duration, Instant},
 };
@@ -69,6 +73,21 @@ fn spawn_desktop(home: &Path, binary: &Path, action: Option<&str>) -> Result<()>
     if let Some(action) = action {
         command.env("WINGMATE_DESKTOP_ACTION", action);
     }
+    #[cfg(target_os = "linux")]
+    let log_path = {
+        use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt};
+
+        let path = home.join("desktop.log");
+        let log = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .open(&path)
+            .with_context(|| format!("无法打开桌面日志 {}", path.display()))?;
+        command.stdout(log.try_clone()?).stderr(log);
+        path
+    };
+    #[cfg(not(target_os = "linux"))]
     if action == Some("reopen") {
         command.stdout(Stdio::null());
     }
@@ -86,5 +105,7 @@ fn spawn_desktop(home: &Path, binary: &Path, action: Option<&str>) -> Result<()>
         let _ = child.kill();
         let _ = child.wait();
     }
+    #[cfg(target_os = "linux")]
+    let result = result.with_context(|| format!("请检查桌面日志 {}", log_path.display()));
     result
 }
