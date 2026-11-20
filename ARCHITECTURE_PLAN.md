@@ -204,7 +204,7 @@ flowchart LR
 
 跨设备验证使用局域网手机或另一台电脑，确认网络可达性、扫码配对与实际长连接。Windows 同机双端、独立会话与业务停机恢复的实际范围见[验证记录](docs/records/2026-11-11-lan-gateway.md)。
 
-SSH 留待局域网交付后单独定案。候选方式是在服务器执行 `wingmate` 命令引导宿主，再通过 SSH 端口转发进入同一个 Wingmate 网关。
+SSH 客户端接入另行安排。服务器端已有无界面引导、网关地址查询和按需配对命令，可通过 SSH 端口转发复用现有 Web 入口。手动连接的命令与端口要求见[发行入口](crates/wingmate-launcher/README.md#cli-连接与诊断)。
 
 ### B3 Cloudflare 公网隧道
 

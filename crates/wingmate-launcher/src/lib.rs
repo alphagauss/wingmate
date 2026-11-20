@@ -5,6 +5,7 @@ mod desktop;
 #[cfg(not(any(feature = "bundled-runtime", feature = "release-client")))]
 pub mod development;
 pub mod integration;
+pub mod management;
 #[cfg(windows)]
 mod process_wait;
 mod runtime;

@@ -49,12 +49,17 @@ pub fn configure(home: &Path, state: Option<Snapshot>, enabled: Option<bool>) ->
             .context("后台未提供 Agent 数据目录，请用当前版本重启后台后再注册")?;
         launcher(&entry, &dsh_home, &agents_home)
     };
-    configure_commands(home, enabled, Some(launcher))
+    configure_commands(Some(home), enabled, Some(launcher))
 }
 
 pub fn install(home: &Path) -> Result<Status> {
     anyhow::ensure!(SUPPORTED, "终端命令注册仅适用于支持此功能的发行版");
-    configure_commands(home, Some(true), None::<fn() -> Result<String>>)
+    configure_commands(Some(home), Some(true), None::<fn() -> Result<String>>)
+}
+
+pub fn uninstall() -> Result<Status> {
+    anyhow::ensure!(SUPPORTED, "终端命令注册仅适用于支持此功能的发行版");
+    configure_commands(None, Some(false), None::<fn() -> Result<String>>)
 }
 
 pub fn shell_path_update(shell: &str) -> Result<&'static str> {
@@ -70,11 +75,14 @@ pub fn shell_path_update(shell: &str) -> Result<&'static str> {
 }
 
 fn configure_commands(
-    home: &Path,
+    home: Option<&Path>,
     enabled: Option<bool>,
     dsh_launcher: Option<impl FnOnce() -> Result<String>>,
 ) -> Result<Status> {
-    let wingmate = wingmate_launcher(&super::executable()?, home)?;
+    let wingmate = home
+        .map(|home| wingmate_launcher(&super::executable()?, home))
+        .transpose()?
+        .unwrap_or_default();
     #[cfg(windows)]
     return windows::configure(enabled, dsh_launcher, &wingmate);
     #[cfg(any(target_os = "linux", target_os = "macos"))]

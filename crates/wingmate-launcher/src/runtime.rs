@@ -534,6 +534,17 @@ pub fn quiet(command: &mut Command) -> &mut Command {
 }
 
 pub fn node() -> Result<PathBuf> {
+    Ok(node_info()?.path)
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct NodeInfo {
+    path: PathBuf,
+    version: String,
+    arch: String,
+}
+
+pub(crate) fn node_info() -> Result<NodeInfo> {
     let mut command = Command::new("node");
     quiet(&mut command);
     let output = command
@@ -562,7 +573,12 @@ pub fn node() -> Result<PathBuf> {
         parts.len() == 3 && (parts[0] > 24 || parts[0] == 24 && parts[1] >= 9),
         "需要 Node.js >=24.9.0，当前 {version}"
     );
-    Ok(PathBuf::from(
-        value["path"].as_str().context("Node 未返回路径")?,
-    ))
+    Ok(NodeInfo {
+        path: PathBuf::from(value["path"].as_str().context("Node 未返回路径")?),
+        version: version.to_owned(),
+        arch: value["arch"]
+            .as_str()
+            .context("Node 未返回架构")?
+            .to_owned(),
+    })
 }

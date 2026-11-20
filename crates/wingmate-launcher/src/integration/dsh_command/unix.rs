@@ -99,10 +99,9 @@ fn configure_in(
                 .is_some_and(|text| text.starts_with(owner))
         }
     };
+    let open_dsh = || CommandFile::open(&bin, "dsh", owned(OWNER));
     let dsh = dsh_launcher
-        .map(|launcher| -> Result<_> {
-            Ok((CommandFile::open(&bin, "dsh", owned(OWNER))?, launcher))
-        })
+        .map(|launcher| -> Result<_> { Ok((open_dsh()?, launcher)) })
         .transpose()?;
     let wingmate_file = CommandFile::open(&bin, "wingmate", owned(WINGMATE_OWNER))?;
     let wingmate = format!("{SHEBANG}{wingmate}");
@@ -145,14 +144,16 @@ fn configure_in(
             })
         }
         Some(false) => {
-            for (path, blocks, _) in profiles.into_iter().chain(
-                login_profiles
-                    .iter()
-                    .filter(|path| *path != bash_login)
-                    .map(|path| (path, SH_PATH, false)),
-            ) {
-                update_profile(path, blocks, false, false)
-                    .with_context(|| format!("更新 {}", path.display()))?;
+            if dsh.is_some() || open_dsh()?.current.is_none() {
+                for (path, blocks, _) in profiles.into_iter().chain(
+                    login_profiles
+                        .iter()
+                        .filter(|path| *path != bash_login)
+                        .map(|path| (path, SH_PATH, false)),
+                ) {
+                    update_profile(path, blocks, false, false)
+                        .with_context(|| format!("更新 {}", path.display()))?;
+                }
             }
             wingmate_file.remove()?;
             if let Some((file, _)) = dsh {
@@ -297,6 +298,18 @@ mod tests {
                 != 0
         );
         assert!(wingmate_path.metadata()?.permissions().mode() & 0o100 != 0);
+        let removed = configure_in(
+            home,
+            &zsh,
+            &fish,
+            Some(false),
+            None::<fn() -> Result<String>>,
+            "",
+        )?;
+        assert!(!removed.enabled && !wingmate_path.exists());
+        assert!(home.join(".wingmate/bin/dsh").exists());
+        assert!(fs::read_to_string(&bash_target)?.starts_with(SH_PATH[0]));
+        assert!(configure(None)?.needs_update);
         assert!(!configure(Some(false))?.enabled);
         assert_eq!(fs::read_to_string(bash_target)?, original);
         assert_eq!(fs::read_to_string(home.join(".bash_login"))?, original);
@@ -327,18 +340,18 @@ mod tests {
         fs::write(home.join(".bashrc"), original)?;
         symlink(home.join(".bashrc"), home.join(".bash_profile"))?;
         let wingmate = super::super::wingmate_launcher(&home.join("release"), home)?;
-        let install = || {
+        let configure_wingmate = |enabled| {
             configure_in(
                 home,
                 home,
                 home,
-                Some(true),
+                Some(enabled),
                 None::<fn() -> Result<String>>,
                 &wingmate,
             )
         };
-        assert!(install()?.enabled);
-        assert!(install()?.enabled);
+        assert!(configure_wingmate(true)?.enabled);
+        assert!(configure_wingmate(true)?.enabled);
         let bin = home.join(".wingmate/bin");
         assert!(!bin.join("dsh").exists());
         let output = std::process::Command::new("bash")
@@ -356,6 +369,10 @@ mod tests {
             format!("{}{original}", SH_PATH[0])
         );
         assert_eq!(fs::read_to_string(home.join(".zshenv"))?, SH_PATH[0]);
+        assert!(!configure_wingmate(false)?.enabled);
+        assert!(!configure_wingmate(false)?.enabled);
+        assert!(!bin.join("wingmate").exists());
+        assert_eq!(fs::read_to_string(home.join(".bashrc"))?, original);
         Ok(())
     }
 }

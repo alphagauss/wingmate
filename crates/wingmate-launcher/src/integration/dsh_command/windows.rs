@@ -8,8 +8,13 @@ use winreg::{
 };
 
 const CMD: &str = "@setlocal DisableDelayedExpansion\r\n@node \"%~dp0dsh.cjs\" %*\r\n";
-const WINGMATE_CMD: &str =
+const LEGACY_WINGMATE_CMD: &str =
     "@setlocal DisableDelayedExpansion\r\n@node \"%~dp0wingmate.cjs\" %*\r\n";
+const WINGMATE_CMD: &str =
+    "@setlocal DisableDelayedExpansion\r\n@\"%~dp0internal\\wingmate.cmd\" %*\r\n";
+// Chain without CALL so cmd.exe can finish even when uninstall removes the public entry point.
+const WINGMATE_DISPATCH: &str =
+    "@setlocal DisableDelayedExpansion\r\n@node \"%~dp0..\\wingmate.cjs\" %*\r\n";
 pub(super) const POWERSHELL_PATH: &str = concat!(
     r"& { $bin = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Wingmate\bin'; ",
     r"$rest = @(); if ($env:Path) { $rest = @($env:Path -split ';' | Where-Object { $_.TrimEnd([char[]]'\/') -ne $bin }) }; ",
@@ -74,24 +79,40 @@ fn configure_in(
     };
     let registered = path.split(';').any(is_ours);
     let first = path.split(';').next().is_some_and(is_ours);
+    let open_dsh = || -> Result<_> {
+        Ok((
+            CommandFile::open(bin, "dsh.cmd", |text| text == CMD)?,
+            CommandFile::open(bin, "dsh.cjs", |text| text.starts_with(OWNER))?,
+        ))
+    };
     let dsh = dsh_launcher
         .map(|launcher| -> Result<_> {
-            Ok((
-                CommandFile::open(bin, "dsh.cmd", |text| text == CMD)?,
-                CommandFile::open(bin, "dsh.cjs", |text| text.starts_with(OWNER))?,
-                launcher,
-            ))
+            let (cmd, script) = open_dsh()?;
+            Ok((cmd, script, launcher))
         })
         .transpose()?;
-    let wingmate_cmd = CommandFile::open(bin, "wingmate.cmd", |text| text == WINGMATE_CMD)?;
+    let wingmate_cmd = CommandFile::open(bin, "wingmate.cmd", |text| {
+        text == WINGMATE_CMD || text == LEGACY_WINGMATE_CMD
+    })?;
     let wingmate_script =
         CommandFile::open(bin, "wingmate.cjs", |text| text.starts_with(WINGMATE_OWNER))?;
+    let open_dispatch = || {
+        CommandFile::open(bin, "internal/wingmate.cmd", |text| {
+            text == WINGMATE_DISPATCH
+        })
+    };
 
     let without_launcher = || {
         path.split(';')
             .filter(|part| !is_ours(part))
             .collect::<Vec<_>>()
             .join(";")
+    };
+    let keep_path = if enabled == Some(false) && dsh.is_none() {
+        let (cmd, script) = open_dsh()?;
+        cmd.current.is_some() || script.current.is_some()
+    } else {
+        false
     };
     let next_path = match enabled {
         Some(true) if !first => {
@@ -102,13 +123,15 @@ fn configure_in(
                 format!("{bin_text};{rest}")
             })
         }
-        Some(false) if registered => Some(without_launcher()),
+        Some(false) if registered && !keep_path => Some(without_launcher()),
         _ => None,
     };
     if enabled == Some(true) {
-        for file in [&wingmate_cmd, &wingmate_script] {
+        let dispatch = open_dispatch()?;
+        for file in [&wingmate_cmd, &wingmate_script, &dispatch] {
             file.ensure_available()?;
         }
+        std::fs::create_dir_all(bin.join("internal"))?;
         if let Some((cmd, script, launcher)) = dsh {
             cmd.ensure_available()?;
             script.ensure_available()?;
@@ -119,7 +142,11 @@ fn configure_in(
                 }
             }
         }
-        for (file, content) in [(&wingmate_script, wingmate), (&wingmate_cmd, WINGMATE_CMD)] {
+        for (file, content) in [
+            (&dispatch, WINGMATE_DISPATCH),
+            (&wingmate_script, wingmate),
+            (&wingmate_cmd, WINGMATE_CMD),
+        ] {
             if file.current.as_deref() != Some(content) {
                 file.install(content)?;
             }
@@ -140,7 +167,8 @@ fn configure_in(
                         || script.current.is_none()
                         || launcher().ok() != script.current
                 })
-                || wingmate_cmd.current.is_none()
+                || wingmate_cmd.current.as_deref() != Some(WINGMATE_CMD)
+                || open_dispatch()?.current.is_none()
                 || wingmate_script.current.as_deref() != Some(wingmate));
         return Ok((
             Status {
@@ -225,6 +253,8 @@ if ($env:Path -cne $bin) {{ throw 'Unexpected PATH from an empty session' }}
                     &wingmate,
                 )
             };
+            let uninstall =
+                || configure_in(&test, &bin, Some(false), None::<fn() -> Result<String>>, "");
             let path = r"%USERPROFILE%\bin;C:\Tools";
             let (environment, _) = test.create_subkey("Environment")?;
             let mut original = path.to_reg_value();
@@ -237,6 +267,11 @@ if ($env:Path -cne $bin) {{ throw 'Unexpected PATH from an empty session' }}
             assert!(!bin.join("dsh.cmd").exists() && !bin.join("dsh.cjs").exists());
             assert!(bin.join("wingmate.cmd").exists() && bin.join("wingmate.cjs").exists());
             assert!(!install()?.1);
+            assert!(uninstall()?.1);
+            assert!(!uninstall()?.1);
+            assert!(!bin.join("wingmate.cmd").exists() && !bin.join("wingmate.cjs").exists());
+            assert_eq!(environment.get_raw_value("Path")?, original);
+            install()?;
             let (status, changed) = configure(Some(true))?;
             assert!(status.enabled && !changed);
             let registered = environment.get_raw_value("Path")?;
@@ -257,6 +292,10 @@ if ($env:Path -cne $bin) {{ throw 'Unexpected PATH from an empty session' }}
             assert!(configure(None)?.0.needs_update);
             assert!(!configure(Some(true))?.1);
             assert!(!configure(None)?.0.needs_update);
+            fs::write(bin.join("wingmate.cmd"), LEGACY_WINGMATE_CMD)?;
+            assert!(configure(None)?.0.needs_update);
+            assert!(!install()?.1);
+            assert_eq!(fs::read_to_string(bin.join("wingmate.cmd"))?, WINGMATE_CMD);
             assert!(
                 configure_in(
                     &test,
@@ -298,6 +337,30 @@ if ($env:Path -cne $bin) {{ throw 'Unexpected PATH from an empty session' }}
             );
             assert!(String::from_utf8_lossy(&output.stdout)
                 .contains("integration::dsh_command::windows::tests::registration_round_trip"));
+
+            fs::write(
+                bin.join("wingmate.cjs"),
+                format!(
+                    "{WINGMATE_OWNER}if (process.argv[3] === 'argument & ! value') require('node:fs').unlinkSync(__filename.replace(/cjs$/, 'cmd')); else process.exitCode = 7;"
+                ),
+            )?;
+            let output = std::process::Command::new(bin.join("wingmate.cmd"))
+                .arg("uninstall")
+                .arg("argument & ! value")
+                .output()?;
+            assert!(
+                output.status.success() && output.stderr.is_empty(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(!bin.join("wingmate.cmd").exists());
+
+            let (status, changed) = uninstall()?;
+            assert!(!status.enabled && !changed);
+            assert!(bin.join("dsh.cmd").exists() && bin.join("dsh.cjs").exists());
+            assert!(!bin.join("wingmate.cmd").exists() && !bin.join("wingmate.cjs").exists());
+            assert_eq!(environment.get_raw_value("Path")?, registered);
+            assert!(configure(None)?.0.needs_update);
 
             let (status, changed) = configure(Some(false))?;
             assert!(!status.enabled && changed);

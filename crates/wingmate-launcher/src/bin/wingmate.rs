@@ -2,7 +2,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 use anyhow::{bail, Result};
 use wingmate_launcher::{
-    integration,
+    integration, management,
     service::{self, ShareCommand, TunnelMode},
 };
 fn main() {
@@ -24,10 +24,11 @@ fn run() -> Result<()> {
     let command = args.next();
     let remaining: Vec<_> = args.collect();
     let max = match command.as_deref() {
+        Some("logs") => 3,
         Some("install") => 2,
         Some(
             "commands" | "login-startup" | "internal-restart" | "share-enable" | "share-revoke"
-            | "tunnel-configure" | "tunnel-start" | "tunnel-pair",
+            | "tunnel-configure" | "tunnel-start" | "tunnel-pair" | "connect-info",
         ) => 1,
         _ => 0,
     };
@@ -35,7 +36,17 @@ fn run() -> Result<()> {
     let mut args = remaining.into_iter();
     if matches!(command.as_deref(), Some("--help" | "-h")) {
         println!("用法: wingmate [命令]\n\n无参数         打开桌面\ninstall [--shell <powershell|sh|fish>] 为当前用户注册 wingmate，按需输出当前终端的 PATH 更新脚本\nstart          准备运行内容并启动业务后台\nstatus         查看业务后台状态\nstop           停止业务后台，保留管理服务\nrestart        重启业务后台并切换变更的服务和运行内容\nservice-status 查看管理服务状态\nservice-start  启动管理服务\nservice-stop   业务停止后退出管理服务\nservice-restart 业务停止后切换管理服务版本\nshare-status   查看 Web 入口及配对状态\nshare-enable [IPv4] 开启局域网分享\nshare-disable  关闭局域网分享\nshare-pair     生成局域网配对链接\nshare-pair-local 生成本机浏览器配对链接\nshare-revoke <设备 ID> 撤销已配对设备\ncommands [on|off] 注册或撤销终端命令\nlogin-startup [on|off] 设置登录启动\n-h, --help     显示帮助");
+        println!("--version      显示 Wingmate 版本\nuninstall      撤销 wingmate 命令注册，保留 dsh\nconnect-info [--pair] 输出本机网关 JSON，按需生成一次性配对链接\ndoctor         检查 Node.js、管理目录、管理服务及网关\nlogs [host|service] [--tail <行数>] 查看管理服务或业务后台的最近日志");
         println!("\n局域网密码\nshare-password-set 从标准输入读取密码\nshare-password-disable 停用密码登录\n\n公网隧道\ntunnel-configure <域名> 从标准输入读取 Tunnel Token 并保存具名配置\ntunnel-start <quick|named> 启动或切换公网隧道\ntunnel-status  查看公网隧道状态\ntunnel-stop    关闭公网隧道\ntunnel-pair [5m|24h] 生成公网配对链接\ntunnel-revoke-invite 撤销未使用的具名隧道邀请");
+        return Ok(());
+    }
+    if command.as_deref() == Some("--version") {
+        println!("wingmate {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    if command.as_deref() == Some("uninstall") {
+        let status = integration::dsh_command::uninstall()?;
+        println!("{}", serde_json::to_string_pretty(&status)?);
         return Ok(());
     }
     let home = wingmate_launcher::directory()?;
@@ -143,6 +154,16 @@ fn run() -> Result<()> {
             }
             serde_json::to_value(status)?
         }
+        Some("connect-info") => management::connect_info(
+            &home,
+            match args.next().as_deref() {
+                None => false,
+                Some("--pair") => true,
+                _ => bail!("用法：wingmate connect-info [--pair]"),
+            },
+        )?,
+        Some("doctor") => management::doctor(&home),
+        Some("logs") => return management::logs(&home, args),
         Some("start") => public_state(Some(service::start(&home)?)),
         Some("status") => public_state(service::status(&home)?),
         Some("stop") => {
