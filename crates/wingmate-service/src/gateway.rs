@@ -1341,10 +1341,11 @@ impl Gateway {
         if self.closed.is_cancelled() {
             return response(StatusCode::SERVICE_UNAVAILABLE, "本机 Web 入口已关闭");
         }
-        let mut reply = response(StatusCode::SEE_OTHER, "");
-        reply
-            .headers_mut()
-            .insert(header::LOCATION, header::HeaderValue::from_static("/"));
+        // Start a same-origin navigation so WebKit sends the Strict cookie.
+        let mut reply = html(
+            StatusCode::OK,
+            "<!doctype html><meta charset=utf-8><script>location.replace('/')</script>",
+        );
         if session.is_some_and(|session| session.active()) {
             return reply;
         }

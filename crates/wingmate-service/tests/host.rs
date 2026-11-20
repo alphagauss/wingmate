@@ -825,21 +825,20 @@ fn loopback_web_keeps_its_own_pairing_when_lan_is_disabled() -> Result<()> {
     };
     let desktop = ticket()?;
     let redeemed = client.get(&desktop).send()?;
-    assert_eq!(redeemed.status(), 303);
-    assert_eq!(redeemed.headers()["location"], "/");
-    let desktop_cookie = redeemed.headers()["set-cookie"]
-        .to_str()?
-        .split(';')
-        .next()
-        .unwrap();
+    assert_eq!(redeemed.status(), 200);
+    assert_eq!(redeemed.headers()["referrer-policy"], "no-referrer");
+    let desktop_cookie_header = redeemed.headers()["set-cookie"].to_str()?;
+    assert!(desktop_cookie_header.contains("SameSite=Strict"));
+    let desktop_cookie = desktop_cookie_header.split(';').next().unwrap();
     assert_eq!(status(desktop_cookie)?.status(), 200);
     assert_eq!(client.get(&desktop).send()?.status(), 401);
     let reused = client
         .get(ticket()?)
         .header("Cookie", desktop_cookie)
         .send()?;
-    assert_eq!(reused.status(), 303);
+    assert_eq!(reused.status(), 200);
     assert!(!reused.headers().contains_key("set-cookie"));
+    assert!(redeemed.text()?.contains("location.replace('/')"));
     assert_eq!(share(Status)?.devices.len(), 2);
     let stale = ticket()?;
     host::call(&endpoint, "stop", Some(instance))?;
