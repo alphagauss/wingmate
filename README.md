@@ -20,6 +20,8 @@ Wingmate 是一个面向个人使用的 DeepSeek Harness（DSH）发行版。可
 
 Linux 上，DSH 在 XDG 文档目录下创建 `deepseek-harness/default-workspace`。使用最小系统或 WSL 时，请确认 `xdg-user-dir DOCUMENTS` 能返回已配置的文档目录。文档目录不可用时，可在工作台里手动选择文件夹。
 
+Linux x64 的 `wingmate-linux-x64` 在 Ubuntu 24.04 上构建。下载后执行 `chmod +x wingmate-linux-x64`，再运行 `./wingmate-linux-x64` 打开桌面，或在无 GUI 的服务器运行 `./wingmate-linux-x64 start` 启动后台。启动环境的 PATH 须能找到前述版本的 Node.js。
+
 Word、PowerPoint 及部分扩展格式使用随包提供的 [File Viewer 侧栏预览](plugins/wingmate-file-viewer/README.md)，发行包已移除 LibreOffice 引擎。能力范围与相对原版的取舍见[运行时维护指南](docs/runtime-maintenance.md#去重与精简取舍)。
 
 侧栏底部可在 DSH 和 Codex 间切换工作台，切换后原后端的任务继续运行。打开侧栏「插件 → 内置插件配置」可查看 Wingmate 的三张插件卡片，并在「Wingmate 执行后端」检查 Codex 连接。安装方式和能力范围见[执行后端插件](plugins/wingmate-backends/README.md)。
@@ -64,7 +66,7 @@ pnpm test:smoke
 
 验证范围见[验证约定](scripts/README.md)。测试专用目录按[收尾步骤](docs/runtime-debugging.md#收尾)清理。
 
-在 GitHub Actions 构建试用包或发布 Windows x64 单文件和 Android 远程 APK，见[自动打包与发布](docs/runtime-maintenance.md#自动打包与发布)。
+在 GitHub Actions 构建试用包或发布 Windows x64、Linux x64 桌面包和 Android APK，见[自动打包与发布](docs/runtime-maintenance.md#自动打包与发布)。
 
 ## 文档与模块
 

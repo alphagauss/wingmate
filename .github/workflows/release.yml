@@ -52,6 +52,37 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential libwebkit2gtk-4.1-dev \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test:smoke
+      - name: Stage single-file Linux executable
+        run: install -Dm755 target/release/wingmate release/wingmate-linux-x64
+      - uses: actions/upload-artifact@v7
+        with:
+          # Overwrite uses this name even when the upload uses the filename.
+          name: wingmate-linux-x64
+          path: release/wingmate-linux-x64
+          archive: false
+          if-no-files-found: error
+          overwrite: true
+
   android:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -160,7 +191,7 @@ jobs:
 
   publish:
     if: github.event_name == 'push'
-    needs: [windows, android]
+    needs: [windows, linux, android]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -174,7 +205,7 @@ jobs:
           pattern: wingmate-*
           path: release
           merge-multiple: true
-      - name: Publish Windows and Android packages
+      - name: Publish release packages
         shell: bash
         working-directory: release
         env:
@@ -183,8 +214,8 @@ jobs:
         run: |
           tag="$GITHUB_REF_NAME"
           [[ "$(gh api "repos/$GH_REPO/commits/tags/$tag" --jq .sha)" == "$GITHUB_SHA" ]]
-          files=(wingmate-windows-x64.exe wingmate-android-remote.apk wingmate-android-local.apk
-                 wingmate-android-runtime-sources.tar)
+          files=(wingmate-windows-x64.exe wingmate-linux-x64 wingmate-android-remote.apk
+                 wingmate-android-local.apk wingmate-android-runtime-sources.tar)
           sha256sum "${files[@]}" > SHA256SUMS.txt
           files+=(SHA256SUMS.txt)
 
@@ -204,6 +235,7 @@ jobs:
             fi
             cat >> "$notes" <<EOF
           - \`wingmate-windows-x64.exe\` · Windows x64，需要 Node.js。
+          - \`wingmate-linux-x64\` · Linux x64，在 Ubuntu 24.04 上构建。下载后执行 \`chmod +x wingmate-linux-x64\`，再运行 \`./wingmate-linux-x64\` 打开桌面，或用 \`./wingmate-linux-x64 start\` 启动后台。需要 Node.js 24.9.0 或更新版本，桌面另需 WebKitGTK 4.1。
           - \`wingmate-android-remote.apk\` · Android 远程版，连接已有 Wingmate 主机。
           - \`wingmate-android-local.apk\` · Android 本地版，可在 Android 8.0 及以上的 ARM64 手机上运行 DSH。
 
