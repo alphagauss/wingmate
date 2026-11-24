@@ -12,13 +12,15 @@ Windows 发行入口在链接时内嵌 [桌面图标](../../src-tauri/README.md#
 
 `stop` 停止业务并保留管理服务；`service-stop` 仅在业务已停止时退出服务。服务意外退出后，`start` 可恢复管理连接。当前不提供旧发现协议的迁移路径。
 
+在 macOS 上，Wingmate 优先使用当前进程的 PATH 查找可用的 Node.js。如果检查失败，会尝试读取用户交互式登录 Shell 导出的 PATH，再检查 Node.js。这样从 Finder 启动也能使用 Shell 配置中的 nvm 等版本管理器。通过 Shell 恢复的 PATH 会传给 DSH 及其子进程。
+
 局域网分享可用 `wingmate share-*` 管理，公网隧道可用 `wingmate tunnel-*` 管理。启用和配对见[服务模块](../wingmate-service/README.md#web-入口)。
 
 命令与登录启动注册属于本模块，统一指向外层发行入口。桌面设置只调用注册接口。运行组件和数据规则见[运行时维护指南](../../docs/runtime-maintenance.md)与[服务模块](../wingmate-service/README.md)。
 
 ## 终端命令注册
 
-`wingmate install` 为当前用户注册 `wingmate` 启动器，保留注册时的发行文件路径与管理目录。注册无需运行管理服务或 DSH。移动发行文件后，用新路径重新执行 `install`。启动器运行时需要在当前会话的 PATH 中找到 Node。
+`wingmate install` 为当前用户注册 `wingmate` 启动器，保留注册时的发行文件路径与管理目录。注册无需运行管理服务或 DSH。移动发行文件后，用新路径重新执行 `install`。
 
 `wingmate commands on` 在业务运行时同时注册 `wingmate` 和 `dsh`。`dsh` 使用该后台的运行内容和数据目录，并按上游规则启动独立 Profile。`wingmate commands off` 撤销本模块注册的启动器和 PATH 配置，也可撤销单独执行的 `install`。
 
@@ -32,7 +34,7 @@ Windows 将 `%LOCALAPPDATA%\Wingmate\bin` 放在用户 PATH 最前面，系统 P
 
 - `wingmate --version` 输出发行入口的版本，运行中的管理服务指纹可通过 `wingmate service-status` 查看。
 - `wingmate connect-info` 查询管理服务已监听的本机 Web 网关，返回 JSON 中的 `schema_version`、`host`、`port` 和 `url`。初始 `schema_version` 为 `1`。显式加 `--pair` 时，还会返回一次性 `pairing_url` 和以 Unix 秒为单位的 `pairing_expires_at`。每次生成链接都会替换先前尚未使用的本机配对链接。管理服务停止或网关不可用时返回非零退出码。
-- `wingmate doctor` 用 JSON 报告当前会话中的 Node.js 检查、管理目录、管理服务、网关和业务状态。Node 或管理服务检查失败时仍返回诊断结果。如果 SSH 会话找不到 Node，可以用发行文件的绝对路径调用 `doctor`。
+- `wingmate doctor` 用 JSON 报告启动时的 Node.js 检查、管理目录、管理服务、网关和业务状态。Node 或管理服务检查失败时仍返回诊断结果。如果 SSH 会话找不到 Node，可以用发行文件的绝对路径调用 `doctor`。
 - `wingmate logs [host|service] [--tail <行数>]` 默认查看管理服务和业务后台各最近 100 行。指定 `host` 或 `service` 时只输出对应日志。日志文件尚未生成时会在标准错误中提示。
 
 通过 SSH 手动连接时，在远端执行 `wingmate service-start`，然后用 `wingmate connect-info --pair` 获取本机配对链接和网关端口。SSH 转发的本地监听地址和端口应与返回的 `host` 和 `port` 一致，浏览器可直接打开原配对链接。现有网关会校验请求的 Host 和 Origin。见[本机 Web 入口](../wingmate-service/README.md#本机-web)和[后续 SSH 计划](../../ARCHITECTURE_PLAN.md#b2-网关与局域网远程启停)。

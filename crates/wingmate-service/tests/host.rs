@@ -665,6 +665,8 @@ process.on('SIGTERM', () => process.exit(0));
         revision: format!("{:x}", Sha256::digest(manifest.as_bytes())),
         directory,
         node: String::from_utf8(output.stdout)?.trim().into(),
+        #[cfg(target_os = "macos")]
+        search_path: None,
         dsh_home: None,
         agents_home: None,
     };

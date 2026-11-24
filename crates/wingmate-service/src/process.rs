@@ -74,6 +74,10 @@ pub fn start(
     let log = File::create(home.join("service.log"))?;
     let mut command = Command::new(&runtime.node);
     crate::runtime::quiet(&mut command);
+    #[cfg(target_os = "macos")]
+    if let Some(path) = &runtime.search_path {
+        command.env("PATH", path);
+    }
     #[cfg(unix)]
     {
         use std::os::{fd::AsRawFd, unix::process::CommandExt};
@@ -244,6 +248,8 @@ fs.renameSync(marker + '.tmp', marker);
                 revision: "test".into(),
                 directory: home.path().into(),
                 node: "node".into(),
+                #[cfg(target_os = "macos")]
+                search_path: None,
                 dsh_home: None,
                 agents_home: None,
             },

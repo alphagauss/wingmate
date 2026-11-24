@@ -533,19 +533,45 @@ pub fn quiet(command: &mut Command) -> &mut Command {
     command
 }
 
+#[cfg(not(any(feature = "bundled-runtime", feature = "release-client")))]
 pub fn node() -> Result<PathBuf> {
-    Ok(node_info()?.path)
+    Ok(probe_node(None)?.path)
 }
 
 #[derive(serde::Serialize)]
 pub(crate) struct NodeInfo {
-    path: PathBuf,
+    pub(crate) path: PathBuf,
     version: String,
     arch: String,
+    #[cfg(target_os = "macos")]
+    #[serde(skip)]
+    pub(crate) search_path: Option<std::ffi::OsString>,
 }
 
 pub(crate) fn node_info() -> Result<NodeInfo> {
+    #[cfg(target_os = "macos")]
+    {
+        let result = probe_node(None);
+        if result.is_ok() {
+            return result;
+        }
+        let inherited = std::env::var_os("PATH");
+        let Some(path) = crate::macos_path::from_login_shell()
+            .filter(|path| Some(path.as_os_str()) != inherited.as_deref())
+        else {
+            return result;
+        };
+        probe_node(Some(&path)).or(result)
+    }
+    #[cfg(not(target_os = "macos"))]
+    probe_node(None)
+}
+
+fn probe_node(search_path: Option<&std::ffi::OsStr>) -> Result<NodeInfo> {
     let mut command = Command::new("node");
+    if let Some(path) = search_path {
+        command.env("PATH", path);
+    }
     quiet(&mut command);
     let output = command
         .args([
@@ -580,5 +606,7 @@ pub(crate) fn node_info() -> Result<NodeInfo> {
             .as_str()
             .context("Node 未返回架构")?
             .to_owned(),
+        #[cfg(target_os = "macos")]
+        search_path: search_path.map(ToOwned::to_owned),
     })
 }

@@ -146,11 +146,14 @@ fn prepare(home: &Path, report: impl Fn(StartupStage)) -> Result<()> {
         "业务后台已启动，请重新连接后再切换运行内容"
     );
     let directory = crate::runtime::prepare(home, || report(StartupStage::Extracting))?;
+    let node = crate::runtime::node_info()?;
     let runtime = Runtime {
         id: crate::runtime::ID.into(),
         revision: crate::runtime::REVISION.context("缺少运行组件清单")?.into(),
         directory,
-        node: crate::runtime::node()?,
+        node: node.path,
+        #[cfg(target_os = "macos")]
+        search_path: node.search_path,
         dsh_home: if crate::IS_DEV {
             Some(home.parent().unwrap().join("dsh"))
         } else {

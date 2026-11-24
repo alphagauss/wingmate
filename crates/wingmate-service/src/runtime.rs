@@ -17,6 +17,9 @@ pub struct Runtime {
     pub revision: String,
     pub directory: PathBuf,
     pub node: PathBuf,
+    #[cfg(target_os = "macos")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search_path: Option<std::ffi::OsString>,
     pub dsh_home: Option<PathBuf>,
     pub agents_home: Option<PathBuf>,
 }
