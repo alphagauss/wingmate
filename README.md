@@ -64,6 +64,8 @@ pnpm build
 pnpm test:smoke
 ```
 
+macOS 的 `pnpm build` 会在完整发行入口编译后自动生成 `.app` 和 `.dmg`；产物位置与单独打包命令见[打包范围与所有权](docs/runtime-maintenance.md#打包范围与所有权)。
+
 验证范围见[验证约定](scripts/README.md)。测试专用目录按[收尾步骤](docs/runtime-debugging.md#收尾)清理。
 
 在 GitHub Actions 构建试用包或发布 Windows x64、Linux x64 桌面包和 Android APK，见[自动打包与发布](docs/runtime-maintenance.md#自动打包与发布)。

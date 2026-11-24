@@ -36,6 +36,16 @@
 
 `pnpm build` 先准备运行归档并构建独立服务，再构建桌面，最后构建携带这些并列组件的发行入口。`pnpm build --headless` 跳过桌面及其系统构建前提。服务自身不携带 DSH 归档或解压依赖；桌面只携带运行清单元数据，资源仅在外层发行入口保存一份。服务构建不反向依赖发行入口或桌面，避免嵌套归档和构建循环。
 
+macOS 的 `pnpm build` 在完整发行入口构建完成后继续生成 `target/release/bundle/macos/Wingmate.app` 和 `target/release/bundle/dmg/` 下包含版本与架构的 DMG，裸 `target/release/wingmate` 同时保留。无 GUI 构建和其他平台不执行此安装包步骤。应用包的主程序必须是携带全部发行组件的 `wingmate`，不能使用仅含界面的 `wingmate-desktop`；因此安装包配置只在最后的 bundle 阶段显式加载，不作为 Tauri 自动合并的平台配置。
+
+已有完整发行构建时，可单独重新打包：
+
+```sh
+pnpm tauri bundle --config src-tauri/tauri.bundle.macos.conf.json
+```
+
+`pnpm tauri build` 只构建内部桌面组件，完整发行仍使用 `pnpm build`。DMG 打包会通过访达设置安装窗口和图标位置，需及时允许运行构建命令的终端控制访达，授权超时会导致打包失败。
+
 ## 自动打包与发布
 
 [Build and release Wingmate](../.github/workflows/release.yml) 在 Windows x64 和 Ubuntu 24.04 x64 上分别构建并冒烟测试桌面单文件，在 Ubuntu 上构建、签名并检查 Android 远程版和 ARM64 本地版 APK。Linux 直接发布 ELF 可执行文件，桌面和 CLI 共用该入口。手动运行可在 Actions 的 Artifacts 下载试用包。每次手动运行都会为 APK 生成新的测试证书，覆盖安装需要与设备上已有 APK 的签名相同。

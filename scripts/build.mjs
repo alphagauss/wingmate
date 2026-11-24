@@ -42,3 +42,13 @@ run('cargo', [
     ? ['--no-default-features', '--features', 'bundled-runtime']
     : []),
 ]);
+
+// 桌面组件不携带运行资源，必须等完整发行入口生成后再打包。
+if (!headless && process.platform === 'darwin') {
+  run(process.execPath, [
+    'node_modules/@tauri-apps/cli/tauri.js',
+    'bundle',
+    '--config',
+    'src-tauri/tauri.bundle.macos.conf.json',
+  ]);
+}
