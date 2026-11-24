@@ -32,6 +32,7 @@ window.renderWingmateHome = ({
   error,
   actions,
   target,
+  delayCard,
 }) => {
   messageText.textContent = message;
   hintText.textContent = hint;
@@ -78,6 +79,7 @@ window.renderWingmateHome = ({
     confirmation.close();
   actionError.hidden = true;
   for (const button of controls) button.disabled = waiting;
+  if (!delayCard) delete document.documentElement.dataset.wingmateHomePending;
 };
 
 if (local) {

@@ -11,6 +11,8 @@ pub(super) struct CardStatus {
     error: Option<String>,
     actions: &'static str,
     target: Option<RestartTarget>,
+    #[serde(rename = "delayCard")]
+    delay_card: bool,
 }
 
 impl CardStatus {
@@ -22,13 +24,21 @@ impl CardStatus {
             error: None,
             actions: "",
             target: None,
+            delay_card: false,
+        }
+    }
+
+    fn delayed(message: &'static str) -> Self {
+        Self {
+            delay_card: true,
+            ..Self::waiting(message, "")
         }
     }
 
     fn for_stage(stage: StartupStage) -> Self {
         match stage {
-            StartupStage::Checking => Self::waiting("正在检查后台…", ""),
-            StartupStage::Connecting => Self::waiting("正在连接已有后台…", ""),
+            StartupStage::Checking => Self::delayed("正在检查后台…"),
+            StartupStage::Connecting => Self::delayed("正在连接已有后台…"),
             StartupStage::Extracting => {
                 Self::waiting("正在解压运行文件…", "首次启动可能需要一点时间。")
             }
@@ -59,6 +69,7 @@ impl CardStatus {
             error: Some(error),
             actions: "retry",
             target: None,
+            delay_card: false,
         }
     }
 
@@ -70,6 +81,7 @@ impl CardStatus {
             error: None,
             actions: "start",
             target: None,
+            delay_card: false,
         }
     }
 
@@ -108,6 +120,7 @@ impl CardStatus {
                 "update-idle"
             },
             target,
+            delay_card: false,
         }
     }
 
@@ -130,6 +143,7 @@ impl CardStatus {
             error: Some(error),
             actions: "retry-reopen",
             target: None,
+            delay_card: false,
         }
     }
 
@@ -227,7 +241,7 @@ impl StartupPage {
         let _ = app.run_on_main_thread(move || {
             if let Some(window) = desktop_window(&handle) {
                 if window.url().as_ref().ok() == Some(&page.url) {
-                    page.update(&window, CardStatus::waiting("正在打开工作台…", ""), false);
+                    page.update(&window, CardStatus::delayed("正在打开工作台…"), false);
                 }
                 if window.navigate(url).is_err() {
                     page.update(
@@ -239,6 +253,7 @@ impl StartupPage {
                             error: None,
                             actions: "retry",
                             target: None,
+                            delay_card: false,
                         },
                         true,
                     );

@@ -4,6 +4,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Wingmate</title>
+    <script>
+    if (window.__WINGMATE_LOCAL_HOME__ === true)
+      document.documentElement.dataset.wingmateHomePending = '';
+    </script>
     <style>
     * {
       box-sizing: border-box;
@@ -42,6 +46,15 @@
       border-radius: 20px;
       background: light-dark(#fff, #202021);
       box-shadow: 0 12px 40px rgb(32 63 112 / 8%);
+    }
+    html[data-wingmate-home-pending] main {
+      visibility: hidden;
+      animation: reveal-home-card 400ms step-end forwards;
+    }
+    @keyframes reveal-home-card {
+      to {
+        visibility: visible;
+      }
     }
     header {
       display: flex;
