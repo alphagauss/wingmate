@@ -21,6 +21,10 @@ export async function executeOperation(
       if (typeof input.directory !== 'string' || !input.directory.trim())
         throw new Error('缺少源码目录');
       return projects.register(input.directory);
+    case 'preview':
+      if (typeof input.directory !== 'string' || !input.directory.trim())
+        throw new Error('缺少开发产物目录');
+      return projects.preview(input.directory, signal);
     case 'build':
       if (typeof input.name !== 'string' || !input.name)
         throw new Error('缺少插件名称');

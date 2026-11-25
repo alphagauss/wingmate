@@ -21,7 +21,8 @@
     "cordis.patch.yml",
     "locale",
     "icon.svg",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {
@@ -43,7 +44,8 @@
     "prepare": "npm run build",
     "test": "node --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "test:plugin": "npm run build && node --test tests/client.test.mjs"
+    "test:plugin": "npm run build && node --test tests/client.test.mjs",
+    "dev:dsh": "node scripts/dev-dsh.mjs"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
@@ -55,5 +57,6 @@
     "react-dom": "19.2.0",
     "typescript": "6.0.3",
     "vite": "7.3.1"
-  }
+  },
+  "license": "MIT"
 }

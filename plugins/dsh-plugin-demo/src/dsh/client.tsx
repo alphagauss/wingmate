@@ -1,8 +1,9 @@
 import React from 'react';
 import { App } from '../ui/App.tsx';
 import styles from '../ui/styles.css';
+import { pluginName } from '../types.ts';
 
-export const name = 'dsh-plugin-demo';
+export const name = pluginName;
 export const inject = ['slots', 'layout'];
 type Context = {
   layout: { selectPanel(id: string): void };

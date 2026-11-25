@@ -4,4 +4,5 @@ export type Statistics = {
   lines: number;
   words: number;
 };
-export const statisticsPath = '/dsh-plugin-demo/statistics';
+export const pluginName = 'dsh-plugin-demo';
+export const statisticsPath = `/${pluginName}/statistics`;

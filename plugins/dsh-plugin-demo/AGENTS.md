@@ -19,3 +19,11 @@ UI 使用 TSX，算法与业务使用 TS。ui 提供共用界面；core 只做�
 源码安装与更新先重新构建并打包，再安装成品，避免链接工作副本影响正常使用。Git 源码安装通过标准 prepare 构建。编译失败不替换正在使用的版本。以安装返回的 application、warnings 和实际功能判断成功，restart-required 不等于已生效。
 
 侧栏和页面通过官方 slot 注册，使用宿主 React 和主题。定时器、事件、路由及其他注册随插件卸载清理。详情页提供使用说明，开发规则只维护在本文件。
+
+## Wingmate 开发调试
+
+先从 Wingmate 仓库启动 pnpm dev。再在本项目执行 pnpm dev:dsh；项目位于仓库外时传入 --runtime <Wingmate 仓库>/work/dev/wingmate/runtime.json。脚本通过开发版 CLI 获取专用本机会话，自动编译 .dev/dsh 并调用官方安装流程更新开发链接；它不改正式 dist。退出时关闭源码监听并撤销专用会话，最后编译的开发链接保留在开发环境中。正常使用环境通过“编译并更新”安装成品，不运行此命令。
+
+作为新插件模板使用时，修改 package.json 的 name、cordis.patch.yml 的名称及 id、src/types.ts 的 pluginName，并同步标题、图标和 README。客户端 factory 自动读取包名。开发调试和正式构建共用构建脚本，编译结果分别存放。
+
+修改构建脚本后重启开发命令；修改依赖后先完成 pnpm install。源码与语言资源保存后自动更新，首次从成品切换到开发链接若返回 restart-required，按提示重启开发后台后继续。

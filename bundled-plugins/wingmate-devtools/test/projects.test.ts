@@ -32,6 +32,12 @@ async function fixture() {
       return { application: 'applied' };
     },
     async cancelInstall() {},
+    async removeBundle() {
+      return { application: 'applied' };
+    },
+    async setBundleEnabled() {
+      return { application: 'applied' };
+    },
   };
   const commands: string[][] = [];
   const runner: Runner = async (_invocation, args, cwd, signal, log) => {
@@ -108,6 +114,24 @@ test('构建失败和取消均不触碰已安装版本', async () => {
     const cancelled = await service.build('test-demo', controller.signal);
     assert.match(cancelled.error!, /cancelled/);
     assert.equal(f.installs.length, 0);
+  } finally {
+    await f.close();
+  }
+});
+
+test('显式开发预览通过官方安装器加载开发目录，不进行正式构建', async () => {
+  const f = await fixture();
+  try {
+    const service = createProjects(f);
+    const result = await service.preview(
+      f.directory,
+      new AbortController().signal,
+    );
+    assert.equal(result.application, 'applied');
+    assert.equal(f.installs[0].path, 'link:' + f.directory);
+    assert.equal(f.installs[0].enabled, true);
+    assert.equal(f.commands.length, 0);
+    assert.deepEqual(await service.list(), []);
   } finally {
     await f.close();
   }

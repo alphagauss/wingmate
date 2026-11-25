@@ -4,6 +4,8 @@ import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { pluginName, statisticsPath } from '../src/types.ts';
+import { buildPlugin } from '../scripts/build.mjs';
 
 test('实际客户端产物使用宿主 React，注册侧栏与两个页面并清理', async () => {
   let registration;
@@ -19,7 +21,7 @@ test('实际客户端产物使用宿主 React，注册侧栏与两个页面并�
       },
     },
   );
-  assert.equal(registration.id, 'dsh-plugin-demo');
+  assert.equal(registration.id, pluginName);
   const client = registration.factory((id) => {
     assert.equal(id, 'react');
     return React;
@@ -77,8 +79,32 @@ test('宿主卸载时注销实际 HTTP 路由', async () => {
       },
     },
   });
-  assert.equal(route.path, '/dsh-plugin-demo/statistics');
+  assert.equal(route.path, statisticsPath);
   assert.equal(typeof route.handler, 'function');
   cleanup();
   assert.equal(disposed, true);
+});
+
+test('开发构建使用独立目录，不覆盖正式产物', async () => {
+  const production = await readFile(
+    new URL('../dist/client.js', import.meta.url),
+  );
+  await buildPlugin(true);
+  assert.deepEqual(
+    await readFile(new URL('../dist/client.js', import.meta.url)),
+    production,
+  );
+  const manifest = JSON.parse(
+    await readFile(
+      new URL('../.dev/dsh/package.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  assert.equal(manifest.name, pluginName);
+  assert.equal(manifest.scripts, undefined);
+  assert.equal(manifest.devDependencies, undefined);
+  assert.ok(
+    (await readFile(new URL('../.dev/dsh/dist/client.js', import.meta.url)))
+      .length,
+  );
 });

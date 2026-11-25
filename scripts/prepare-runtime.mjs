@@ -238,7 +238,14 @@ for (const name of plugins) {
   const directory = `plugins/${name}`;
   const source = join(root, 'bundled-plugins', name);
   const packed = dev ? null : await buildPlugin(name, source);
-  const sourceKey = dev ? await sourceDigest(source) : null;
+  const sourceKey = dev
+    ? digest(
+        await sourceDigest(source),
+        name === 'wingmate-devtools'
+          ? await sourceDigest(join(root, 'plugins/dsh-plugin-demo'))
+          : '',
+      )
+    : null;
   const inputs = dev
     ? digest(devPluginInputs, sharedDigest, sourceKey)
     : digest(await readFile(packed));
@@ -250,7 +257,13 @@ for (const name of plugins) {
       const archive = packed ?? (await buildPlugin(name, source));
       if (
         dev &&
-        (sourceKey !== (await sourceDigest(source)) ||
+        (sourceKey !==
+          digest(
+            await sourceDigest(source),
+            name === 'wingmate-devtools'
+              ? await sourceDigest(join(root, 'plugins/dsh-plugin-demo'))
+              : '',
+          ) ||
           sharedDigest !== (await sourceDigest(sharedSources)))
       ) {
         throw new Error(
@@ -305,7 +318,7 @@ async function sourceDigest(directory) {
     left.name < right.name ? -1 : Number(left.name > right.name),
   );
   for (const entry of entries) {
-    if (['node_modules', 'dist', '.git'].includes(entry.name)) continue;
+    if (['node_modules', 'dist', '.dev', '.git'].includes(entry.name)) continue;
     const path = join(directory, entry.name);
     if (entry.isDirectory()) files.push([entry.name, await sourceDigest(path)]);
     else if (entry.isFile())

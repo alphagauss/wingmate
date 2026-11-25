@@ -1,4 +1,6 @@
 import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { createProjects } from './projects.ts';
 import type { Manager } from './projects.ts';
 import type { Invocation } from './process.ts';
@@ -11,6 +13,7 @@ export const inject = [
   'profileContext',
   'tools',
   'sandboxPolicy',
+  'skills',
 ];
 type Execution = {
   signal: AbortSignal;
@@ -27,6 +30,16 @@ type Approval = {
   }): Promise<string>;
 };
 type Context = {
+  skills: {
+    register(skill: {
+      name: string;
+      description: string;
+      content: string;
+      path: string;
+      source: string;
+      resourceBase: { kind: 'directory'; path: string };
+    }): () => void;
+  };
   effect(install: () => () => void | Promise<void>): void;
   profileContext: { dir: string; packageManager?: Invocation };
   pluginManager: Manager;
@@ -56,7 +69,23 @@ type Context = {
   };
 };
 
-export function apply(ctx: Context) {
+export async function apply(ctx: Context) {
+  const skillPath = new URL(
+    '../skills/wingmate-plugin-development/SKILL.md',
+    import.meta.url,
+  );
+  const skill = await readFile(skillPath, 'utf8');
+  ctx.skills.register({
+    name: 'wingmate-plugin-development',
+    description: /^description: (.+)$/m.exec(skill)![1],
+    content: skill.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, ''),
+    path: fileURLToPath(skillPath),
+    source: 'bundled',
+    resourceBase: {
+      kind: 'directory',
+      path: fileURLToPath(new URL('../', import.meta.url)),
+    },
+  });
   const projects = createProjects({
     storage: join(ctx.profileContext.dir, 'wingmate-devtools'),
     manager: ctx.pluginManager,
@@ -99,11 +128,12 @@ export function apply(ctx: Context) {
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'register', 'build', 'forget'],
+          enum: ['list', 'register', 'build', 'forget', 'preview'],
         },
         directory: {
           type: 'string',
-          description: 'Absolute plugin source directory for register.',
+          description:
+            'Absolute source directory for register; compiled development package directory for preview in a development environment only.',
         },
         name: {
           type: 'string',

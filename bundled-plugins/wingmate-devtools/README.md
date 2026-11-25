@@ -13,3 +13,11 @@
 运行 pnpm --filter dsh-wingmate-devtools build 和 test 验证构建、目录关联、取消、失败及官方安装结果的保留。
 
 创造模式和其他 DSH Agent 可调用 wingmate_plugin 工具，list、register、build、forget 与界面共用后台操作。工具按当前会话的沙箱模式要求完整权限或本次批准，拒绝与取消不执行操作。Web 入口使用 DSH Connection 的 owner 专用认证路由，不暴露无认证的构建接口。
+
+## 开发调试与自举
+
+随包注册 wingmate-plugin-development 技能，补充官方创造模式的开发指引。完整 demo 模板由主仓库的 plugins/dsh-plugin-demo 生成，随本插件保存在 dist/template；源码不重复维护，开发运行组件的缓存也计入模板输入。模板可复制到任意工作区，根目录 README 用于默认插件详情，AGENTS.md 用于开发。复制后将 gitignore 重命名为 .gitignore；npm 归档会过滤原名。
+
+demo 的 pnpm dev:dsh 只连接 Wingmate 开发后台，通过 CLI 创建并在退出时撤销专用本机会话。编译结果写入 .dev/dsh，preview 操作通过官方管理器切换或重新加载开发链接。首次切换可能替换开发环境中的已安装副本，后续更新只重载该插件；不会为普通运行配置源码监听。退出后保留最后的开发产物和链接。构建脚本或依赖变化需重新准备开发命令。
+
+源码监听只由开发命令持有。重新编译 Wingmate 仅用于维护随包开发工具本身，独立插件的开发与更新不经过 Wingmate 构建。DSH 的实际加载结果仍决定是否需要重启。

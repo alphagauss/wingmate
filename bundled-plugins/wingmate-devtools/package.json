@@ -16,7 +16,8 @@
     "dist",
     "README.md",
     "cordis.patch.yml",
-    "locale"
+    "locale",
+    "skills"
   ],
   "scripts": {
     "build": "tsc && node build.mjs",

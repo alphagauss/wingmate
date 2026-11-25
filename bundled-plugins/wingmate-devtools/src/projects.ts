@@ -15,7 +15,12 @@ import { packageCommand, runCommand } from './process.ts';
 import type { Invocation, Runner } from './process.ts';
 
 export type Project = { name: string; directory: string };
-export type Bundle = { name: string; enabled: boolean; removable: boolean };
+export type Bundle = {
+  name: string;
+  enabled: boolean;
+  removable: boolean;
+  source?: string;
+};
 export type Application = { application: string; [key: string]: unknown };
 export type Manager = {
   listBundles(): Promise<Bundle[]>;
@@ -24,6 +29,8 @@ export type Manager = {
     options: { enabled: boolean; requestId: string },
   ): Promise<Application>;
   cancelInstall(requestId: string): Promise<unknown>;
+  removeBundle(name: string): Promise<Application>;
+  setBundleEnabled(name: string, enabled: boolean): Promise<Application>;
 };
 type Manifest = {
   name: string;
@@ -86,7 +93,10 @@ export function createProjects({
     );
     return next;
   }
-  async function manifest(directory: string): Promise<Manifest> {
+  async function manifest(
+    directory: string,
+    buildRequired = true,
+  ): Promise<Manifest> {
     const value = JSON.parse(
       await readFile(join(directory, 'package.json'), 'utf8'),
     ) as Manifest;
@@ -95,7 +105,7 @@ export function createProjects({
       !/^(?:@[a-z0-9._-]+\/)?[a-z0-9][a-z0-9._-]*$/.test(value.name) ||
       typeof value.version !== 'string' ||
       !value.dsh?.bundle?.patch ||
-      !value.scripts?.build
+      (buildRequired && !value.scripts?.build)
     ) {
       throw new Error(
         '目录必须是声明名称、版本、dsh.bundle 和 build 命令的插件项目',
@@ -110,6 +120,24 @@ export function createProjects({
     )
       throw new Error('随包插件通过 Wingmate 更新，请选择独立插件源码');
     return value;
+  }
+
+  async function install(spec: string, enabled: boolean, signal: AbortSignal) {
+    signal.throwIfAborted();
+    const requestId = randomUUID();
+    let cancellation: Promise<unknown> | undefined;
+    const cancel = () => {
+      cancellation = manager.cancelInstall(requestId).catch(() => {});
+    };
+    signal.addEventListener('abort', cancel, { once: true });
+    try {
+      const operation = manager.installBundle(spec, { enabled, requestId });
+      if (signal.aborted) cancel();
+      return await operation;
+    } finally {
+      signal.removeEventListener('abort', cancel);
+      await cancellation;
+    }
   }
 
   async function build(
@@ -193,23 +221,11 @@ export function createProjects({
       const installed = (await manager.listBundles()).find(
         (bundle) => bundle.name === name,
       );
-      const requestId = randomUUID();
-      let cancellation: Promise<unknown> | undefined;
-      const cancel = () => {
-        cancellation = manager.cancelInstall(requestId).catch(() => {});
-      };
-      signal.addEventListener('abort', cancel, { once: true });
-      try {
-        const installation = manager.installBundle(archive, {
-          enabled: installed?.enabled ?? true,
-          requestId,
-        });
-        if (signal.aborted) cancel();
-        report.result = await installation;
-      } finally {
-        signal.removeEventListener('abort', cancel);
-        await cancellation;
-      }
+      report.result = await install(
+        archive,
+        installed?.enabled ?? true,
+        signal,
+      );
       return report;
     } catch (error) {
       report.error = error instanceof Error ? error.message : String(error);
@@ -224,6 +240,37 @@ export function createProjects({
   }
 
   return {
+    async preview(directory: string, caller: AbortSignal) {
+      const signal = AbortSignal.any([caller, lifetime.signal]);
+      signal.throwIfAborted();
+      if (!isAbsolute(directory))
+        throw new Error('请输入开发产物目录的绝对路径');
+      const resolved = await realpath(directory);
+      const value = await manifest(resolved, false);
+      const operation = (async () => {
+        const current = (await manager.listBundles()).find(
+          (bundle) => bundle.name === value.name,
+        );
+        if (
+          current?.source?.startsWith('link:') &&
+          (await realpath(current.source.slice(5)).catch(() => undefined)) ===
+            resolved
+        ) {
+          return manager.setBundleEnabled(value.name, true);
+        }
+        if (current) {
+          const removed = await manager.removeBundle(value.name);
+          if (removed.application !== 'applied') return removed;
+        }
+        return install('link:' + resolved, true, signal);
+      })();
+      pending.add(operation);
+      try {
+        return await operation;
+      } finally {
+        pending.delete(operation);
+      }
+    },
     async list() {
       return (await read()).map((project) => ({
         ...project,

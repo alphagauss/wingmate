@@ -53,6 +53,9 @@ if (pkg.name === 'dsh-wingmate-backends') {
     checkFile(join(root, file));
   }
 }
+if (pkg.name === 'dsh-wingmate-devtools') {
+  for (const file of ['skills/wingmate-plugin-development/SKILL.md', 'dist/template/package.json', 'dist/template/AGENTS.md', 'dist/template/README.md', 'dist/template/gitignore', 'dist/template/pnpm-lock.yaml', 'dist/template/scripts/build.mjs', 'dist/template/scripts/dev-dsh.mjs', 'dist/template/src/dsh/client.tsx', 'dist/template/src/web/server.ts']) checkFile(join(root, file));
+}
 await import('wingmate-check');
 // Import verification does not activate the plugin or wait for module-owned timers.
 process.exit(0);

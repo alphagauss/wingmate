@@ -12,7 +12,14 @@ test('界面与工具共享项目操作，工具先经过权限检查', async ()
     outcome = 'rejected',
     approvals = 0;
   try {
-    apply({
+    await apply({
+      skills: {
+        register(skill) {
+          assert.equal(skill.name, 'wingmate-plugin-development');
+          assert.match(skill.content, /dist\/template/);
+          return () => {};
+        },
+      },
       profileContext: { dir: directory },
       pluginManager: {
         async listBundles() {
@@ -22,6 +29,12 @@ test('界面与工具共享项目操作，工具先经过权限检查', async ()
           throw new Error('unexpected install');
         },
         async cancelInstall() {},
+        async removeBundle() {
+          return { application: 'applied' };
+        },
+        async setBundleEnabled() {
+          return { application: 'applied' };
+        },
       },
       effect(install) {
         dispose = install();
