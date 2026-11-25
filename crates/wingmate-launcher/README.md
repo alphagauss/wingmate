@@ -12,8 +12,6 @@ Windows 发行入口在链接时内嵌 [桌面图标](../../src-tauri/README.md#
 
 `stop` 停止业务并保留管理服务；`service-stop` 仅在业务已停止时退出服务。服务意外退出后，`start` 可恢复管理连接。当前不提供旧发现协议的迁移路径。
 
-在 macOS 上，Wingmate 优先使用当前进程的 PATH 查找可用的 Node.js。如果检查失败，会尝试读取用户交互式登录 Shell 导出的 PATH，再检查 Node.js。这样从 Finder 启动也能使用 Shell 配置中的 nvm 等版本管理器。通过 Shell 恢复的 PATH 会传给 DSH 及其子进程。
-
 局域网分享可用 `wingmate share-*` 管理，公网隧道可用 `wingmate tunnel-*` 管理。启用和配对见[服务模块](../wingmate-service/README.md#web-入口)。
 
 命令与登录启动注册属于本模块，统一指向外层发行入口。桌面设置只调用注册接口。运行组件和数据规则见[运行时维护指南](../../docs/runtime-maintenance.md)与[服务模块](../wingmate-service/README.md)。
@@ -30,11 +28,19 @@ Windows 将 `%LOCALAPPDATA%\Wingmate\bin` 放在用户 PATH 最前面，系统 P
 
 `wingmate uninstall` 只撤销 `wingmate` 启动器注册。已有 `dsh` 注册时，保留其启动器和共享的 PATH 配置。发行文件、后台和用户数据会保留。Windows 旧版可用发行文件的路径执行 `uninstall`，也可用该路径执行 `install` 更新启动器后再从 PATH 调用。Windows 保留内部转发文件供下次注册复用。
 
+## 随包工具
+
+正式版在管理目录的固定 `toolchains/` 下释放 Node、npm、npx 和 pnpm。Windows 将该目录作为命令目录，macOS 和 Linux 使用 `toolchains/bin/`。Wingmate 用随包 Node 的绝对路径启动 DSH，并将工具目录放在 DSH 进程 PATH 的最前面。智能体 Shell 和 DSH 终端继承该 PATH。用户和系统 PATH、外部 Shell 配置保持原样。
+
+开发版启动后台时优先使用当前进程的 PATH 查找 Node.js。macOS 上检查失败时，会尝试从用户交互式登录 Shell 读取 PATH，再检查 Node.js。通过 Shell 恢复的 PATH 会传给 DSH 及其子进程。
+
+打开新版时继续连接已有后台。「重启并更新」或下次启动已停止的业务时切换随包工具。Windows 上如有同一用户的旧随包 Node 仍在运行，应用会列出占用进程，可选择结束这些进程后重试。CLI 对应命令是 `wingmate restart --force-toolchain`。这会中断这些进程正在执行的任务。
+
 ## CLI 连接与诊断
 
 - `wingmate --version` 输出发行入口的版本，运行中的管理服务指纹可通过 `wingmate service-status` 查看。
 - `wingmate connect-info` 查询管理服务已监听的本机 Web 网关，返回 JSON 中的 `schema_version`、`host`、`port` 和 `url`。初始 `schema_version` 为 `1`。显式加 `--pair` 时，还会返回一次性 `pairing_url` 和以 Unix 秒为单位的 `pairing_expires_at`。每次生成链接都会替换先前尚未使用的本机配对链接。管理服务停止或网关不可用时返回非零退出码。
-- `wingmate doctor` 用 JSON 报告启动时的 Node.js 检查、管理目录、管理服务、网关和业务状态。Node 或管理服务检查失败时仍返回诊断结果。如果 SSH 会话找不到 Node，可以用发行文件的绝对路径调用 `doctor`。
+- `wingmate doctor` 用 JSON 报告 Node.js 检查、管理目录、管理服务、网关和业务状态。Node.js 检查沿用上面的工具选择规则。Node 或管理服务检查失败时仍返回诊断结果。如果 SSH 会话找不到 `wingmate` 命令，可以用发行文件的绝对路径调用 `doctor`。
 - `wingmate logs [host|service] [--tail <行数>]` 默认查看管理服务和业务后台各最近 100 行。指定 `host` 或 `service` 时只输出对应日志。日志文件尚未生成时会在标准错误中提示。
 
 通过 SSH 手动连接时，在远端执行 `wingmate service-start`，然后用 `wingmate connect-info --pair` 获取本机配对链接和网关端口。SSH 转发的本地监听地址和端口应与返回的 `host` 和 `port` 一致，浏览器可直接打开原配对链接。现有网关会校验请求的 Host 和 Origin。见[本机 Web 入口](../wingmate-service/README.md#本机-web)和[后续 SSH 计划](../../ARCHITECTURE_PLAN.md#b2-网关与局域网远程启停)。

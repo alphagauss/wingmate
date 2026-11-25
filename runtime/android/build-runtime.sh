@@ -9,11 +9,11 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 CACHE="$ROOT/work/cache/android"
 OUT="$ROOT/work/build/android"
 LOCKS="$HERE/locks"
+NODE_LOCK="$ROOT/runtime/locks/node.json"
+PNPM_LOCK="$ROOT/runtime/locks/pnpm"
 PY=(python3 -I "$HERE/lib/rtbuild.py")
 RELEASE_SOURCES="${1:-}"
 [[ $# -le 1 ]] || { echo "Usage: $0 [release-sources-dir]" >&2; exit 2; }
-NODE_VERSION=24.22.1
-PNPM_VERSION=11.28.5
 UBUNTU_VERSION=24.04.5
 PROOT_VERSION=5.1.107.102
 TALLOC_VERSION=2.5.0
@@ -27,8 +27,6 @@ NPM_REGISTRY="${npm_config_registry:-https://registry.npmmirror.com}"
 
 declare -A PIN=(
   [ubuntu-base-24.04.5-base-arm64.tar.gz]=a91d5a93010193712d346d761372b7c9db6dfcf093893161c64ca107f05914f2
-  [node-v24.22.1-linux-arm64.tar.xz]=dbabf7a1cbf947e6059ffad2c27b80041db97dea1e553b62afdee7f13fca336e
-  [node-v24.22.1-linux-x64.tar.xz]=6c172a9ab6718f7b801fb5a7bd486af2ee5e32758086a04b84fcce2aa77095e6
   [proot_5.1.107.102_aarch64.deb]=10a394b585c2fc2b2c8502544f4e5f1be581dc8bfff79e8ba62f16207423e030
   [libtalloc_2.5.0_aarch64.deb]=556591f43bb773ad8777e1a29522640866a55f95dab71914418b94a8c58ad5a7
   [libandroid-shmem_0.7_aarch64.deb]=0da3a24d558b93c92bcf8d611e0826a99ff96e396b148e6cdf33b47c47c57ff6
@@ -53,6 +51,8 @@ sha256() { sha256sum "$1" | cut -d' ' -f1; }
 for tool in curl flock sha256sum python3 tar xz; do
   command -v "$tool" >/dev/null || die "missing host tool: $tool"
 done
+NODE_VERSION="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$NODE_LOCK")"
+PNPM_VERSION="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["dependencies"]["pnpm"])' "$PNPM_LOCK/package.json")"
 
 fetch() {
   local dest="$1" want="$2" url
@@ -71,10 +71,14 @@ fetch() {
 }
 
 node_dist() {
-  local name="node-v$NODE_VERSION-linux-$1.tar.xz"
+  local asset="linux-$1.tar.xz"
+  local name="node-v$NODE_VERSION-$asset"
   local dest="$CACHE/node/$name"
-  fetch "$dest" "${PIN[$name]}" "https://npmmirror.com/mirrors/node/v$NODE_VERSION/$name" \
-    "https://nodejs.org/dist/v$NODE_VERSION/$name"
+  local fields
+  fields="$(python3 -I -c 'import json,sys; lock=json.load(open(sys.argv[1])); print(lock["archives"][sys.argv[2]], *("{}/v{}/{}".format(origin, lock["version"], sys.argv[3]) for origin in lock["origins"]), sep="\n")' "$NODE_LOCK" "$asset" "$name")"
+  local -a inputs
+  mapfile -t inputs <<< "$fields"
+  fetch "$dest" "${inputs[@]}"
   printf '%s\n' "$dest"
 }
 
@@ -279,7 +283,7 @@ PYEOF
   fi
   export PATH="$host_node/bin:$PATH"
   install_npm_tree "$ROOT/runtime" "$prefix"
-  install_npm_tree "$LOCKS/pnpm-$PNPM_VERSION" "$pnpm_prefix"
+  install_npm_tree "$PNPM_LOCK" "$pnpm_prefix"
   build_plugins
   node "$HERE/prepare-dsh.mjs" "$prefix" "$work/dsh-excluded.json"
 
@@ -295,7 +299,7 @@ PYEOF
       sha256sum "$HERE/build-runtime.sh" "$HERE/lib/rtbuild.py" "$HERE/prepare-dsh.mjs" "$HERE/guest/"*.mjs \
         "$HERE/patches/dsh-$dsh_version.json" \
         "$HERE/LICENSE.dsh-go" "$HERE/SOURCES.md" "$ROOT/runtime/package.json" "$ROOT/runtime/package-lock.json" \
-        "$LOCKS/pnpm-$PNPM_VERSION/package.json" "$LOCKS/pnpm-$PNPM_VERSION/package-lock.json" \
+        "$NODE_LOCK" "$PNPM_LOCK/package.json" "$PNPM_LOCK/package-lock.json" \
         "$ROOT/scripts/runtime-files.mjs" "$ROOT/scripts/runtime-patches.mjs" \
         "$ROOT/runtime/patches/dsh-$dsh_version.json" "$patch" | awk '{print $1}'
       sha256sum "$HERE/plugins.json" "$WORK"/plugin-archives/*.tgz | awk '{print $1}'

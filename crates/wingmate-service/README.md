@@ -52,7 +52,7 @@
 
 具名隧道可为一次性邀请选择 5 分钟或 24 小时有效期，CLI 使用 `wingmate tunnel-pair [5m|24h]`。未使用的具名邀请在后台重启后仍可兑换，重新生成或用 `wingmate tunnel-revoke-invite` 可以撤销旧邀请。临时隧道使用 5 分钟有效期。
 
-首次开启会查找 `CLOUDFLARED_PATH`、系统 PATH 和管理目录下的 `tunnel/bin/`。缺少可用程序时，使用系统 Node 按平台下载官方连接器，校验 SHA-256 和版本输出后保存到该目录，供两种模式复用。自动下载覆盖 Windows x64、macOS x64/ARM64、Linux x64/ARM64，其他平台可手动提供可执行文件。
+首次开启会查找 `CLOUDFLARED_PATH`、系统 PATH 和管理目录下的 `tunnel/bin/`。缺少可用程序时，使用运行配置中的 Node 按平台下载官方连接器，校验 SHA-256 和版本输出后保存到该目录，供两种模式复用。自动下载覆盖 Windows x64、macOS x64/ARM64、Linux x64/ARM64，其他平台可手动提供可执行文件。
 
 下载器从 Cloudflare 的 GitHub Release 读取资产地址、大小和 SHA-256 摘要。官方地址不可用时可从第三方镜像下载，仍按同一大小限制写入并校验摘要。连接器在首次连通后写出 PID 文件，管理服务据此发布公网地址。[Cloudflare 下载文档](https://developers.cloudflare.com/tunnel/downloads/) · [GitHub Release API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release) · [连接器启动参数](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/run-parameters/#pidfile)
 

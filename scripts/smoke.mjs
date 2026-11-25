@@ -153,6 +153,40 @@ try {
   assert.equal(a.instance, b.instance);
   assert.equal(a.pid, a.engine_pid);
   assert.equal(a.engine_pid, b.engine_pid);
+  const tools = join(env.WINGMATE_HOME, 'toolchains');
+  const toolsBin = process.platform === 'win32' ? tools : join(tools, 'bin');
+  const bundledNode = join(
+    toolsBin,
+    process.platform === 'win32' ? 'node.exe' : 'node',
+  );
+  const diagnose = (await cli('doctor')).node;
+  assert.equal(diagnose.ok, true);
+  assert.equal(diagnose.source, 'bundled');
+  assert.equal(diagnose.info.path.toLowerCase(), bundledNode.toLowerCase());
+  const toolEnv = Object.fromEntries(
+    Object.entries(env).filter(([key]) => key.toUpperCase() !== 'PATH'),
+  );
+  toolEnv.PATH = toolsBin;
+  const toolVersions = {};
+  for (const tool of ['node', 'npm', 'pnpm']) {
+    const versionArgs =
+      tool === 'pnpm' ? ['with', 'current', '--version'] : ['--version'];
+    const result = spawnSync(
+      process.platform === 'win32'
+        ? join(process.env.SystemRoot, 'System32/cmd.exe')
+        : join(toolsBin, tool),
+      process.platform === 'win32'
+        ? ['/d', '/c', tool, ...versionArgs]
+        : versionArgs,
+      { cwd: work, env: toolEnv, encoding: 'utf8', windowsHide: true },
+    );
+    assert.equal(result.status, 0, result.error ?? result.stderr);
+    toolVersions[tool] = result.stdout.trim();
+    assert.match(toolVersions[tool], /^v?\d+\.\d+\.\d+$/);
+  }
+  checks.push(
+    '发行版使用固定目录中的随包 Node，npm 与 pnpm 在无系统工具的 PATH 下可直接执行',
+  );
   await assert.rejects(access(oldRuntime), { code: 'ENOENT' });
   assert.equal(await readFile(join(unmanaged, 'keep.txt'), 'utf8'), 'keep');
   checks.push('新版就绪后清理旧运行目录，保留非托管内容');
@@ -563,7 +597,7 @@ try {
               value: {
                 type: 'write',
                 sequence: 1,
-                data: 'set WINGMATE_PTY_CHECK=wingmate-pty\recho %WINGMATE_PTY_CHECK%-ok\rexit\r',
+                data: "set WINGMATE_PTY_CHECK=wingmate-pty\recho %WINGMATE_PTY_CHECK%-ok\rnode -e \"console.log(['managed', require('node:path').basename(require('node:path').dirname(process.execPath))].join('-'))\"\rnpm --version\rpnpm with current --version\rexit\r",
               },
             }),
           );
@@ -575,8 +609,11 @@ try {
         }
       }
       assert.match(output, /wingmate-pty-ok/);
+      assert.match(output, /managed-toolchains/);
+      assert.ok(output.includes(toolVersions.npm), output);
+      assert.ok(output.includes(toolVersions.pnpm), output);
       socket.send(JSON.stringify({ type: 'cancel', streamId: id }));
-      checks.push('实际 DSH 侧栏终端能启动 CMD、执行命令并正常退出');
+      checks.push('实际 DSH 侧栏终端能启动 CMD、调用随包 Node、npm 和 pnpm');
     }
     const {
       devices: [device],
@@ -688,6 +725,79 @@ try {
     checks.push(
       '显式重启等待旧服务退出并替换固定路径，拒绝指向已更换实例的确认',
     );
+    const revisionFile = join(tools, '.wingmate-toolchains');
+    const revision = await readFile(revisionFile, 'utf8');
+    await writeFile(revisionFile, oldRevision);
+    const processes = [bundledNode, process.execPath].map((node) =>
+      spawn(node, ['-e', 'setInterval(() => {}, 1000)'], {
+        env,
+        windowsHide: true,
+        stdio: 'ignore',
+      }),
+    );
+    const [managed, system] = processes;
+    try {
+      await Promise.all(processes.map((child) => once(child, 'spawn')));
+      const blocked = await cli('restart', false);
+      assert.notEqual(blocked.code, 0);
+      assert.match(blocked.error, new RegExp(`\\b${managed.pid}\\b`));
+      assert.ok(alive(managed.pid) && alive(system.pid));
+      assert.equal(await readFile(revisionFile, 'utf8'), oldRevision);
+      const ended = once(managed, 'exit', {
+        signal: AbortSignal.timeout(90_000),
+      });
+      const dshHome = env.DSH_HOME;
+      env.DSH_HOME = join(env.WINGMATE_HOME, 'unusable-dsh-home');
+      await writeFile(env.DSH_HOME, 'this file cannot hold DSH data');
+      try {
+        const [failedStart] = await Promise.all([
+          cli('restart', false, '--force-toolchain'),
+          ended,
+        ]);
+        assert.notEqual(failedStart.code, 0);
+        assert.match(failedStart.error, /DSH/);
+        assert.match(
+          await readFile(join(env.WINGMATE_HOME, 'service.log'), 'utf8'),
+          /ENOTDIR.*unusable-dsh-home/,
+        );
+      } finally {
+        env.DSH_HOME = dshHome;
+      }
+      assert.ok(alive(system.pid));
+      assert.equal(await readFile(revisionFile, 'utf8'), revision);
+      const config = JSON.parse(
+        await readFile(join(env.WINGMATE_HOME, 'runtime.json'), 'utf8'),
+      );
+      const installed = JSON.parse(
+        await readFile(join(config.directory, 'installed.json'), 'utf8'),
+      );
+      assert.equal(installed.components.toolchains.sha256, revision);
+      assert.equal(
+        await readFile(
+          join(env.WINGMATE_HOME, '.toolchains-previous/.wingmate-toolchains'),
+          'utf8',
+        ),
+        oldRevision,
+      );
+      assert.equal((await cli('start')).phase, 'running');
+      await assert.rejects(
+        access(join(env.WINGMATE_HOME, '.toolchains-previous')),
+        { code: 'ENOENT' },
+      );
+      checks.push(
+        'Windows 强制更新只结束随包 Node，业务启动失败后已发布的清单和工具仍然一致',
+      );
+    } finally {
+      for (const child of processes) {
+        if (child.pid && child.exitCode === null && child.signalCode === null) {
+          const exit = once(child, 'exit', {
+            signal: AbortSignal.timeout(10_000),
+          });
+          child.kill();
+          await exit;
+        }
+      }
+    }
   }
 } catch (error) {
   failure = error;

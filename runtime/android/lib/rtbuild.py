@@ -6,6 +6,7 @@ Runs with `python3 -I` on the build host (any arch). Never executes anything fro
 inputs it reads; downloaded archives are treated as data.
 """
 import argparse
+from pathlib import Path
 import gzip
 import hashlib
 import io
@@ -908,7 +909,8 @@ def cmd_assemble(args):
         entries["opt/python"] = Entry("dir", 0o755, origin="python")
 
     # 2. Node.js
-    keep_node_top = {"bin", "lib", "LICENSE"}
+    with open(Path(__file__).resolve().parents[2] / "locks/node.json", encoding="utf-8") as lock:
+        keep_node_top = set(json.load(lock)["unixEntries"])
     with tarfile.open(args.node, "r:*") as t:
         for m in t:
             p = norm_member(m.name)

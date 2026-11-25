@@ -11,6 +11,14 @@ use std::{
 pub const DSH_ENTRY: &str = "node_modules/@deepseek-ai/dsh/lib/bin.js";
 pub const WEB_PATCH: &str = "plugins/cordis.patch.yml";
 
+pub fn toolchain_node(root: &Path) -> PathBuf {
+    if cfg!(windows) {
+        root.join("node.exe")
+    } else {
+        root.join("bin/node")
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Runtime {
     pub id: String,
@@ -25,6 +33,26 @@ pub struct Runtime {
 }
 
 impl Runtime {
+    pub fn toolchain_environment(&self, home: &Path, command: &mut Command) -> Result<()> {
+        if self.node == toolchain_node(&home.join("toolchains")) {
+            let inherited = std::env::var_os("PATH").unwrap_or_default();
+            let managed = self.node.parent().context("Node 路径没有父目录")?;
+            let path = std::env::join_paths(
+                [managed.to_path_buf()].into_iter().chain(
+                    std::env::split_paths(&inherited)
+                        .filter(|path| !path.as_os_str().is_empty() && path != managed),
+                ),
+            )?;
+            command.env("PATH", path);
+        } else {
+            #[cfg(target_os = "macos")]
+            if let Some(path) = &self.search_path {
+                command.env("PATH", path);
+            }
+        }
+        Ok(())
+    }
+
     pub fn load(home: &Path) -> Result<Self> {
         serde_json::from_slice(
             &fs::read(home.join("runtime.json"))
@@ -64,6 +92,15 @@ impl Runtime {
                 && directory.join(WEB_PATCH).is_file(),
             "运行内容缺失，请使用 wingmate start 修复"
         );
+        if let Some(expected) = value["components"]["toolchains"]["sha256"].as_str() {
+            let tools = home.join("toolchains");
+            anyhow::ensure!(
+                tools.symlink_metadata()?.is_dir()
+                    && self.node == toolchain_node(&tools)
+                    && fs::read_to_string(tools.join(".wingmate-toolchains"))? == expected,
+                "随包工具与运行清单不一致，请使用 wingmate start 修复"
+            );
+        }
         Ok(())
     }
 }

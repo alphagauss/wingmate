@@ -14,7 +14,7 @@
 
 ## 打包范围与所有权
 
-无 GUI 的 `wingmate` 发行入口并列携带独立管理服务、所选 DSH 及其运行依赖，桌面构建另带桌面组件，系统前提见 [项目入口](../README.md#使用)。当前 Node 由系统提供，Zstd 解压能力随应用交付。用户凭据、会话、个人设置、开发缓存不属于预装运行内容。
+无 GUI 的 `wingmate` 发行入口并列携带独立管理服务、所选 DSH 及其运行依赖，桌面构建另带桌面组件，系统前提见 [项目入口](../README.md#使用)。Node 工具和 Zstd 解压能力随应用交付。用户凭据、会话、个人设置、开发缓存不属于预装运行内容。
 
 在目标系统和处理器架构上本机构建。准备阶段核对 Node 与 Rust 主机目标，并按 Node 平台和架构安装、裁剪依赖。Cargo 只内嵌与目标一致的归档。发行前在对应平台和架构用单文件产物验收，原生依赖覆盖范围以锁文件及实际结果为准。
 
@@ -35,6 +35,8 @@
 当前预装插件要求运行产物自足，声明非空 `dependencies`、`optionalDependencies` 或 `peerDependencies` 会使检查失败，即使当前 DSH 安装树碰巧包含同名包。需要外部运行依赖时先实现明确的依赖部署和验证，再放开此约束。构建期 `devDependencies` 和客户端通过 DSH 模块系统共享的依赖沿用各自声明。
 
 `pnpm build` 先准备运行归档并构建独立服务，再构建桌面，最后构建携带这些并列组件的发行入口。`pnpm build --headless` 跳过桌面及其系统构建前提。服务自身不携带 DSH 归档或解压依赖；桌面只携带运行清单元数据，资源仅在外层发行入口保存一份。服务构建不反向依赖发行入口或桌面，避免嵌套归档和构建循环。
+
+Android 本地版与桌面正式版共用 [Node 下载锁](../runtime/locks/node.json)及 [pnpm 锁](../runtime/locks/pnpm/package-lock.json)。Node 下载先校验指定平台产物的 SHA-256。桌面将原生 Node、npm 与 pnpm 单独组装为 `toolchains` 组件，保留命令、运行库和许可，跳过发行包中的头文件。Android Linux 来宾保留自己的基础环境和运行配置。
 
 macOS 的 `pnpm build` 在完整发行入口构建完成后继续生成 `target/release/bundle/macos/Wingmate.app` 和 `target/release/bundle/dmg/` 下包含版本与架构的 DMG，裸 `target/release/wingmate` 同时保留。无 GUI 构建和其他平台不执行此安装包步骤。应用包的主程序必须是携带全部发行组件的 `wingmate`，不能使用仅含界面的 `wingmate-desktop`；因此安装包配置只在最后的 bundle 阶段显式加载，不作为 Tauri 自动合并的平台配置。
 
@@ -87,6 +89,8 @@ pnpm tauri bundle --config src-tauri/tauri.bundle.macos.conf.json
 启动优先复用已运行且协议兼容的服务。执行「重启并更新」或 `wingmate restart` 时，发行入口在停止当前 DSH 之前校验待替换的服务文件。服务指纹有变化时，再退出旧服务，Windows 等待进程退出后发布新文件。启动时核对进程身份和指纹，再由目标服务启动 DSH。管理服务的本机发现、认证和 `/rpc` 的 `status`、`stop`、`shutdown` 是跨版本的升级接口。业务已停止时，可用 `service-restart` 单独切换服务。旧指纹目录由用户在对应进程退出后自行处理。
 
 发行入口负责以下业务组件的安装和回收，与服务启停共用 `operation.lock`。安装完成后原子发布 `runtime.json`，记录已安装目录、清单指纹、Node 路径与数据目录。管理服务只读取并校验这些内容，因此业务停止后可以在没有发行入口或客户端进程参与时再次启动。缺少或损坏的运行内容需由发行入口修复，不由服务自行释放。
+
+随包工具单独释放到固定的 `toolchains/`，清单保存组件指纹。升级前把完整工具组解开并检查入口，切换时整组发布。发布运行配置后，重试使用该配置对应的工具，旧工具留到业务就绪再回收。Windows 强制更新前核对进程路径、同一用户和创建时间，通过同一进程句柄结束并等待退出。命令的查找范围与强制更新入口见[随包工具](../crates/wingmate-launcher/README.md#随包工具)。
 
 开发和发行的安装目录均位于各自的[管理目录](../crates/wingmate-service/README.md#数据与管理边界)下，命名为 `runtimes/dsh-<固定版本>-<基础包 SHA-256 前 6 位>`。`.wingmate-base` 记录完整基础包指纹，`installed.json` 记录实际安装的组件及完整指纹。遇到同名目录且无法确认归属时，启动会报错，请检查并手动移走占用路径后重试。
 

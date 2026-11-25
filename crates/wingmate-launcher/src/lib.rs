@@ -12,6 +12,7 @@ pub mod management;
 mod process_wait;
 mod runtime;
 pub mod service;
+mod toolchains;
 pub use runtime::{directory, REVISION as RUNTIME_REVISION};
 pub const IS_DEV: bool = !cfg!(any(feature = "bundled-runtime", feature = "release-client"));
 

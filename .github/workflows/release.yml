@@ -103,7 +103,7 @@ jobs:
       - uses: actions/cache@v5
         with:
           path: work/cache/android
-          key: android-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('runtime/android/build-runtime.sh', 'runtime/android/release-sources.py', 'runtime/android/locks/**', 'runtime/package-lock.json', 'pnpm-lock.yaml') }}
+          key: android-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('runtime/android/build-runtime.sh', 'runtime/android/release-sources.py', 'runtime/android/locks/**', 'runtime/locks/**', 'runtime/package-lock.json', 'pnpm-lock.yaml') }}
       - run: node --test apps/mobile/test/*.test.mjs
       - name: Prepare local runtime and corresponding sources
         run: |
@@ -234,8 +234,8 @@ jobs:
               printf '\n' >> "$notes"
             fi
             cat >> "$notes" <<EOF
-          - \`wingmate-windows-x64.exe\` · Windows x64，需要 Node.js。
-          - \`wingmate-linux-x64\` · Linux x64，在 Ubuntu 24.04 上构建。下载后执行 \`chmod +x wingmate-linux-x64\`，再运行 \`./wingmate-linux-x64\` 打开桌面，或用 \`./wingmate-linux-x64 start\` 启动后台。需要 Node.js 24.9.0 或更新版本，桌面另需 WebKitGTK 4.1。
+          - \`wingmate-windows-x64.exe\` · Windows x64，自带 Node.js、npm 和 pnpm。
+          - \`wingmate-linux-x64\` · Linux x64，在 Ubuntu 24.04 上构建，自带 Node.js、npm 和 pnpm。下载后执行 \`chmod +x wingmate-linux-x64\`，再运行 \`./wingmate-linux-x64\` 打开桌面，或用 \`./wingmate-linux-x64 start\` 启动后台。桌面需要 WebKitGTK 4.1。
           - \`wingmate-android-remote.apk\` · Android 远程版，连接已有 Wingmate 主机。
           - \`wingmate-android-local.apk\` · Android 本地版，可在 Android 8.0 及以上的 ARM64 手机上运行 DSH。
 

@@ -33,6 +33,7 @@ window.renderWingmateHome = ({
   actions,
   target,
   delayCard,
+  blocked,
 }) => {
   messageText.textContent = message;
   hintText.textContent = hint;
@@ -41,35 +42,51 @@ window.renderWingmateHome = ({
   details.hidden = error === null;
   if (error === null) details.open = false;
   errorText.textContent = error ?? '';
-  const retry = actions === 'retry' || actions === 'retry-reopen';
+  const forceToolchain = actions === 'force-toolchain';
+  const retry =
+    actions === 'retry' || actions === 'retry-reopen' || forceToolchain;
   start.hidden = !retry && actions !== 'start';
   start.textContent = retry ? '重试' : '启动后台';
   start.dataset.backendAction =
     actions === 'retry-reopen' ? 'retry-reopen' : 'start';
   const idleUpdate = actions === 'update-idle';
   const desktopUpdate = actions === 'update-desktop';
-  updateNeedsConfirmation = idleUpdate || desktopUpdate;
+  updateNeedsConfirmation = idleUpdate || desktopUpdate || forceToolchain;
   update.hidden = actions !== 'update' && !updateNeedsConfirmation;
   updateRequest = {
-    action: desktopUpdate ? 'update-desktop' : 'restart',
+    action: forceToolchain
+      ? 'force-toolchain'
+      : desktopUpdate
+        ? 'update-desktop'
+        : 'restart',
     expected: target,
+    blocked,
   };
   if (!update.hidden) {
-    update.querySelector('[data-backend-action="continue"]').textContent =
-      idleUpdate ? '继续并启动' : '继续使用';
-    showRestart.textContent = desktopUpdate
-      ? '更新桌面'
-      : idleUpdate
-        ? '更新并启动'
-        : '重启并更新';
+    const continueButton = update.querySelector(
+      '[data-backend-action="continue"]',
+    );
+    continueButton.hidden = forceToolchain;
+    continueButton.textContent = idleUpdate ? '继续并启动' : '继续使用';
+    showRestart.textContent = forceToolchain
+      ? '结束这些进程并更新'
+      : desktopUpdate
+        ? '更新桌面'
+        : idleUpdate
+          ? '更新并启动'
+          : '重启并更新';
   }
   if (updateNeedsConfirmation) {
-    document.getElementById('restart-title').textContent = desktopUpdate
-      ? '更新桌面？'
-      : '更新管理服务并启动后台？';
-    document.getElementById('restart-hint').textContent = desktopUpdate
-      ? '后台任务会继续运行。'
-      : '已启用的远程连接会短暂中断。';
+    document.getElementById('restart-title').textContent = forceToolchain
+      ? '结束这些进程并更新？'
+      : desktopUpdate
+        ? '更新桌面？'
+        : '更新管理服务并启动后台？';
+    document.getElementById('restart-hint').textContent = forceToolchain
+      ? error
+      : desktopUpdate
+        ? '后台任务会继续运行。'
+        : '已启用的远程连接会短暂中断。';
   }
   if (
     confirmation.open &&

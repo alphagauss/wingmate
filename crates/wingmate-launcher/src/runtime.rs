@@ -11,6 +11,7 @@ pub const ID: &str = env!("WINGMATE_RUNTIME_ID");
 pub const REVISION: Option<&str> = option_env!("WINGMATE_RUNTIME_REVISION");
 pub const DSH_ENTRY: &str = "node_modules/@deepseek-ai/dsh/lib/bin.js";
 pub const WEB_PATCH: &str = "plugins/cordis.patch.yml";
+pub const TOOLCHAINS: &str = "toolchains";
 #[cfg(feature = "bundled-runtime")]
 type Archive = &'static [u8];
 #[cfg(not(feature = "bundled-runtime"))]
@@ -209,15 +210,7 @@ pub fn prepare(home: &Path, on_extract: impl FnOnce()) -> Result<PathBuf> {
         &target,
         on_extract,
         |name, stage| {
-            let archive = ARCHIVES
-                .iter()
-                .find(|(key, _)| *key == name)
-                .with_context(|| format!("缺少运行组件 {name}"))?
-                .1;
-            #[cfg(not(feature = "bundled-runtime"))]
-            let archive =
-                fs::File::open(archive).context("缺少开发运行组件，请运行 pnpm runtime:dev")?;
-            tar::Archive::new(zstd::stream::read::Decoder::new(archive)?).unpack(stage)?;
+            unpack(name, stage)?;
             #[cfg(not(feature = "bundled-runtime"))]
             if name == "base" {
                 let package: serde_json::Value =
@@ -232,6 +225,31 @@ pub fn prepare(home: &Path, on_extract: impl FnOnce()) -> Result<PathBuf> {
             Ok(())
         },
     )
+}
+
+pub(crate) fn toolchain_revision() -> Result<Option<String>> {
+    if crate::IS_DEV {
+        return Ok(None);
+    }
+    Ok(Some(
+        Manifest::parse(MANIFEST)?
+            .components
+            .remove(TOOLCHAINS)
+            .context("发行包缺少 Node 工具组件")?
+            .sha256,
+    ))
+}
+
+pub(crate) fn unpack(name: &str, stage: &Path) -> Result<()> {
+    let archive = ARCHIVES
+        .iter()
+        .find(|(key, _)| *key == name)
+        .with_context(|| format!("缺少运行组件 {name}"))?
+        .1;
+    #[cfg(not(feature = "bundled-runtime"))]
+    let archive = fs::File::open(archive).context("缺少运行组件归档")?;
+    tar::Archive::new(zstd::stream::read::Decoder::new(archive)?).unpack(stage)?;
+    Ok(())
 }
 
 fn install_components(
@@ -284,10 +302,11 @@ fn install_components(
         .components
         .iter()
         .filter(|(name, part)| {
-            installed
-                .as_ref()
-                .and_then(|current| current.components.get(*name))
-                != Some(*part)
+            name.as_str() != TOOLCHAINS
+                && installed
+                    .as_ref()
+                    .and_then(|current| current.components.get(*name))
+                    != Some(*part)
         })
         .collect();
     if !changed.is_empty() {
@@ -535,7 +554,7 @@ pub fn quiet(command: &mut Command) -> &mut Command {
 
 #[cfg(not(any(feature = "bundled-runtime", feature = "release-client")))]
 pub fn node() -> Result<PathBuf> {
-    Ok(probe_node(None)?.path)
+    Ok(check_node(Path::new("node"))?.path)
 }
 
 #[derive(serde::Serialize)]
@@ -549,26 +568,26 @@ pub(crate) struct NodeInfo {
 }
 
 pub(crate) fn node_info() -> Result<NodeInfo> {
+    let program = Path::new("node");
+    let result = check_node(program);
     #[cfg(target_os = "macos")]
-    {
-        let result = probe_node(None);
-        if result.is_ok() {
-            return result;
-        }
+    if result.is_err() {
         let inherited = std::env::var_os("PATH");
-        let Some(path) = crate::macos_path::from_login_shell()
+        if let Some(path) = crate::macos_path::from_login_shell()
             .filter(|path| Some(path.as_os_str()) != inherited.as_deref())
-        else {
-            return result;
-        };
-        probe_node(Some(&path)).or(result)
+        {
+            return probe_node(program, Some(&path)).or(result);
+        }
     }
-    #[cfg(not(target_os = "macos"))]
-    probe_node(None)
+    result
 }
 
-fn probe_node(search_path: Option<&std::ffi::OsStr>) -> Result<NodeInfo> {
-    let mut command = Command::new("node");
+pub(crate) fn check_node(program: &Path) -> Result<NodeInfo> {
+    probe_node(program, None)
+}
+
+fn probe_node(program: &Path, search_path: Option<&std::ffi::OsStr>) -> Result<NodeInfo> {
+    let mut command = Command::new(program);
     if let Some(path) = search_path {
         command.env("PATH", path);
     }
@@ -580,8 +599,12 @@ fn probe_node(search_path: Option<&std::ffi::OsStr>) -> Result<NodeInfo> {
         ])
         .env_remove("NODE_OPTIONS")
         .output()
-        .context("找不到系统 Node.js，请安装 Node.js 24.9 或更新版本")?;
-    anyhow::ensure!(output.status.success(), "系统 Node.js 检查失败");
+        .with_context(|| format!("无法运行 Node.js：{}", program.display()))?;
+    anyhow::ensure!(
+        output.status.success(),
+        "Node.js 检查失败：{}",
+        program.display()
+    );
     let value: serde_json::Value = serde_json::from_slice(&output.stdout)?;
     #[cfg(any(feature = "bundled-runtime", feature = "release-client"))]
     anyhow::ensure!(

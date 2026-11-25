@@ -74,10 +74,7 @@ pub fn start(
     let log = File::create(home.join("service.log"))?;
     let mut command = Command::new(&runtime.node);
     crate::runtime::quiet(&mut command);
-    #[cfg(target_os = "macos")]
-    if let Some(path) = &runtime.search_path {
-        command.env("PATH", path);
-    }
+    runtime.toolchain_environment(home, &mut command)?;
     #[cfg(unix)]
     {
         use std::os::{fd::AsRawFd, unix::process::CommandExt};

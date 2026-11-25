@@ -22,6 +22,7 @@ import * as tar from 'tar';
 import { excludedRuntimeFile } from './runtime-files.mjs';
 import { applyRuntimePatches } from './runtime-patches.mjs';
 import { validatePluginArchive } from './runtime-plugins.mjs';
+import { prepareToolchains, toolchainInputs } from './runtime-toolchains.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const runtime = join(root, 'runtime');
@@ -162,6 +163,26 @@ await mkdir(output, { recursive: true });
 await using scratch = await mkdtempDisposable(join(output, '.prepare-'));
 
 const components = {};
+if (!dev) {
+  const inputs = await toolchainInputs();
+  const lockedVersion = JSON.parse(inputs[0]).version;
+  if (process.versions.node.split('.')[0] !== lockedVersion.split('.')[0])
+    throw new Error(
+      `请使用与随包 Node ${lockedVersion} 同主版本的 Node 构建发行包`,
+    );
+  components.toolchains = await archiveComponent(
+    'toolchains',
+    digest(...inputs, hostTarget),
+    ['toolchains'],
+    () =>
+      prepareToolchains(
+        join(root, 'work/cache/node'),
+        scratch.path,
+        cache,
+        registry,
+      ),
+  );
+}
 components.base = await archiveComponent(
   'base',
   digest(

@@ -1,7 +1,7 @@
 use super::desktop_window;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Url, WebviewWindow};
-use wingmate_launcher::service::{RestartTarget, StartupStage};
+use wingmate_launcher::service::{RestartTarget, StartupStage, ToolchainBusy};
 
 #[derive(Clone, PartialEq, Eq, serde::Serialize)]
 pub(super) struct CardStatus {
@@ -13,6 +13,8 @@ pub(super) struct CardStatus {
     target: Option<RestartTarget>,
     #[serde(rename = "delayCard")]
     delay_card: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocked: Option<ToolchainBusy>,
 }
 
 impl CardStatus {
@@ -25,6 +27,7 @@ impl CardStatus {
             actions: "",
             target: None,
             delay_card: false,
+            blocked: None,
         }
     }
 
@@ -70,6 +73,7 @@ impl CardStatus {
             actions: "retry",
             target: None,
             delay_card: false,
+            blocked: None,
         }
     }
 
@@ -82,6 +86,7 @@ impl CardStatus {
             actions: "start",
             target: None,
             delay_card: false,
+            blocked: None,
         }
     }
 
@@ -121,6 +126,7 @@ impl CardStatus {
             },
             target,
             delay_card: false,
+            blocked: None,
         }
     }
 
@@ -144,11 +150,25 @@ impl CardStatus {
             actions: "retry-reopen",
             target: None,
             delay_card: false,
+            blocked: None,
         }
     }
 
     pub(super) fn can_retry_reopen(&self) -> bool {
         self.actions == "retry-reopen"
+    }
+
+    pub(super) fn toolchain_busy(target: RestartTarget, blocked: ToolchainBusy) -> Self {
+        Self {
+            message: "随包 Node 正在使用",
+            hint: "结束这些进程会中断它们正在执行的任务。",
+            waiting: false,
+            error: Some(blocked.to_string()),
+            actions: "force-toolchain",
+            target: Some(target),
+            delay_card: false,
+            blocked: Some(blocked),
+        }
     }
 }
 
@@ -159,6 +179,14 @@ pub(super) struct StartupPage {
 }
 
 impl StartupPage {
+    pub(super) fn confirms_toolchain(
+        &self,
+        target: &RestartTarget,
+        blocked: &ToolchainBusy,
+    ) -> bool {
+        let status = self.status.lock().unwrap();
+        status.target.as_ref() == Some(target) && status.blocked.as_ref() == Some(blocked)
+    }
     pub(super) fn new(dev_url: Option<&Url>) -> Self {
         // Tauri's bundled app protocol uses an HTTP origin on WebView2.
         let url = if cfg!(any(windows, target_os = "android")) {
@@ -254,6 +282,7 @@ impl StartupPage {
                             actions: "retry",
                             target: None,
                             delay_card: false,
+                            blocked: None,
                         },
                         true,
                     );
@@ -266,6 +295,26 @@ impl StartupPage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wingmate_launcher::service::ToolchainProcess;
+
+    #[test]
+    fn toolchain_confirmation_rejects_a_reused_pid() {
+        let page = StartupPage::new(None);
+        let target = RestartTarget {
+            service: "service".into(),
+            business: None,
+        };
+        let blocked = |started: &str| {
+            ToolchainBusy(vec![ToolchainProcess {
+                pid: 42,
+                started: started.into(),
+            }])
+        };
+        *page.status.lock().unwrap() =
+            CardStatus::toolchain_busy(target.clone(), blocked("01db2fded0000002"));
+        assert!(!page.confirms_toolchain(&target, &blocked("01db2fded0000001")));
+        assert!(page.confirms_toolchain(&target, &blocked("01db2fded0000002")));
+    }
 
     #[test]
     fn local_pages_use_the_configured_dev_server() {

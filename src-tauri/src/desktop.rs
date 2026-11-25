@@ -315,7 +315,7 @@ enum Operation {
     Continue(Option<RestartTarget>),
     Stop(String),
     RestartDsh(String),
-    Update(Option<RestartTarget>),
+    Update(Option<RestartTarget>, Option<service::ToolchainBusy>),
 }
 
 fn run_operation(
@@ -355,13 +355,24 @@ fn run_operation(
                 report(StartupStage::Stopping);
                 service::restart_instance(home, instance).map(|host| ready(Ok(Some(host))))
             }
-            Operation::Update(target) => {
+            Operation::Update(target, blocked) => {
+                let approval = blocked
+                    .as_ref()
+                    .map_or(service::ToolchainApproval::None, |busy| {
+                        service::ToolchainApproval::Listed(&busy.0)
+                    });
                 if target.is_some() || wingmate_launcher::IS_DEV {
-                    service::restart_with_progress(home, target.as_ref(), report, |state| {
-                        if wingmate_launcher::IS_DEV {
-                            ready(connected(state));
-                        }
-                    })?;
+                    service::restart_with_toolchain_approval(
+                        home,
+                        target.as_ref(),
+                        approval,
+                        report,
+                        |state| {
+                            if wingmate_launcher::IS_DEV {
+                                ready(connected(state));
+                            }
+                        },
+                    )?;
                 }
                 if wingmate_launcher::IS_DEV {
                     return Ok(());
@@ -408,6 +419,13 @@ fn run_operation(
         let detail = format!("{error:#}");
         if reopening.get() {
             CardStatus::reopen_failure(detail)
+        } else if let Some(blocked) = error.downcast_ref::<service::ToolchainBusy>() {
+            match service::host_status(home) {
+                Ok(Some(host)) if host.business.is_none() => {
+                    CardStatus::toolchain_busy(RestartTarget::from_status(&host), blocked.clone())
+                }
+                _ => CardStatus::failure(stage.get(), detail),
+            }
         } else {
             CardStatus::failure(stage.get(), detail)
         }
@@ -458,6 +476,7 @@ fn home_backend(
     desktop: tauri::State<'_, Arc<Desktop>>,
     action: String,
     expected: Option<RestartTarget>,
+    blocked: Option<service::ToolchainBusy>,
 ) -> Result<(), String> {
     if !window.url().is_ok_and(|url| desktop.page.is_home(&url)) {
         return Err("此操作只能在 Wingmate 首页执行".into());
@@ -469,15 +488,26 @@ fn home_backend(
     let app = window.app_handle();
     let operation = match action.as_str() {
         "start" => Operation::Start,
-        "retry-reopen" if matches!(current.view, View::ReopenFailed) => Operation::Update(None),
+        "force-toolchain" => {
+            let target = expected.ok_or("缺少待更新后台的身份")?;
+            let blocked = blocked
+                .filter(|blocked| desktop.page.confirms_toolchain(&target, blocked))
+                .ok_or("占用进程已变化，请重新确认")?;
+            Operation::Update(Some(target), Some(blocked))
+        }
+        "retry-reopen" if matches!(current.view, View::ReopenFailed) => {
+            Operation::Update(None, None)
+        }
         "continue" | "restart" | "update-desktop" => {
             let View::UpdateAvailable(target) = &current.view else {
                 return Err("没有待切换的后台，请重新连接".into());
             };
             match action.as_str() {
                 "continue" => Operation::Continue(target.clone()),
-                "restart" if target.is_some() && *target == expected => Operation::Update(expected),
-                "update-desktop" if target.is_none() => Operation::Update(None),
+                "restart" if target.is_some() && *target == expected => {
+                    Operation::Update(expected, None)
+                }
+                "update-desktop" if target.is_none() => Operation::Update(None, None),
                 _ => return Err("待更新组件已变化，请重新确认".into()),
             }
         }
@@ -509,9 +539,10 @@ fn manage_backend(
             {
                 return Err("没有待切换的后台组件".into());
             }
-            Operation::Update(Some(
-                current.last.clone().ok_or("后台实例不可用，请重新连接")?,
-            ))
+            Operation::Update(
+                Some(current.last.clone().ok_or("后台实例不可用，请重新连接")?),
+                None,
+            )
         }
         _ => return Err("未知的后台操作".into()),
     };

@@ -25,9 +25,9 @@ fn run() -> Result<()> {
     let remaining: Vec<_> = args.collect();
     let max = match command.as_deref() {
         Some("logs") => 3,
-        Some("install") => 2,
+        Some("install" | "internal-restart") => 2,
         Some(
-            "commands" | "login-startup" | "internal-restart" | "share-enable" | "share-revoke"
+            "commands" | "login-startup" | "restart" | "share-enable" | "share-revoke"
             | "tunnel-configure" | "tunnel-start" | "tunnel-pair" | "connect-info",
         ) => 1,
         _ => 0,
@@ -37,6 +37,7 @@ fn run() -> Result<()> {
     if matches!(command.as_deref(), Some("--help" | "-h")) {
         println!("用法: wingmate [命令]\n\n无参数         打开桌面\ninstall [--shell <powershell|sh|fish>] 为当前用户注册 wingmate，按需输出当前终端的 PATH 更新脚本\nstart          准备运行内容并启动业务后台\nstatus         查看业务后台状态\nstop           停止业务后台，保留管理服务\nrestart        重启业务后台并切换变更的服务和运行内容\nservice-status 查看管理服务状态\nservice-start  启动管理服务\nservice-stop   业务停止后退出管理服务\nservice-restart 业务停止后切换管理服务版本\nshare-status   查看 Web 入口及配对状态\nshare-enable [IPv4] 开启局域网分享\nshare-disable  关闭局域网分享\nshare-pair     生成局域网配对链接\nshare-pair-local 生成本机浏览器配对链接\nshare-revoke <设备 ID> 撤销已配对设备\ncommands [on|off] 注册或撤销终端命令\nlogin-startup [on|off] 设置登录启动\n-h, --help     显示帮助");
         println!("--version      显示 Wingmate 版本\nuninstall      撤销 wingmate 命令注册，保留 dsh\nconnect-info [--pair] 输出本机网关 JSON，按需生成一次性配对链接\ndoctor         检查 Node.js、管理目录、管理服务及网关\nlogs [host|service] [--tail <行数>] 查看管理服务或业务后台的最近日志");
+        println!("restart --force-toolchain 在 Windows 结束占用随包工具的进程后更新");
         println!("\n局域网密码\nshare-password-set 从标准输入读取密码\nshare-password-disable 停用密码登录\n\n公网隧道\ntunnel-configure <域名> 从标准输入读取 Tunnel Token 并保存具名配置\ntunnel-start <quick|named> 启动或切换公网隧道\ntunnel-status  查看公网隧道状态\ntunnel-stop    关闭公网隧道\ntunnel-pair [5m|24h] 生成公网配对链接\ntunnel-revoke-invite 撤销未使用的具名隧道邀请");
         return Ok(());
     }
@@ -125,14 +126,38 @@ fn run() -> Result<()> {
         let report = |stage| emit(BootstrapEvent::Stage(stage));
         let ready =
             |state: &service::Snapshot| emit(BootstrapEvent::Ready(Box::new(state.clone())));
-        if command.as_deref() == Some("internal-start") {
-            service::start_with_progress(&home, report, ready)?;
+        let result = if command.as_deref() == Some("internal-start") {
+            service::start_with_progress(&home, report, ready)
         } else {
             let target = args
                 .next()
-                .map(|value| serde_json::from_str(&value))
+                .map(|value| serde_json::from_str::<Option<service::RestartTarget>>(&value))
+                .transpose()?
+                .flatten();
+            let force = args.next();
+            let approved = force
+                .as_deref()
+                .filter(|value| *value != "--force-toolchain")
+                .map(serde_json::from_str::<Vec<service::ToolchainProcess>>)
                 .transpose()?;
-            service::restart_with_progress(&home, target.as_ref(), report, ready)?;
+            let approval = match (force.as_deref(), approved.as_deref()) {
+                (Some("--force-toolchain"), _) => service::ToolchainApproval::All,
+                (_, Some(list)) => service::ToolchainApproval::Listed(list),
+                _ => service::ToolchainApproval::None,
+            };
+            service::restart_with_toolchain_approval(
+                &home,
+                target.as_ref(),
+                approval,
+                report,
+                ready,
+            )
+        };
+        if let Err(error) = result {
+            if let Some(busy) = error.downcast_ref::<service::ToolchainBusy>() {
+                emit(BootstrapEvent::ToolchainBusy(busy.clone()));
+            }
+            return Err(error);
         }
         return Ok(());
     }
@@ -170,7 +195,20 @@ fn run() -> Result<()> {
             service::stop(&home)?;
             public_state(None)
         }
-        Some("restart") => public_state(Some(service::restart(&home)?)),
+        Some("restart") => {
+            let approval = match args.next().as_deref() {
+                None => service::ToolchainApproval::None,
+                Some("--force-toolchain") => service::ToolchainApproval::All,
+                _ => bail!("用法：wingmate restart [--force-toolchain]"),
+            };
+            public_state(Some(service::restart_with_toolchain_approval(
+                &home,
+                None,
+                approval,
+                |_| {},
+                |_| {},
+            )?))
+        }
         Some("service-status") => match service::host_status(&home)? {
             Some(mut state) => {
                 if let Some(business) = &mut state.business {

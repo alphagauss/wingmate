@@ -1,5 +1,6 @@
 //! 管理客户端及发行引导；业务进程只由独立服务操作。
 use crate::components;
+pub use crate::toolchains::{ToolchainBusy, ToolchainProcess};
 use anyhow::{Context, Result};
 pub use engine::{operation_lock, Snapshot, StartupStage};
 use std::{
@@ -18,6 +19,25 @@ use wingmate_service::{engine, host, runtime::Runtime};
 pub enum BootstrapEvent {
     Stage(StartupStage),
     Ready(Box<Snapshot>),
+    ToolchainBusy(ToolchainBusy),
+}
+
+#[derive(Clone, Copy)]
+pub enum ToolchainApproval<'a> {
+    None,
+    All,
+    Listed(&'a [ToolchainProcess]),
+}
+
+impl ToolchainApproval<'_> {
+    #[cfg(windows)]
+    pub(crate) fn allows(self, process: &ToolchainProcess) -> bool {
+        match self {
+            Self::None => false,
+            Self::All => true,
+            Self::Listed(list) => list.contains(process),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -139,21 +159,37 @@ fn start_prepared_host(
     }
 }
 
-fn prepare(home: &Path, report: impl Fn(StartupStage)) -> Result<()> {
+fn prepare(
+    home: &Path,
+    tools: Option<crate::toolchains::Prepared>,
+    approval: ToolchainApproval<'_>,
+    report: impl Fn(StartupStage),
+) -> Result<()> {
     let _operation = operation_lock(home)?;
     anyhow::ensure!(
         engine::status(home)?.is_none(),
         "业务后台已启动，请重新连接后再切换运行内容"
     );
+    let tools = tools
+        .map(|tools| tools.publish(home, approval))
+        .transpose()?;
     let directory = crate::runtime::prepare(home, || report(StartupStage::Extracting))?;
-    let node = crate::runtime::node_info()?;
+    let system_node = crate::IS_DEV.then(crate::runtime::node_info).transpose()?;
+    #[cfg(target_os = "macos")]
+    let search_path = system_node
+        .as_ref()
+        .and_then(|node| node.search_path.clone());
+    let node = match system_node {
+        Some(node) => node.path,
+        None => crate::toolchains::node(home)?,
+    };
     let runtime = Runtime {
         id: crate::runtime::ID.into(),
         revision: crate::runtime::REVISION.context("缺少运行组件清单")?.into(),
         directory,
-        node: node.path,
+        node,
         #[cfg(target_os = "macos")]
-        search_path: node.search_path,
+        search_path,
         dsh_home: if crate::IS_DEV {
             Some(home.parent().unwrap().join("dsh"))
         } else {
@@ -166,13 +202,19 @@ fn prepare(home: &Path, report: impl Fn(StartupStage)) -> Result<()> {
         },
     };
     runtime.validate(home)?;
-    host::publish(&home.join("runtime.json"), &runtime)
+    host::publish(&home.join("runtime.json"), &runtime)?;
+    // Once the runtime is published, a later start failure must leave its tools in place.
+    if let Some(tools) = tools {
+        tools.commit();
+    }
+    Ok(())
 }
 
 fn start_local(
     home: &Path,
     expected: Option<&RestartTarget>,
     restart: bool,
+    approval: ToolchainApproval<'_>,
     report: impl Fn(StartupStage),
     ready: impl FnOnce(&Snapshot),
 ) -> Result<Snapshot> {
@@ -189,13 +231,13 @@ fn start_local(
     } else {
         ensure_host(home)?
     };
-    let mut prepared = false;
     if restart {
         let current = host::call(&endpoint, "status", None)?;
         anyhow::ensure!(
             expected.is_none_or(|target| target.matches(&current)),
             "后台实例已更换，请重新检查"
         );
+        let tools = crate::toolchains::prepare(home, || report(StartupStage::Extracting))?;
         let replacement = if endpoint.revision != desired {
             let binary = components::prepare(home, false)?;
             anyhow::ensure!(binary.revision == desired, "服务构建产物已变化，请重试");
@@ -207,11 +249,10 @@ fn start_local(
             report(StartupStage::Stopping);
             host::call(&endpoint, "stop", Some(&state.instance))?;
         }
+        prepare(home, tools, approval, &report)?;
         if let Some(binary) = replacement {
             report(StartupStage::Stopping);
             shutdown_endpoint(home, &endpoint).context("退出旧管理服务失败")?;
-            prepare(home, &report)?;
-            prepared = true;
             report(StartupStage::Starting);
             endpoint = start_prepared_host(home, binary).context("启动新版管理服务失败")?;
         }
@@ -233,11 +274,13 @@ fn start_local(
         anyhow::ensure!(state.phase == "running", "业务后台正在停止，请稍后重试");
         state
     } else {
-        if !prepared {
-            prepare(home, &report)?;
+        if !restart {
+            let tools = crate::toolchains::prepare(home, || report(StartupStage::Extracting))?;
+            prepare(home, tools, approval, &report)?;
         }
         report(StartupStage::Starting);
-        host::call(&endpoint, "start", None)?
+        host::call(&endpoint, "start", None)
+            .context("启动 DSH 失败，请检查 service.log")?
             .business
             .context("业务后台未就绪")?
     };
@@ -256,6 +299,9 @@ fn start_local(
                     && current.phase == "running"
                     && current.runtime_revision.as_deref() == crate::RUNTIME_REVISION
             }) {
+                if !crate::IS_DEV {
+                    crate::toolchains::cleanup(home)?;
+                }
                 crate::runtime::cleanup_after_ready(home, &current);
             }
             Ok(())
@@ -271,6 +317,7 @@ fn start_client(
     home: &Path,
     expected: Option<&RestartTarget>,
     restart: bool,
+    approval: ToolchainApproval<'_>,
     report: impl Fn(StartupStage),
     ready: impl FnOnce(&Snapshot),
 ) -> Result<Snapshot> {
@@ -289,6 +336,17 @@ fn start_client(
         });
         if let Some(target) = expected {
             command.arg(serde_json::to_string(target)?);
+        } else if !matches!(approval, ToolchainApproval::None) {
+            command.arg("null");
+        }
+        match approval {
+            ToolchainApproval::None => {}
+            ToolchainApproval::All => {
+                command.arg("--force-toolchain");
+            }
+            ToolchainApproval::Listed(list) => {
+                command.arg(serde_json::to_string(list)?);
+            }
         }
         let mut child = command
             .env("WINGMATE_HOME", home)
@@ -298,6 +356,7 @@ fn start_client(
             .spawn()?;
         let mut ready = Some(ready);
         let mut state = None;
+        let mut busy = None;
         for line in BufReader::new(child.stdout.take().unwrap()).lines() {
             match serde_json::from_str::<BootstrapEvent>(&line?)? {
                 BootstrapEvent::Stage(stage) => report(stage),
@@ -307,9 +366,13 @@ fn start_client(
                     }
                     state = Some(*value);
                 }
+                BootstrapEvent::ToolchainBusy(error) => busy = Some(error),
             }
         }
         let output = child.wait_with_output()?;
+        if let Some(error) = busy {
+            return Err(error.into());
+        }
         anyhow::ensure!(
             output.status.success(),
             "{}",
@@ -317,7 +380,7 @@ fn start_client(
         );
         state.context("发行入口未返回业务状态")
     } else {
-        start_local(home, expected, restart, report, ready)
+        start_local(home, expected, restart, approval, report, ready)
     }
 }
 
@@ -329,7 +392,7 @@ pub fn start_with_progress(
     report: impl Fn(StartupStage),
     ready: impl FnOnce(&Snapshot),
 ) -> Result<Snapshot> {
-    start_client(home, None, false, report, ready)
+    start_client(home, None, false, ToolchainApproval::None, report, ready)
 }
 pub fn restart(home: &Path) -> Result<Snapshot> {
     restart_with_progress(home, None, |_| {}, |_| {})
@@ -340,7 +403,17 @@ pub fn restart_with_progress(
     report: impl Fn(StartupStage),
     ready: impl FnOnce(&Snapshot),
 ) -> Result<Snapshot> {
-    start_client(home, target, true, report, ready)
+    restart_with_toolchain_approval(home, target, ToolchainApproval::None, report, ready)
+}
+
+pub fn restart_with_toolchain_approval(
+    home: &Path,
+    target: Option<&RestartTarget>,
+    approval: ToolchainApproval<'_>,
+    report: impl Fn(StartupStage),
+    ready: impl FnOnce(&Snapshot),
+) -> Result<Snapshot> {
+    start_client(home, target, true, approval, report, ready)
 }
 
 pub fn request_desktop_reopen(home: &Path) -> Result<()> {
@@ -454,7 +527,8 @@ pub fn start_host(home: &Path) -> Result<()> {
     let _bootstrap = bootstrap_lock(home)?;
     let endpoint = ensure_host(home)?;
     if host::call(&endpoint, "status", None)?.business.is_none() {
-        prepare(home, |_| {})?;
+        let tools = crate::toolchains::prepare(home, || {})?;
+        prepare(home, tools, ToolchainApproval::None, |_| {})?;
     }
     Ok(())
 }

@@ -1,5 +1,5 @@
 //! CLI 连接信息与本机诊断。
-use crate::{runtime, service};
+use crate::{service, toolchains};
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::{
@@ -38,8 +38,8 @@ pub fn connect_info(home: &Path, pair: bool) -> Result<Value> {
 }
 
 pub fn doctor(home: &Path) -> Value {
-    let node = match runtime::node_info() {
-        Ok(node) => json!({"ok": true, "info": node}),
+    let node = match toolchains::diagnostics(home) {
+        Ok(node) => node,
         Err(error) => json!({"ok": false, "error": format!("{error:#}")}),
     };
     let service = match service::connection_status(home) {
