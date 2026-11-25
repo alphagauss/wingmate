@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const pluginRoot = join(root, 'plugins');
+const pluginRoot = join(root, 'bundled-plugins');
 const windows = process.platform === 'win32';
 
 async function clientManifest(directory) {

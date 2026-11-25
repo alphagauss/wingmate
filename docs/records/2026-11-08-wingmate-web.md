@@ -1,6 +1,6 @@
 # 2026-11-08 Wingmate 后台服务插件
 
-DSH 保持 `0.2.2-rc.1`。本次将 [Wingmate 后台服务](../../plugins/wingmate-web/README.md) 作为独立包放在 DSH 旁边并默认加载，同时将发行运行目录切换为按归档指纹命名。
+DSH 保持 `0.2.2-rc.1`。本次将 [Wingmate 后台服务](../../bundled-plugins/wingmate-web/README.md) 作为独立包放在 DSH 旁边并默认加载，同时将发行运行目录切换为按归档指纹命名。
 
 11 月 8 日至 9 日在 Windows x64 上检查了开发安装树的补丁合成，以及 `.tgz` 在独立 Web Profile 中的安装、加载和移除。复制出来的单文件 EXE 通过发行冒烟测试，覆盖运行包只内嵌一份、指纹复用、Web 认证、插件资源及现有原生依赖。
 

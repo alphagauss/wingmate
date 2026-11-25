@@ -8,7 +8,7 @@ Linux 基础包、Node、Python 和 PRoot 按 [dsh-Go 的 288234ae](https://gith
 
 从 dsh-Go 移植的构建脚本及辅助代码沿用 AGPLv3，包括 [`build-runtime.sh`](build-runtime.sh) 和 [`lib/rtbuild.py`](lib/rtbuild.py)。载荷中各第三方软件包适用各自的许可证。[dsh-Go 许可文本](LICENSE.dsh-go)
 
-DSH 使用 Wingmate 的 npm 锁安装 Linux ARM64 glibc 依赖，复用 [Office 裁剪与预览替换](../../plugins/wingmate-file-viewer/README.md#上游适配)。手机本地管理由 Kotlin 模块提供。生成目录、参考仓库和开发机器上的 npm 安装树均独立于载荷输入。
+DSH 使用 Wingmate 的 npm 锁安装 Linux ARM64 glibc 依赖，复用 [Office 裁剪与预览替换](../../bundled-plugins/wingmate-file-viewer/README.md#上游适配)。手机本地管理由 Kotlin 模块提供。生成目录、参考仓库和开发机器上的 npm 安装树均独立于载荷输入。
 
 本机工作台通过回环地址连接 DSH。Android 没有默认网络时，WebView 会报告离线，回环地址仍然可用。Android 载荷对回环页面使用实际的连接状态。升级 DSH 时，复验手机离线下的自动连接；上游能独立处理回环连接后可移除此补丁。
 

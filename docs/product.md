@@ -31,7 +31,7 @@ Wingmate 是面向个人使用的 DeepSeek Harness（DSH）发行版。它负责
 | 独立常驻管理服务 | 管理服务使用已安装的业务运行内容，业务停止后仍可再次启动。本机 CLI 与桌面使用本机管理接口 |
 | Web 接入 | 本机浏览器可配对访问。局域网和公网分享可独立开启，其他设备配对后可打开完整 DSH Web，并可在业务停止后从原地址启动后台。公网提供临时和具名隧道，真实公网验收范围见[架构计划](../ARCHITECTURE_PLAN.md#b3-cloudflare-公网隧道)。桌面可分享本机或连接其他主机，见[服务模块](../crates/wingmate-service/README.md#web-入口) |
 | 固定 npm 发布版本 | 构建使用明确版本及锁文件，当前不从上游源码编译 DSH |
-| DSH Web 与 ACP 外部执行后端 | DSH 持续承载 Web、插件和原生任务；普通插件通过 ACP 接入 Codex，各页面独立选择后端。实际能力与外部主机依赖见[执行后端插件](../plugins/wingmate-backends/README.md) |
+| DSH Web 与 ACP 外部执行后端 | DSH 持续承载 Web、插件和原生任务；普通插件通过 ACP 接入 Codex，各页面独立选择后端。实际能力与外部主机依赖见[执行后端插件](../bundled-plugins/wingmate-backends/README.md) |
 | 按运行组件复用安装目录 | 同一 DSH 版本可以随包更新插件，切换时机见[运行时维护指南](runtime-maintenance.md#释放与复用) |
 | Windows、macOS、Linux 桌面发行 | 按目标平台和架构分别构建发行包。具体组合取决于 Tauri、Node 和 DSH 原生依赖的可用性及运行验收 |
 

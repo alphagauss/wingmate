@@ -85,7 +85,7 @@ pub fn rebuild_client(plugin: &str) -> Result<()> {
         "插件名称必须是单层目录"
     );
     let root = project_root();
-    let source = root.join("plugins").join(plugin);
+    let source = root.join("bundled-plugins").join(plugin);
     if !source.join("package.json").is_file() {
         return Ok(());
     }

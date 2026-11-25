@@ -1,6 +1,6 @@
 # 2026-11-17 Android 本机环境插件
 
-继续使用 DSH `0.2.2-rc.1`。电脑端和 Android 本地版各自选择预装插件并组装 Web 启动补丁，共用 Office 转换禁用规则。电脑端的桌面与无 GUI 构建使用同一套组合。Android 本地版新增环境插件，通过固定系统提示词说明随包工具的替代用法。详见[运行时维护指南](../runtime-maintenance.md#社区和自用插件集成)和[插件说明](../../plugins/wingmate-android-environment/README.md)。
+继续使用 DSH `0.2.2-rc.1`。电脑端和 Android 本地版各自选择预装插件并组装 Web 启动补丁，共用 Office 转换禁用规则。电脑端的桌面与无 GUI 构建使用同一套组合。Android 本地版新增环境插件，通过固定系统提示词说明随包工具的替代用法。详见[运行时维护指南](../runtime-maintenance.md#社区和自用插件集成)和[插件说明](../../bundled-plugins/wingmate-android-environment/README.md)。
 
 Windows 无 GUI 单文件发行构建及冒烟通过，覆盖后台服务、执行后端、文件预览和运行目录复用。WSL 构建的 ARM64 载荷通过归档哈希检查，基础环境身份与本机前一份载荷一致。rootfs XZ 增加 5,512 字节。
 

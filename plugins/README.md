@@ -1,10 +1,10 @@
-# 自用 DSH 插件
+# 独立 DSH 插件
 
-本目录承载 Wingmate 自用插件源码。[文件预览](wingmate-file-viewer/README.md)由电脑端和 Android 本地版共用。电脑端另带 [Wingmate 后台服务](wingmate-web/README.md)和[执行后端](wingmate-backends/README.md)，Android 本地版另带 [Android 本机 Agent 环境](wingmate-android-environment/README.md)。发行配置见[运行时维护指南](../docs/runtime-maintenance.md#社区和自用插件集成)。
+本目录是独立插件仓库的便利存放位置。各插件自行管理源码、依赖和开发命令，不加入 Wingmate 的 pnpm 工作区，也不自动随包分发。随包源码位于 [bundled-plugins](../bundled-plugins/README.md)。
 
-在 DSH 侧栏打开「插件」，从「内置插件配置」下的 Wingmate 卡片进入各自详情。预装插件随 Wingmate 发行包更新。
+主仓库只跟踪本说明与 `dsh-plugin-demo` 示例；其他目录由各自的 Git 管理。示例暂不创建独立 Git。每个插件根目录用 `AGENTS.md` 保存独立完整的开发约定，在 Wingmate 或外部智能体中直接选择该目录作为工作区。源码也可以放在本仓库之外。
 
-插件遵循所选 DSH 的插件与 Profile 机制，避免在 Wingmate 中另建一套业务插件协议。普通前端共享组件归 [packages](../packages/README.md)。
+源码安装与手动更新先构建，再通过 DSH 官方插件管理安装成品；正常使用只加载编译产物，不监听源码。自动监听仅属于明确启动的开发命令。DSH 官方协议、安装和启停能力不在 Wingmate 中重复实现。
 
 ## 开发 DSH 插件
 

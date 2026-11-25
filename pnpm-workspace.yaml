@@ -1,6 +1,6 @@
 packages:
   - apps/*
   - packages/*
-  - plugins/*
+  - bundled-plugins/*
 allowBuilds:
   esbuild: true

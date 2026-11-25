@@ -1,6 +1,6 @@
 # 2026-11-10 文件预览与 LibreOffice 裁剪
 
-本次沿用锁定的 DSH npm 发布包，将 Word、PowerPoint 侧栏预览替换为 File Viewer，并增加常用扩展格式。依赖与补丁的精确版本以配置和锁文件为准，长期规则见 [运行时维护指南](../runtime-maintenance.md)与[插件说明](../../plugins/wingmate-file-viewer/README.md)。
+本次沿用锁定的 DSH npm 发布包，将 Word、PowerPoint 侧栏预览替换为 File Viewer，并增加常用扩展格式。依赖与补丁的精确版本以配置和锁文件为准，长期规则见 [运行时维护指南](../runtime-maintenance.md)与[插件说明](../../bundled-plugins/wingmate-file-viewer/README.md)。
 
 ## 相对原版的改动
 

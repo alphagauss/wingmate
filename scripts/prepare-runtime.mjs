@@ -236,7 +236,7 @@ const sharedSources = join(root, 'packages');
 const sharedDigest = dev ? await sourceDigest(sharedSources) : null;
 for (const name of plugins) {
   const directory = `plugins/${name}`;
-  const source = join(root, directory);
+  const source = join(root, 'bundled-plugins', name);
   const packed = dev ? null : await buildPlugin(name, source);
   const sourceKey = dev ? await sourceDigest(source) : null;
   const inputs = dev

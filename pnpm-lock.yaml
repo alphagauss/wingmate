@@ -20,9 +20,9 @@ importers:
 
   apps/desktop: {}
 
-  plugins/wingmate-android-environment: {}
+  bundled-plugins/wingmate-android-environment: {}
 
-  plugins/wingmate-backends:
+  bundled-plugins/wingmate-backends:
     devDependencies:
       '@agentclientprotocol/codex-acp':
         specifier: 2.6.0
@@ -43,7 +43,7 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
-  plugins/wingmate-file-viewer:
+  bundled-plugins/wingmate-file-viewer:
     devDependencies:
       '@file-viewer/renderer-email':
         specifier: 3.3.3
@@ -67,7 +67,7 @@ importers:
         specifier: 7.3.1
         version: 7.3.1(@types/node@24.19.2)
 
-  plugins/wingmate-web:
+  bundled-plugins/wingmate-web:
     devDependencies:
       '@types/react':
         specifier: 19.2.18

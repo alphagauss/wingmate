@@ -1,6 +1,6 @@
 # 2026-11-11 ACP 执行后端插件
 
-A1 采用普通 DSH 组合插件，在同一个插件中分开维护 Web 投影、通用 ACP 客户端和 Codex 命令适配。DSH 始终提供 Web、插件和原生 Agent；切换只改变当前页面的工作区、会话及操作目标。Claude 留待后续按需接入。能力范围和部署入口见[插件文档](../../plugins/wingmate-backends/README.md)。
+A1 采用普通 DSH 组合插件，在同一个插件中分开维护 Web 投影、通用 ACP 客户端和 Codex 命令适配。DSH 始终提供 Web、插件和原生 Agent；切换只改变当前页面的工作区、会话及操作目标。Claude 留待后续按需接入。能力范围和部署入口见[插件文档](../../bundled-plugins/wingmate-backends/README.md)。
 
 ## 来源与取舍
 

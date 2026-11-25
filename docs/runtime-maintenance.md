@@ -120,11 +120,11 @@ pnpm tauri bundle --config src-tauri/tauri.bundle.macos.conf.json
 
 ## 社区和自用插件集成
 
-插件源码与当前预装范围见[插件模块](../plugins/README.md)。电脑端（含无 GUI 构建）和 Android 本地版分别用 [电脑端名单](../runtime/desktop/plugins.json)和 [Android 名单](../runtime/android/plugins.json)选择预装包。构建将[共用补丁](../runtime/cordis.shared.patch.yml)与对应的[电脑端补丁](../runtime/desktop/cordis.patch.yml)或 [Android 补丁](../runtime/android/cordis.patch.yml)合并为 Web 启动配置。开发版和发行版均将生成的补丁计入构建指纹。
+插件源码与当前预装范围见[随包插件模块](../bundled-plugins/README.md)。电脑端（含无 GUI 构建）和 Android 本地版分别用 [电脑端名单](../runtime/desktop/plugins.json)和 [Android 名单](../runtime/android/plugins.json)选择预装包。构建将[共用补丁](../runtime/cordis.shared.patch.yml)与对应的[电脑端补丁](../runtime/desktop/cordis.patch.yml)或 [Android 补丁](../runtime/android/cordis.patch.yml)合并为 Web 启动配置。开发版和发行版均将生成的补丁计入构建指纹。
 
-执行后端插件内联 ACP SDK，并携带锁定版本的 Codex ACP 适配器。Agent 的主机依赖见[插件文档](../plugins/wingmate-backends/README.md#主机依赖)。选择 Codex 或检查连接时才启动适配器，缺少 Agent 不影响 DSH 启动。构建和发行使用依赖声明与锁文件中的适配器发布包。
+执行后端插件内联 ACP SDK，并携带锁定版本的 Codex ACP 适配器。Agent 的主机依赖见[插件文档](../bundled-plugins/wingmate-backends/README.md#主机依赖)。选择 Codex 或检查连接时才启动适配器，缺少 Agent 不影响 DSH 启动。构建和发行使用依赖声明与锁文件中的适配器发布包。
 
-第一次实际集成时建立简短记录：本项目维护的插件写在所属 `plugins/<名称>/README.md`；仅消费外部发布包的组件写在 `docs/integrations/<名称>.md`。后者目录在实际需要时创建。记录包含：
+第一次实际集成时建立简短记录：本项目维护的插件写在所属 `bundled-plugins/<名称>/README.md`；仅消费外部发布包的组件写在 `docs/integrations/<名称>.md`。后者目录在实际需要时创建。记录包含：
 
 | 内容 | 要说明的问题 |
 | --- | --- |

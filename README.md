@@ -8,7 +8,7 @@ Wingmate 是一个面向个人使用的 DeepSeek Harness（DSH）发行版。可
 - **自带远程访问**。可以用桌面端连接别的 Wingmate 主机，也可以把这台电脑的 DSH 工作台分享给自己的其他设备。支持局域网配对和 Cloudflare 公网隧道。[连接方式](crates/wingmate-service/README.md#web-入口)
 - **关窗口，任务照跑**。后台独立运行，可以在界面或命令行查看状态、启动、停止和重启 DSH。服务器可直接使用无界面版本。
 - **Android 有两种版本**。纯远程版用来连接已有的 Wingmate 主机。本地版既能远程连接，也能在 ARM64 手机上直接运行 DSH Agent。[工作台要求与构建](apps/mobile/README.md#工作台要求)
-- **支持 DSH 和 Codex**。可以在工作台侧栏切换，原来的任务会继续运行。[Codex 接入说明](plugins/wingmate-backends/README.md)
+- **支持 DSH 和 Codex**。可以在工作台侧栏切换，原来的任务会继续运行。[Codex 接入说明](bundled-plugins/wingmate-backends/README.md)
 
 项目以个人使用为主，不接受 Pull Request（PR）。欢迎按适用许可证 fork 后自行二次开发。
 
@@ -22,9 +22,9 @@ Linux 上，DSH 在 XDG 文档目录下创建 `deepseek-harness/default-workspac
 
 Linux x64 的 `wingmate-linux-x64` 在 Ubuntu 24.04 上构建。下载后执行 `chmod +x wingmate-linux-x64`，再运行 `./wingmate-linux-x64` 打开桌面，或在无 GUI 的服务器运行 `./wingmate-linux-x64 start` 启动后台。
 
-Word、PowerPoint 及部分扩展格式使用随包提供的 [File Viewer 侧栏预览](plugins/wingmate-file-viewer/README.md)，发行包已移除 LibreOffice 引擎。能力范围与相对原版的取舍见[运行时维护指南](docs/runtime-maintenance.md#去重与精简取舍)。
+Word、PowerPoint 及部分扩展格式使用随包提供的 [File Viewer 侧栏预览](bundled-plugins/wingmate-file-viewer/README.md)，发行包已移除 LibreOffice 引擎。能力范围与相对原版的取舍见[运行时维护指南](docs/runtime-maintenance.md#去重与精简取舍)。
 
-侧栏底部可在 DSH 和 Codex 间切换工作台，切换后原后端的任务继续运行。打开侧栏「插件 → 内置插件配置」可查看 Wingmate 的三张插件卡片，并在「Wingmate 执行后端」检查 Codex 连接。安装方式和能力范围见[执行后端插件](plugins/wingmate-backends/README.md)。
+侧栏底部可在 DSH 和 Codex 间切换工作台，切换后原后端的任务继续运行。打开侧栏「插件 → 内置插件配置」可查看 Wingmate 的三张插件卡片，并在「Wingmate 执行后端」检查 Codex 连接。安装方式和能力范围见[执行后端插件](bundled-plugins/wingmate-backends/README.md)。
 
 成品可单独复制运行，Windows 为 `target/release/wingmate.exe`，macOS 和 Linux 为 `target/release/wingmate`。打开桌面，在左下角账号菜单进入「设置 → 后台服务」，可查看、停止或重启 DSH，也可为当前用户启用 `wingmate` 和 `dsh` 终端命令。停止或重启 DSH 会中断运行任务。后台停止后管理服务继续存在，可在 Wingmate 首页或 CLI 再次启动。`service-stop` 仅在业务已停止后退出管理服务，`service-restart` 显式切换管理服务组件。
 
@@ -84,7 +84,8 @@ macOS 的 `pnpm build` 会在完整发行入口编译后自动生成 `.app` 和 
 | [wingmate-service](crates/wingmate-service/README.md) | 独立管理服务与业务生命周期 |
 | [apps/desktop](apps/desktop/README.md) | 自有桌面界面 |
 | [runtime](runtime/README.md) | 发行运行内容 |
-| [plugins](plugins/README.md) | 自用插件、DSH 开发参考与本地验证入口 |
+| [bundled-plugins](bundled-plugins/README.md) | 随包插件源码 |
+| [plugins](plugins/README.md) | 独立插件开发与本地验证入口 |
 | [upstream](upstream/README.md) | 外部源码与参考项目 |
 
 [apps](apps/README.md)、[crates](crates/README.md)、[packages](packages/README.md) 分别承载前端应用、Rust 库和实际需要共享的前端/JavaScript 包。
@@ -96,4 +97,4 @@ Wingmate 是独立维护的社区发行版。Wingmate 自有代码默认采用 [
 - **DeepSeek Harness** 提供 Agent、Web 工作台和插件生态，所用版本采用 MIT 许可。[项目](https://github.com/deepseek-ai/deepseek-harness) · [版本许可](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.1/LICENSE)
 - **dsh-Go** 是 Android 本地运行时的移植来源。采用的载荷构建脚本及本机引擎代码涉及 AGPLv3。[项目](https://github.com/ccch1mneyyy/dsh-Go) · [本地运行载荷](runtime/android/README.md) · [上游许可](https://github.com/ccch1mneyyy/dsh-Go/blob/288234ae52fdfcfc2b0a0388763c371d0b09ea7d/LICENSE)
 - **cloudflared** 是 Cloudflare 的公网隧道连接器，按需下载，采用 Apache-2.0 许可。[许可](https://github.com/cloudflare/cloudflared/blob/master/LICENSE) · [公网隧道](crates/wingmate-service/README.md#公网隧道)
-- **ds-harness-remote** 是外部 Agent 工作区与会话投影的参考，相关代码保留 MIT 声明。[项目](https://github.com/liguobao/ds-harness-remote) · [执行后端插件](plugins/wingmate-backends/README.md)
+- **ds-harness-remote** 是外部 Agent 工作区与会话投影的参考，相关代码保留 MIT 声明。[项目](https://github.com/liguobao/ds-harness-remote) · [执行后端插件](bundled-plugins/wingmate-backends/README.md)

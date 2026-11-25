@@ -123,15 +123,15 @@ build_plugins() {
   local ws="$WORK/workspace" pnpm="$WORK/pnpm-prefix/node_modules/pnpm/bin/pnpm.mjs"
   local name source archive
   local -a filters=()
-  mkdir -p "$ws/plugins" "$WORK/plugins" "$WORK/plugin-archives"
+  mkdir -p "$ws/bundled-plugins" "$WORK/plugins" "$WORK/plugin-archives"
   cp "$ROOT/package.json" "$ROOT/pnpm-lock.yaml" "$ROOT/pnpm-workspace.yaml" "$ws/"
   node -p 'require(process.argv[1]).join("\n")' "$HERE/plugins.json" > "$WORK/plugins.txt"
   while IFS= read -r name; do
-    source="$ws/plugins/$name"
+    source="$ws/bundled-plugins/$name"
     mkdir "$source"
-    tar -C "$ROOT/plugins/$name" --exclude=node_modules --exclude=dist -cf - . |
+    tar -C "$ROOT/bundled-plugins/$name" --exclude=node_modules --exclude=dist -cf - . |
       tar -C "$source" -xf -
-    filters+=(--filter "./plugins/$name")
+    filters+=(--filter "./bundled-plugins/$name")
   done < "$WORK/plugins.txt"
   (
     cd "$ws"
@@ -139,7 +139,7 @@ build_plugins() {
       --frozen-lockfile --store-dir "$CACHE/pnpm"
   )
   while IFS= read -r name; do
-    source="$ws/plugins/$name"
+    source="$ws/bundled-plugins/$name"
     (cd "$source" && npm run build --if-present)
     archive="$(cd "$source" && npm pack --ignore-scripts --no-json \
       --pack-destination "$WORK/plugin-archives" --cache "$CACHE/npm")"

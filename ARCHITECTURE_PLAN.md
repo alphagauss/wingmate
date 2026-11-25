@@ -32,7 +32,7 @@ ds-harness-remote 的托管站点服务于其专用业务协议，当前没有�
 
 B1 已交付无 GUI 的 [Wingmate 发行入口](crates/wingmate-launcher/README.md)和独立的[管理服务](crates/wingmate-service/README.md)。管理服务使用已安装内容启停业务；[内部控制入口](runtime/control.mjs)仍与 DSH 同在 Node 进程，业务停止后不影响 Rust 管理服务。
 
-A1 通过普通的 [DSH 执行后端插件](plugins/wingmate-backends/README.md)接入 Codex，DSH 持续承载 Web、插件和原生任务。插件由 DSH Web 投影、通用 ACP 客户端和 Agent 启动适配组成，复用现有进程边界。
+A1 通过普通的 [DSH 执行后端插件](bundled-plugins/wingmate-backends/README.md)接入 Codex，DSH 持续承载 Web、插件和原生任务。插件由 DSH Web 投影、通用 ACP 客户端和 Agent 启动适配组成，复用现有进程边界。
 
 B2 已实现[局域网分享](crates/wingmate-service/README.md#局域网分享)、[共享启动页](apps/launcher/README.md)和[桌面双端连接](apps/desktop/README.md)。管理服务持有远程端口，业务停止后继续服务该地址。
 
@@ -90,7 +90,7 @@ B1 的构建依赖、并列内嵌、释放目录及升级规则已归入[运行�
 
 ### 共享能力与界面适配
 
-通用 ACP 层负责外部 Agent 的连接、会话访问、历史与增量事件、输入、中断及审批。DSH Web 适配层将其映射到官方侧栏和会话界面，目录按会话的工作目录分组。Agent 适配层负责启动命令、环境与必要的专属差异。首个接入使用现成的 `codex-acp`，实际交付范围见[插件文档](plugins/wingmate-backends/README.md#数据和能力)。
+通用 ACP 层负责外部 Agent 的连接、会话访问、历史与增量事件、输入、中断及审批。DSH Web 适配层将其映射到官方侧栏和会话界面，目录按会话的工作目录分组。Agent 适配层负责启动命令、环境与必要的专属差异。首个接入使用现成的 `codex-acp`，实际交付范围见[插件文档](bundled-plugins/wingmate-backends/README.md#数据和能力)。
 
 Web 适配将目标后端信息投影到官方工作台；TUI 适配投影到终端界面。底层驱动只在后台保留一份，客户端不直接启动 Codex 或 Claude。原生不支持的能力按真实状态隐藏或说明，不伪造成功。首次接入对照 dsh-TUI 会话契约检查公共边界，正式 TUI 移植仍在 C1。
 
@@ -117,8 +117,8 @@ Android 两种构建组合共用界面与连接逻辑：远程版不包含本地
 | `crates/wingmate-service/` | 现有。独立常驻服务，保留后台身份、进程所有权与已安装运行内容的启停规则，不负责发行资源释放；不放 Web/TUI 的聊天展示或厂商协议。 | B1、B2、B3 |
 | `crates/wingmate-launcher/` | 现有。无 GUI 的发行入口，负责组件载荷、版本协调、释放、服务引导和命令注册。`wingmate-service` 自身提供服务可执行入口，后续网关与隧道仍归服务模块。 | B1 |
 | `packages/agent-backends/` | 暂缓创建。第二个真实消费者出现时，按复用需要从执行后端插件提取 ACP 客户端和 Agent 接入逻辑。 | C1 按需 |
-| `plugins/wingmate-backends/` | 普通 DSH 组合插件。包含 DSH Web 投影、通用 ACP 客户端和 Agent 启动适配，当前接入 Codex；复用官方 Web，普通浏览器和桌面使用同一插件。 | A1、A2 |
-| `plugins/wingmate-web/` | 现有管理面板。逐步扩展为当前主机的服务与远程访问设置入口，操作交给 Wingmate 管理宿主；不在此保存唯一的远程控制实现。无需另建拥有后台生命周期的 `wingmate-remote` 插件。 | B2、B3 |
+| `bundled-plugins/wingmate-backends/` | 普通 DSH 组合插件。包含 DSH Web 投影、通用 ACP 客户端和 Agent 启动适配，当前接入 Codex；复用官方 Web，普通浏览器和桌面使用同一插件。 | A1、A2 |
+| `bundled-plugins/wingmate-web/` | 现有管理面板。逐步扩展为当前主机的服务与远程访问设置入口，操作交给 Wingmate 管理宿主；不在此保存唯一的远程控制实现。无需另建拥有后台生命周期的 `wingmate-remote` 插件。 | B2、B3 |
 | `apps/launcher/` | 现有。由桌面和网关共用的启动与恢复页面。 | B2 |
 | `apps/desktop/`、`src-tauri/` | 现有桌面入口、原生桥接与窗口行为；复用共享启动页，支持选择本机或已保存的远程主机。 | B1、B2 |
 | `packages/wingmate-client/` | 按实际复用提取连接、业务调用与事件订阅客户端。管理协议和后端业务接口保持区分；不含执行驱动。第二个真实消费者出现时再抽包。 | B2、C1 按需 |
@@ -182,7 +182,7 @@ flowchart LR
 
 阅读[插件入口](plugins/README.md)、[运行时维护指南](docs/runtime-maintenance.md)及上述 TUI、Remote 的多后端实现。保持现有后台进程结构，在普通 DSH 插件中实现三层接入，打通 DSH 与 Codex 两个后端的工作台闭环，并检查未来 TUI 消费所需的边界。
 
-已交付普通 ACP 插件，包含目录和会话访问、历史及实时事件、文本发送、中断、审批和能力适配，通过统一入口切换整个工作台。DSH 继续使用其原生能力。外部 Codex 运行时的来源和缺失提示见[插件文档](plugins/wingmate-backends/README.md)，实测与当前范围见[验证记录](docs/records/2026-11-11-acp-backends.md)。已对照 dsh-TUI 会话契约核对消费者所需能力，正式客户端接入和共享包提取留给 C1。
+已交付普通 ACP 插件，包含目录和会话访问、历史及实时事件、文本发送、中断、审批和能力适配，通过统一入口切换整个工作台。DSH 继续使用其原生能力。外部 Codex 运行时的来源和缺失提示见[插件文档](bundled-plugins/wingmate-backends/README.md)，实测与当前范围见[验证记录](docs/records/2026-11-11-acp-backends.md)。已对照 dsh-TUI 会话契约核对消费者所需能力，正式客户端接入和共享包提取留给 C1。
 
 完成条件：桌面及普通本机浏览器可在 DSH/Codex 间切换，项目、会话和操作不串后端；真实发送、审批、中断、历史恢复和断线重连有对应证据；切换和关闭窗口不终止原任务。插件按实际归档安装可用，数据没有进入错误后端的存储。真实模型调用缺凭据时明确保留验收缺口。
 
@@ -200,7 +200,7 @@ flowchart LR
 
 ### B2 网关与局域网远程启停
 
-从独立管理服务提供完整 Web 转发、配对和撤销。桌面标题栏负责连接其他主机或分享本机，详细分享设置在[管理插件](plugins/wingmate-web/README.md)卡片。具体行为见[服务模块](crates/wingmate-service/README.md#局域网分享)和[桌面连接面板](apps/desktop/README.md)。
+从独立管理服务提供完整 Web 转发、配对和撤销。桌面标题栏负责连接其他主机或分享本机，详细分享设置在[管理插件](bundled-plugins/wingmate-web/README.md)卡片。具体行为见[服务模块](crates/wingmate-service/README.md#局域网分享)和[桌面连接面板](apps/desktop/README.md)。
 
 跨设备验证使用局域网手机或另一台电脑，确认网络可达性、扫码配对与实际长连接。Windows 同机双端、独立会话与业务停机恢复的实际范围见[验证记录](docs/records/2026-11-11-lan-gateway.md)。
 
