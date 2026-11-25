@@ -191,7 +191,7 @@ export function apply(ctx: Context) {
           name: 'plugins.item',
           id: name,
           label: 'Wingmate 插件开发',
-          order: 40,
+          order: 41,
         },
         Card,
       ),
