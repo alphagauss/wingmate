@@ -1,7 +1,6 @@
 {
   "meta": {
     "title": "Plugin demo",
-    "description": "Text statistics shared by DSH and a standalone web app",
-    "detail": "docs/detail.md"
+    "description": "Text statistics shared by DSH and a standalone web app"
   }
 }
