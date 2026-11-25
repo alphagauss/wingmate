@@ -1,0 +1,84 @@
+.plugin-demo {
+  box-sizing: border-box;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 40px 28px;
+  color: var(--dsw-alias-label-primary, #1d2935);
+  font:
+    15px / 1.6 system-ui,
+    sans-serif;
+}
+.plugin-demo h1 {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 650;
+}
+.plugin-demo p {
+  color: var(--dsw-alias-label-secondary, #52616e);
+}
+.plugin-demo .plugin-demo-eyebrow {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.plugin-demo form {
+  display: grid;
+  gap: 12px;
+  margin-top: 28px;
+}
+.plugin-demo textarea {
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--dsw-alias-border-primary, #c9d2da);
+  border-radius: 10px;
+  background: var(--dsw-alias-background-primary, #fff);
+  color: inherit;
+  padding: 14px;
+  font: inherit;
+}
+.plugin-demo button {
+  justify-self: start;
+  border: 1px solid var(--dsw-alias-border-primary, #c9d2da);
+  border-radius: 8px;
+  padding: 8px 18px;
+  color: inherit;
+  background: var(--dsw-alias-background-secondary, #edf2f5);
+  font: inherit;
+  cursor: pointer;
+}
+.plugin-demo button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.plugin-demo :focus-visible {
+  outline: 2px solid var(--dsw-alias-label-primary, #1d2935);
+  outline-offset: 3px;
+}
+.plugin-demo dl {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin: 30px 0;
+}
+.plugin-demo dl div {
+  padding: 18px;
+  border: 1px solid var(--dsw-alias-border-primary, #c9d2da);
+  border-radius: 10px;
+}
+.plugin-demo dt,
+.plugin-demo-note {
+  font-size: 13px;
+}
+.plugin-demo dd {
+  margin: 6px 0 0;
+  font-size: 28px;
+  font-weight: 600;
+}
+@media (max-width: 560px) {
+  .plugin-demo {
+    padding: 24px 16px;
+  }
+  .plugin-demo dl {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
