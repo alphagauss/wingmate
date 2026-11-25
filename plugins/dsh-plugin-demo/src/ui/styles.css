@@ -29,20 +29,20 @@
   box-sizing: border-box;
   width: 100%;
   resize: vertical;
-  border: 1px solid var(--dsw-alias-border-primary, #c9d2da);
+  border: 1px solid var(--dsw-alias-border-l2, #c9d2da);
   border-radius: 10px;
-  background: var(--dsw-alias-background-primary, #fff);
+  background: var(--dsw-alias-bg-base, #fff);
   color: inherit;
   padding: 14px;
   font: inherit;
 }
 .plugin-demo button {
   justify-self: start;
-  border: 1px solid var(--dsw-alias-border-primary, #c9d2da);
+  border: 1px solid var(--dsw-alias-border-l2, #c9d2da);
   border-radius: 8px;
   padding: 8px 18px;
   color: inherit;
-  background: var(--dsw-alias-background-secondary, #edf2f5);
+  background: var(--dsw-alias-bg-module-platform, #edf2f5);
   font: inherit;
   cursor: pointer;
 }
@@ -62,7 +62,7 @@
 }
 .plugin-demo dl div {
   padding: 18px;
-  border: 1px solid var(--dsw-alias-border-primary, #c9d2da);
+  border: 1px solid var(--dsw-alias-border-l2, #c9d2da);
   border-radius: 10px;
 }
 .plugin-demo dt,

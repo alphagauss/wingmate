@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { statisticsPath } from '../types.ts';
 import type { Statistics } from '../types.ts';
 
-export function App() {
+export function App({ openDetails }: { openDetails?: () => void }) {
   const [text, setText] = useState('你好，Wingmate!\n让插件独立生长。');
   const [result, setResult] = useState<Statistics>();
   const [error, setError] = useState('');
@@ -40,6 +40,11 @@ export function App() {
       <header>
         <p className="plugin-demo-eyebrow">插件示例</p>
         <h1>文本统计</h1>
+        {openDetails && (
+          <button type="button" onClick={openDetails}>
+            插件详情
+          </button>
+        )}
         <p>输入一段文本，查看字符、行数和词组数量。</p>
       </header>
       <form onSubmit={submit}>

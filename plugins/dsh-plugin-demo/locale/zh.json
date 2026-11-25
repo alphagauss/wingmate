@@ -2,6 +2,6 @@
   "meta": {
     "title": "插件示例",
     "description": "独立网页与 DSH 共用的文本统计页面",
-    "detail": "./docs/detail.md"
+    "detail": "docs/detail.md"
   }
 }
