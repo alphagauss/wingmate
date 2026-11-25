@@ -43,6 +43,18 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  bundled-plugins/wingmate-devtools:
+    devDependencies:
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
+      esbuild:
+        specifier: 0.27.7
+        version: 0.27.7
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
   bundled-plugins/wingmate-file-viewer:
     devDependencies:
       '@file-viewer/renderer-email':

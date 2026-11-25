@@ -1,0 +1,26 @@
+{
+  "name": "dsh-wingmate-devtools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/projects.js",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "dsh": "0.2.2-rc.1"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc && node build.mjs",
+    "test": "node --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "esbuild": "0.27.7",
+    "typescript": "6.0.3"
+  }
+}
