@@ -12,7 +12,7 @@ export type Runner = (
   args: string[],
   directory: string,
   signal: AbortSignal,
-  log: (chunk: string) => void,
+  log: (chunk: string, stream?: 'stdout' | 'stderr') => void,
 ) => Promise<string>;
 
 export function packageCommand(name: 'npm' | 'pnpm'): Invocation {
@@ -85,11 +85,13 @@ export const runCommand: Runner = async (
     };
     signal.addEventListener('abort', abort, { once: true });
     if (signal.aborted) abort();
-    child.stdout.on('data', (chunk) => {
-      output = (output + chunk.toString()).slice(-131_072);
-      log(chunk.toString());
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      output = (output + chunk).slice(-131_072);
+      log(chunk, 'stdout');
     });
-    child.stderr.on('data', (chunk) => log(chunk.toString()));
+    child.stderr.on('data', (chunk: string) => log(chunk, 'stderr'));
     child.once('error', (error) => {
       signal.removeEventListener('abort', abort);
       reject(error);

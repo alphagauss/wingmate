@@ -1,71 +1,223 @@
 .wingmate-devtools {
-  color: var(--dsw-alias-label-primary);
-  font:
-    14px / 1.6 system-ui,
-    sans-serif;
-}
-.wingmate-devtools h2 {
-  font-size: 20px;
-  margin-top: 0;
-}
-.wingmate-devtools h3 {
-  font-size: 15px;
-  margin: 0 0 8px;
-}
-.wingmate-devtools p {
-  color: var(--dsw-alias-label-secondary);
-}
-.wingmate-devtools form {
   display: grid;
-  gap: 8px;
-  margin: 24px 0 16px;
+  gap: 16px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 22px;
+  animation: wingmate-devtools-enter 180ms ease-out;
 }
-.wingmate-devtools-actions {
+.wingmate-devtools p,
+.wingmate-devtools h2,
+.wingmate-devtools h3 {
+  margin: 0;
+}
+.wingmate-devtools h2,
+.wingmate-devtools h3,
+.wingmate-devtools label {
+  font-size: 14px;
+  font-weight: 600;
+}
+.wingmate-devtools-connect {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-lg, 16px);
+  background: var(--dsw-alias-bg-layer-1);
+}
+.wingmate-devtools-connect p {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.wingmate-devtools-actions,
+.wingmate-devtools-heading,
+.wingmate-devtools-project-info {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  gap: 12px;
+}
+.wingmate-devtools-heading {
+  justify-content: space-between;
+}
+.wingmate-devtools-heading h2 span {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-tertiary);
+}
+.wingmate-devtools-input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  box-sizing: border-box;
+}
+.wingmate-devtools-projects {
+  display: grid;
   gap: 10px;
 }
-.wingmate-devtools input {
-  flex: 1;
-  min-width: 180px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  padding: 9px 12px;
-  color: inherit;
-  background: var(--dsw-alias-bg-base);
-  font: inherit;
+.wingmate-devtools-project {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-md, 12px);
+  animation: wingmate-devtools-enter 180ms ease-out;
 }
-.wingmate-devtools button {
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  padding: 8px 14px;
-  color: inherit;
+.wingmate-devtools-project-info,
+.wingmate-devtools-project-info > div {
+  min-width: 0;
+}
+.wingmate-devtools-project-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 36px;
+  height: 36px;
+  border-radius: var(--dsw-radius-sm, 8px);
   background: var(--dsw-alias-bg-module-platform);
-  font: inherit;
-  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
 }
-.wingmate-devtools button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.wingmate-devtools article {
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
-  padding: 18px;
-  margin: 18px 0;
-}
-.wingmate-devtools-path {
+.wingmate-devtools .wingmate-devtools-path {
+  margin-top: 3px;
   overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
 }
-.wingmate-devtools pre {
+.wingmate-devtools-empty {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 8px;
+  padding: 32px 16px;
+  border: 0.5px dashed var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-md, 12px);
+  color: var(--dsw-alias-label-tertiary);
+  text-align: center;
+}
+.wingmate-devtools-empty strong {
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 500;
+}
+.wingmate-devtools .wingmate-devtools-hint,
+.wingmate-devtools-empty p {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.wingmate-devtools-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--dsw-alias-bg-module-platform);
+  border-radius: var(--dsw-radius-md, 12px);
+  animation: wingmate-devtools-enter 160ms ease-out;
+}
+.wingmate-devtools-progress > button {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.wingmate-devtools-progress-label {
+  flex-shrink: 0;
+}
+.wingmate-devtools-progress-line {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+  font:
+    12px / 18px ui-monospace,
+    monospace;
+}
+.wingmate-devtools-spinner {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border: 1.5px solid var(--dsw-alias-border-l3);
+  border-top-color: var(--dsw-alias-label-primary);
+  border-radius: 50%;
+  animation: wingmate-devtools-spin 800ms linear infinite;
+}
+.wingmate-devtools-error {
+  color: var(--dsw-alias-state-error-primary);
+}
+.wingmate-devtools-report {
+  display: grid;
+  gap: 12px;
+  border-top: 0.5px solid var(--dsw-alias-border-l4);
+  padding-top: 20px;
+  animation: wingmate-devtools-enter 180ms ease-out;
+}
+.wingmate-devtools-log-modal {
+  width: min(880px, 100%);
+  max-height: 100%;
+}
+.wingmate-devtools-log-content {
+  min-height: 0;
+  overflow: auto;
+}
+.wingmate-devtools pre,
+.wingmate-devtools-log-output {
+  margin: 0;
+  padding: 12px 14px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  max-height: 360px;
+  max-height: 300px;
   overflow: auto;
-  font-size: 12px;
+  font:
+    12px / 1.6 ui-monospace,
+    monospace;
+  color: var(--dsw-alias-label-secondary);
 }
-.wingmate-devtools :focus-visible {
-  outline: 2px solid var(--dsw-alias-label-primary);
-  outline-offset: 3px;
+.wingmate-devtools-log-output {
+  max-height: min(60vh, 520px);
+  padding: 16px;
+  border-radius: var(--dsw-radius-sm, 8px);
+  background: var(--dsw-alias-bg-module-platform);
+}
+.wingmate-devtools button {
+  transition:
+    background-color 150ms ease-out,
+    opacity 150ms ease-out;
+}
+@keyframes wingmate-devtools-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes wingmate-devtools-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 600px) {
+  .wingmate-devtools-connect {
+    padding: 16px;
+  }
+  .wingmate-devtools-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .wingmate-devtools-input {
+    flex-basis: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wingmate-devtools,
+  .wingmate-devtools * {
+    animation: none;
+    transition: none;
+  }
 }

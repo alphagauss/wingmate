@@ -11,6 +11,7 @@ import {
   rm,
 } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { packageCommand, runCommand } from './process.ts';
 import type { Invocation, Runner } from './process.ts';
 
@@ -20,6 +21,9 @@ export type Bundle = {
   enabled: boolean;
   removable: boolean;
   source?: string;
+  installed?: boolean;
+  availability?: 'profile' | 'installation' | 'missing';
+  error?: unknown;
 };
 export type Application = { application: string; [key: string]: unknown };
 export type Manager = {
@@ -45,6 +49,7 @@ export type BuildResult = {
   result?: Application;
   error?: string;
   archive?: string;
+  unchanged?: boolean;
 };
 type Options = {
   storage: string;
@@ -62,7 +67,7 @@ export function createProjects({
   const file = join(storage, 'sources.json');
   let loaded: Promise<Project[]> | undefined;
   let writing = Promise.resolve();
-  const running = new Set<string>();
+  const running = new Map<string, string>();
   const pending = new Set<Promise<unknown>>();
   const lifetime = new AbortController();
 
@@ -146,7 +151,7 @@ export function createProjects({
   ): Promise<BuildResult> {
     lifetime.signal.throwIfAborted();
     if (running.has(name)) throw new Error('这个插件正在编译更新');
-    running.add(name);
+    running.set(name, '检查插件项目');
     const signal = AbortSignal.any([
       caller,
       lifetime.signal,
@@ -154,7 +159,14 @@ export function createProjects({
     ]);
     const report: BuildResult = { name, stage: 'prepare', log: '' };
     const log = (text: string) => {
-      report.log = (report.log + text).slice(-32_768);
+      report.log = stripVTControlCharacters(report.log + text).slice(-32_768);
+      running.set(
+        name,
+        report.log
+          .trimEnd()
+          .split(/[\r\n]/)
+          .at(-1) || '',
+      );
     };
     let temporary: string | undefined;
     try {
@@ -165,13 +177,15 @@ export function createProjects({
         throw new Error('源码包名已变化，请重新关联目录');
       const pnpm = packageManager ?? packageCommand('pnpm');
       report.stage = 'dependencies';
-      log('准备项目依赖\n');
       const locked = await stat(join(project.directory, 'pnpm-lock.yaml')).then(
         () => true,
         (error) => {
           if (error.code === 'ENOENT') return false;
           throw error;
         },
+      );
+      log(
+        '准备依赖：pnpm install' + (locked ? ' --frozen-lockfile' : '') + '\n',
       );
       await runner(
         pnpm,
@@ -181,22 +195,30 @@ export function createProjects({
         log,
       );
       report.stage = 'build';
-      log('\n构建正式产物\n');
+      log('\n编译插件：pnpm run build\n');
       await runner(pnpm, ['run', 'build'], project.directory, signal, log);
       signal.throwIfAborted();
       const after = await manifest(project.directory);
       if (after.name !== name || after.version !== before.version)
         throw new Error('构建期间包名或版本发生变化，请重新执行');
       report.stage = 'pack';
+      log('\n打包插件：npm pack --ignore-scripts\n');
       await mkdir(join(storage, 'packages'), { recursive: true });
       temporary = await mkdtemp(join(storage, 'packages', '.pack-'));
+      let packOutput = '';
       const output = await runner(
         packageCommand('npm'),
         ['pack', '--ignore-scripts', '--json', '--pack-destination', temporary],
         project.directory,
         signal,
-        log,
-      );
+        (chunk, stream) => {
+          if (stream === 'stderr') log(chunk);
+          else packOutput = (packOutput + chunk).slice(-32_768);
+        },
+      ).catch((error) => {
+        if (packOutput) log(packOutput);
+        throw error;
+      });
       const packed = JSON.parse(output) as {
         name: string;
         version: string;
@@ -209,18 +231,46 @@ export function createProjects({
         basename(packed[0].filename) !== packed[0].filename
       )
         throw new Error('打包结果与项目声明不一致');
+      log('打包完成：' + packed[0].filename + '\n');
       const source = join(temporary, packed[0].filename);
       const hash = createHash('sha256')
         .update(await readFile(source))
         .digest('hex');
       const archive = join(storage, 'packages', hash + '.tgz');
-      await copyFile(source, archive);
       signal.throwIfAborted();
       report.stage = 'install';
       report.archive = archive;
       const installed = (await manager.listBundles()).find(
         (bundle) => bundle.name === name,
       );
+      let unchanged = false;
+      if (
+        installed?.installed === true &&
+        installed.availability === 'profile' &&
+        !installed.error &&
+        installed.source?.startsWith('file:') &&
+        isAbsolute(installed.source.slice(5))
+      ) {
+        const [currentPath, archivePath] = await Promise.all([
+          realpath(installed.source.slice(5)).catch(() => undefined),
+          realpath(archive).catch(() => undefined),
+        ]);
+        if (currentPath && currentPath === archivePath) {
+          // Check before copying: replacing the saved archive would hide corruption.
+          const content = await readFile(currentPath).catch(() => undefined);
+          unchanged =
+            content !== undefined &&
+            createHash('sha256').update(content).digest('hex') === hash;
+        }
+      }
+      signal.throwIfAborted();
+      if (unchanged) {
+        report.unchanged = true;
+        log('\n内容未变化，无需更新；保留当前插件的启停状态。\n');
+        return report;
+      }
+      await copyFile(source, archive);
+      log('\n正在通过 DSH 安装并应用插件…\n');
       report.result = await install(
         archive,
         installed?.enabled ?? true,
@@ -231,11 +281,11 @@ export function createProjects({
       report.error = error instanceof Error ? error.message : String(error);
       return report;
     } finally {
-      running.delete(name);
       if (temporary)
         await rm(temporary, { recursive: true, force: true }).catch((error) =>
           log('\n临时打包目录清理失败：' + error.message),
         );
+      running.delete(name);
     }
   }
 
@@ -275,6 +325,7 @@ export function createProjects({
       return (await read()).map((project) => ({
         ...project,
         building: running.has(project.name),
+        latestLine: running.get(project.name),
       }));
     },
     register(directory: string) {

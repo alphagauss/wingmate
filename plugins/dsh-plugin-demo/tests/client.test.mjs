@@ -23,8 +23,12 @@ test('实际客户端产物使用宿主 React，注册侧栏与两个页面并�
   );
   assert.equal(registration.id, pluginName);
   const client = registration.factory((id) => {
-    assert.equal(id, 'react');
-    return React;
+    if (id === 'react') return React;
+    assert.equal(id, '@deepseek-ai/dsh-client-ui-primitives');
+    return {
+      Button: ({ variant, size, icon, children, ...props }) =>
+        React.createElement('button', props, icon, children),
+    };
   });
   const entries = new Map(),
     disposers = [];

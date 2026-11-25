@@ -1,5 +1,7 @@
 import React from 'react';
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives';
 import { App } from '../ui/App.tsx';
+import { StatisticsIcon } from '../ui/controls.tsx';
 import styles from '../ui/styles.css';
 import { pluginName } from '../types.ts';
 
@@ -30,6 +32,7 @@ export function apply(ctx: Context) {
       <>
         <style>{styles}</style>
         <App
+          Button={Button}
           openDetails={
             navigation ? () => navigation.openBundle(name) : undefined
           }
@@ -54,12 +57,24 @@ export function apply(ctx: Context) {
   }
   function Details() {
     return (
-      <section className="plugin-demo">
+      <section className="plugin-demo-details">
         <style>{styles}</style>
-        <p>文本统计页面与独立网页版共用界面、算法和后台业务。</p>
-        <button onClick={() => ctx.layout.selectPanel(name)}>
+        <div className="plugin-demo-detail-info">
+          <span className="plugin-demo-app-icon">
+            <StatisticsIcon />
+          </span>
+          <div>
+            <h3>开始一次文本统计</h3>
+            <p>输入或粘贴文本，即可查看四项统计结果。</p>
+          </div>
+        </div>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => ctx.layout.selectPanel(name)}
+        >
           打开示例页面
-        </button>
+        </Button>
       </section>
     );
   }

@@ -29,6 +29,7 @@ window.__ModuleLoader__.load({
       IconGlobeOutlineRegular,
       IconChevronLeftOutlineRegular,
       Menu,
+      MenuItemButton,
       Modal,
       Switch,
       Tag,
@@ -778,6 +779,27 @@ window.__ModuleLoader__.load({
                 order: 90,
               },
               ({ wide }) => h(RemoteFooter, { wide, desktop, openDetails }),
+            ),
+          );
+          scope.slots.inject('sidebar.panellist.actions', () =>
+            scope.slots.register(
+              {
+                name: 'sidebar.panellist.actions',
+                id: 'wingmate-backend-shortcut',
+                order: 110,
+              },
+              ({ onDismiss }) =>
+                h(
+                  MenuItemButton,
+                  {
+                    icon: h(IconGlobeOutlineRegular, { size: 16 }),
+                    onSelect: () => {
+                      onDismiss();
+                      openDetails();
+                    },
+                  },
+                  'Wingmate 后台服务',
+                ),
             ),
           );
           if (desktop) {

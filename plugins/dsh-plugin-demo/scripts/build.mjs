@@ -48,7 +48,7 @@ export async function buildPlugin(development = false) {
       bundle: true,
       format: 'cjs',
       platform: 'browser',
-      external: ['react'],
+      external: ['react', '@deepseek-ai/dsh-client-ui-primitives'],
       loader: { '.css': 'text' },
       write: false,
     });
