@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@agentclientprotocol/codex-acp@2.6.0>@openai/codex': '-'
+
 importers:
 
   .:
@@ -381,47 +384,6 @@ packages:
   '@kenjiuno/msgreader@1.29.0':
     resolution: {integrity: sha512-03kBR44FIO965Z2s/KpY7y6daBu+GOpK10/AmVEZ4e/iZqSdOfSTI8cfk+DJnO/iTVncUF2Y8j2l1pwJ7ZvEFA==}
     engines: {node: '>= 10'}
-
-  '@openai/codex@0.166.0':
-    resolution: {integrity: sha512-2Szlp1l1cz5TX1ccpX4Zok3DZrot9xeZe0km+6/1v8JmqxADwyJxKBJah4dBymkwtS25j/u6dipJusTOI97Z8Q==}
-    engines: {node: '>=16'}
-    hasBin: true
-
-  '@openai/codex@0.166.0-darwin-arm64':
-    resolution: {integrity: sha512-5fWH6qqUInACcRADIewjlnRxDb4QLe0uriwehiZz0+viuAAB8I+WWefqw4xwHvyKaxeiGX4uK56+vrgfvFk3FQ==}
-    engines: {node: '>=16'}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@openai/codex@0.166.0-darwin-x64':
-    resolution: {integrity: sha512-Vj5wXJPizKmrzNtnRNQf9PP6FJkG3iJU/UO3NE4WvkENZGoQfmImdwf4MVRI5NgwjSuC6LT0HbBRHPVVnwGHuw==}
-    engines: {node: '>=16'}
-    cpu: [x64]
-    os: [darwin]
-
-  '@openai/codex@0.166.0-linux-arm64':
-    resolution: {integrity: sha512-w0ScAsBr9aZKtIFrh6HN6KU2yjKKeSCzYfbb7DB0Ccj4BYPzeZtUeQprbycLCwuX3AFQdbdjapmLho2iot74jQ==}
-    engines: {node: '>=16'}
-    cpu: [arm64]
-    os: [linux]
-
-  '@openai/codex@0.166.0-linux-x64':
-    resolution: {integrity: sha512-CxDm3+D1cpbGJeHrdzINoG+3wn9BVncP4qpZaaNYkxe8iPtRJOYyCJnnPoVjWRIBvI9vPKbRoifsMSA5xDaUpw==}
-    engines: {node: '>=16'}
-    cpu: [x64]
-    os: [linux]
-
-  '@openai/codex@0.166.0-win32-arm64':
-    resolution: {integrity: sha512-LWO1cyGlxbKgeUM7QJ1a6QMSsJi++3PqgIi6BmIUBoj/kzZqRIR69UDMQgeU/9izzJFYMSbwt++lHnUFyjQXlA==}
-    engines: {node: '>=16'}
-    cpu: [arm64]
-    os: [win32]
-
-  '@openai/codex@0.166.0-win32-x64':
-    resolution: {integrity: sha512-NS8Ps5oG5r19pCrMCUXwUqOui6odnUIoBlQkrjCJ+h1k6KiwCzC/+mI9d3nSZCqFoVONPBTmqyq8NYq3YaFGyA==}
-    engines: {node: '>=16'}
-    cpu: [x64]
-    os: [win32]
 
   '@rollup/rollup-android-arm-eabi@4.68.1':
     resolution: {integrity: sha512-67xgK/taQ7w18anfSxH4dy3RVwiu7GFT8aZglHVUnYisqIe4Qf1xQW7hWxe3lB7R5XSVfPJJKdKP31eGMID2zw==}
@@ -941,7 +903,6 @@ snapshots:
   '@agentclientprotocol/codex-acp@2.6.0':
     dependencies:
       '@agentclientprotocol/sdk': 2.4.0(zod@4.6.7)
-      '@openai/codex': 0.166.0
       cross-spawn: 7.0.6
       diff: 9.0.0
       open: 11.0.4
@@ -1147,33 +1108,6 @@ snapshots:
     dependencies:
       '@kenjiuno/decompressrtf': 0.1.4
       iconv-lite: 0.6.3
-
-  '@openai/codex@0.166.0':
-    optionalDependencies:
-      '@openai/codex-darwin-arm64': '@openai/codex@0.166.0-darwin-arm64'
-      '@openai/codex-darwin-x64': '@openai/codex@0.166.0-darwin-x64'
-      '@openai/codex-linux-arm64': '@openai/codex@0.166.0-linux-arm64'
-      '@openai/codex-linux-x64': '@openai/codex@0.166.0-linux-x64'
-      '@openai/codex-win32-arm64': '@openai/codex@0.166.0-win32-arm64'
-      '@openai/codex-win32-x64': '@openai/codex@0.166.0-win32-x64'
-
-  '@openai/codex@0.166.0-darwin-arm64':
-    optional: true
-
-  '@openai/codex@0.166.0-darwin-x64':
-    optional: true
-
-  '@openai/codex@0.166.0-linux-arm64':
-    optional: true
-
-  '@openai/codex@0.166.0-linux-x64':
-    optional: true
-
-  '@openai/codex@0.166.0-win32-arm64':
-    optional: true
-
-  '@openai/codex@0.166.0-win32-x64':
-    optional: true
 
   '@rollup/rollup-android-arm-eabi@4.68.1':
     optional: true

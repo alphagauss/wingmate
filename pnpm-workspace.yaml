@@ -2,5 +2,7 @@ packages:
   - apps/*
   - packages/*
   - bundled-plugins/*
+overrides:
+  '@agentclientprotocol/codex-acp@2.6.0>@openai/codex': '-'
 allowBuilds:
   esbuild: true
