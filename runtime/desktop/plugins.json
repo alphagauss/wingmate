@@ -1,1 +1,6 @@
-["wingmate-web", "wingmate-file-viewer", "wingmate-backends"]
+[
+  "wingmate-web",
+  "wingmate-file-viewer",
+  "wingmate-backends",
+  "wingmate-devtools"
+]

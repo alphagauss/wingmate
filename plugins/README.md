@@ -6,6 +6,8 @@
 
 源码安装与手动更新先构建，再通过 DSH 官方插件管理安装成品；正常使用只加载编译产物，不监听源码。自动监听仅属于明确启动的开发命令。DSH 官方协议、安装和启停能力不在 Wingmate 中重复实现。
 
+电脑端在「插件 → 内置插件配置 → Wingmate 插件开发」关联源码并执行编译更新，行为见[开发辅助插件](../bundled-plugins/wingmate-devtools/README.md)。完整示例和独立命令见 [demo 开发约定](dsh-plugin-demo/AGENTS.md)。
+
 ## 开发 DSH 插件
 
 DSH 插件教程与 API 由上游维护。以下是三个官方入口，页面右上角可切换语言。

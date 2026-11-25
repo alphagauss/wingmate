@@ -4,23 +4,41 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./dist/projects.js",
-    "./package.json": "./package.json"
+    ".": "./dist/host.js",
+    "./package.json": "./package.json",
+    "./client": "./dist/client.js",
+    "./locale/*.json": "./locale/*.json"
   },
   "engines": {
     "dsh": "0.2.2-rc.1"
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "cordis.patch.yml",
+    "locale"
   ],
   "scripts": {
     "build": "tsc && node build.mjs",
-    "test": "node --test test/*.test.ts"
+    "test": "node --test test/*.test.ts",
+    "build:client": "tsc && node build.mjs --client-only"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
     "esbuild": "0.27.7",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "@types/react": "19.2.18"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-api-remote-access"
+      ]
+    }
   }
 }

@@ -1,0 +1,71 @@
+.wingmate-devtools {
+  color: var(--dsw-alias-label-primary);
+  font:
+    14px / 1.6 system-ui,
+    sans-serif;
+}
+.wingmate-devtools h2 {
+  font-size: 20px;
+  margin-top: 0;
+}
+.wingmate-devtools h3 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+.wingmate-devtools p {
+  color: var(--dsw-alias-label-secondary);
+}
+.wingmate-devtools form {
+  display: grid;
+  gap: 8px;
+  margin: 24px 0 16px;
+}
+.wingmate-devtools-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.wingmate-devtools input {
+  flex: 1;
+  min-width: 180px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: inherit;
+  background: var(--dsw-alias-bg-base);
+  font: inherit;
+}
+.wingmate-devtools button {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  padding: 8px 14px;
+  color: inherit;
+  background: var(--dsw-alias-bg-module-platform);
+  font: inherit;
+  cursor: pointer;
+}
+.wingmate-devtools button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.wingmate-devtools article {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  padding: 18px;
+  margin: 18px 0;
+}
+.wingmate-devtools-path {
+  overflow-wrap: anywhere;
+}
+.wingmate-devtools pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 360px;
+  overflow: auto;
+  font-size: 12px;
+}
+.wingmate-devtools :focus-visible {
+  outline: 2px solid var(--dsw-alias-label-primary);
+  outline-offset: 3px;
+}
