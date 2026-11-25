@@ -334,6 +334,125 @@ try {
   ])
     assert.ok(webClient.includes(id));
   checks.push('释放的 DSH Web 完成认证并提供后台服务设置和内置插件卡片');
+  const devtools = JSON.parse(boot[1]).entries.find(
+    (row) => row.id === 'dsh-wingmate-devtools',
+  );
+  assert.ok(devtools, '释放的运行包未加载插件开发入口');
+  const devtoolsClient = await fetch(new URL(devtools.url, a.url), {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(devtoolsClient.status, 200);
+  assert.match(await devtoolsClient.text(), /wingmate-devtools/);
+  const devtoolsRoot = join(runtimePath, 'plugins/wingmate-devtools');
+  for (const file of [
+    'skills/wingmate-plugin-development/SKILL.md',
+    'dist/template/AGENTS.md',
+    'dist/template/README.md',
+    'dist/template/gitignore',
+    'dist/template/pnpm-lock.yaml',
+    'dist/template/src/dsh/client.tsx',
+    'dist/template/src/web/server.ts',
+    'dist/template/scripts/dev-dsh.mjs',
+  ])
+    assert.ok((await readFile(join(devtoolsRoot, file))).length, file);
+  const developmentUrl = new URL('/api/wingmate-devtools', a.url);
+  assert.equal((await fetch(developmentUrl)).status, 401);
+  const developmentList = await fetch(developmentUrl, {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(developmentList.status, 200);
+  assert.deepEqual(await developmentList.json(), []);
+  // Exercise the released Node/npm/pnpm and official installer without downloading dependencies.
+  const project = join(work, 'independent plugin');
+  await mkdir(project);
+  const smokeName = 'dsh-wingmate-independent-smoke';
+  await writeFile(
+    join(project, 'package.json'),
+    JSON.stringify({
+      name: smokeName,
+      version: '1.0.0',
+      private: true,
+      type: 'module',
+      exports: { '.': './dist/host.js' },
+      files: ['dist', 'cordis.patch.yml'],
+      engines: {
+        dsh: JSON.parse(
+          await readFile(
+            join(runtimePath, 'node_modules/@deepseek-ai/dsh/package.json'),
+            'utf8',
+          ),
+        ).version,
+      },
+      scripts: { build: 'node build.mjs' },
+      dsh: { bundle: { patch: './cordis.patch.yml' } },
+    }),
+  );
+  await writeFile(join(project, 'pnpm-workspace.yaml'), 'packages:\n  - .\n');
+  await writeFile(
+    join(project, 'cordis.patch.yml'),
+    `- insert:\n    - id: ${smokeName}\n      name: ${smokeName}\n`,
+  );
+  await writeFile(
+    join(project, 'build.mjs'),
+    `import { mkdir, copyFile } from 'node:fs/promises';\nawait mkdir('dist', {recursive:true});\nawait copyFile('source.mjs','dist/host.js');\n`,
+  );
+  const sourceFor = (revision) =>
+    `export const inject=['connection'];\nexport function apply(ctx){ctx.connection.fetch.register({path:'/api/wingmate-independent-smoke',methods:['GET'],requestBody:'buffered',async fetch(){return Response.json({revision:${revision}});}});}\n`;
+  await writeFile(join(project, 'source.mjs'), sourceFor(1));
+  const developmentCall = async (body) => {
+    const response = await fetch(developmentUrl, {
+      method: 'POST',
+      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120_000),
+    });
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  await developmentCall({ action: 'register', directory: project });
+  const firstBuild = await developmentCall({
+    action: 'build',
+    name: smokeName,
+  });
+  assert.equal(
+    firstBuild.result?.application,
+    'applied',
+    JSON.stringify(firstBuild),
+  );
+  const readRevision = async () => {
+    const response = await fetch(
+      new URL('/api/wingmate-independent-smoke', a.url),
+      { headers: { Cookie: cookie } },
+    );
+    assert.equal(response.status, 200);
+    return (await response.json()).revision;
+  };
+  assert.equal(await readRevision(), 1);
+  await writeFile(join(project, 'source.mjs'), sourceFor(2));
+  assert.equal(await readRevision(), 1, '源码变化不应直接改变正在使用的版本');
+  const updatedBuild = await developmentCall({
+    action: 'build',
+    name: smokeName,
+  });
+  assert.equal(
+    updatedBuild.result?.application,
+    'applied',
+    JSON.stringify(updatedBuild),
+  );
+  assert.equal(await readRevision(), 2);
+  await writeFile(
+    join(project, 'build.mjs'),
+    'throw new Error("smoke build failure");\n',
+  );
+  const failedBuild = await developmentCall({
+    action: 'build',
+    name: smokeName,
+  });
+  assert.ok(failedBuild.error);
+  assert.equal(await readRevision(), 2, '构建失败必须保留已安装成品');
+  checks.push(
+    '单文件提供开发入口、技能和完整模板，随包工具可构建更新独立插件，失败保留旧版',
+  );
   const backends = JSON.parse(boot[1]).entries.find(
     (row) => row.id === 'dsh-wingmate-backends',
   );
