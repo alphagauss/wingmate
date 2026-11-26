@@ -13,6 +13,8 @@ description: 在 Wingmate 中创建、修改、调试和更新独立的 TS/TSX D
 
 复制后把 gitignore 重命名为 .gitignore（npm 打包会排除原名）。调整 package.json 的 name、cordis.patch.yml 的插件名称与 id、src/types.ts 的 pluginName，保持一致；修改标题、图标及 README 以符合实际功能。客户端 factory 的 id 从 package.json 读取。是否创建独立 Git 按用户要求决定。
 
+新增或修改插件界面时，先阅读技能资源目录中 `dist/template/AGENTS.md` 的「插件 UI 与动效」一节。
+
 UI 写 TSX，算法和业务写 TS。ui、core、server 分别负责共用界面、纯计算及后台业务；dsh、web 提供两种入口，业务代码只维护一份。完整代码和具体命令以模板 AGENTS.md 为准。README 面向使用者，并作为 DSH 默认详情文档打包；不要把开发指引写进详情页。
 
 ## 开发与更新

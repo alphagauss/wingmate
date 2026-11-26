@@ -20,6 +20,13 @@ UI 使用 TSX，算法与业务使用 TS。ui 提供共用界面；core 只做�
 
 侧栏和页面通过官方 slot 注册，使用宿主 React 和主题。定时器、事件、路由及其他注册随插件卸载清理。详情页提供使用说明，开发规则只维护在本文件。
 
+## 插件 UI 与动效
+
+- 先按目标 DSH 版本找最接近的官方界面。设置项对照设置页，插件详情对照内置插件详情；从对应发布 tag 的 [UI/UX 指引](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.1/.agents/skills/dsh-client-ui-ux/SKILL.md)和[组件目录](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.1/packages/client/ui-primitives/README.zh.md#component-catalog)确认可用接口。链接以本模板当前版本为例，升级时切换到目标 tag。
+- DSH 入口使用宿主 React 和 `@deepseek-ai/dsh-client-ui-primitives` 的控件。例如弹窗用 `Modal`，由它处理关闭、焦点和浮层行为。插件布局使用宿主主题的 `--dsw-*` 变量，样式限定在自己的界面内。另有独立网页入口时，在该入口提供需要的控件和主题回退。
+- 动效跟随同类交互。列表需要展示用户操作引起的增删或重排时，优先用 `AnimatedRows`；首次加载和刷新时直接呈现数据。自定义过渡应能说明它表达的状态变化，并在 `prefers-reduced-motion: reduce` 下保留清晰的静态反馈。
+- 对照实际 DSH 页面检查本次改动涉及的深浅主题、窄窗口、键盘焦点及减少动态效果。涉及动画时分别观察首次显示和用户操作后的变化。
+
 ## Wingmate 开发调试
 
 先从 Wingmate 仓库启动 pnpm dev。再在本项目执行 pnpm dev:dsh；项目位于仓库外时传入 --runtime <Wingmate 仓库>/work/dev/wingmate/runtime.json。脚本通过开发版 CLI 获取专用本机会话，自动编译 .dev/dsh 并调用官方安装流程更新开发链接；它不改正式 dist。退出时关闭源码监听并撤销专用会话，最后编译的开发链接保留在开发环境中。正常使用环境通过“编译并更新”安装成品，不运行此命令。
