@@ -350,7 +350,7 @@ window.__ModuleLoader__.load({
                   role="alert"
                   style={{
                     ...diagnosticText,
-                    color: 'var(--dsw-alias-label-error)',
+                    color: 'var(--dsw-alias-state-error-primary)',
                   }}
                 >
                   无法读取连接状态，请重试。
