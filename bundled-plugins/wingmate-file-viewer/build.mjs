@@ -81,7 +81,10 @@ await writeFile(
   join(root, 'dist/viewer/frame.html'),
   `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>html,body,#viewer{height:100%;margin:0;overflow:hidden}</style></head>
+<style>
+  html, body, #viewer { height: 100%; margin: 0; overflow: hidden; }
+  #viewer::part(toolbar), #viewer::part(toolbar-group) { flex-wrap: wrap; }
+</style></head>
 <body><div id="viewer"></div><script type="module" src="./viewer.js"></script></body></html>`,
 );
 const notices = [];
