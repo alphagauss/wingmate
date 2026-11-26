@@ -4,6 +4,7 @@ import {
   Input,
   MenuItemButton,
   Modal,
+  StateDot,
   Tag,
 } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { BuildResult, Project } from './projects.ts';
@@ -191,7 +192,7 @@ function Page() {
       </div>
       {loading && !rows.length ? (
         <div className="wingmate-devtools-empty" role="status">
-          <span className="wingmate-devtools-spinner" />
+          <StateDot state="ongoing" />
           正在读取项目…
         </div>
       ) : (
@@ -244,7 +245,7 @@ function Page() {
       </p>
       {busy && (
         <div className="wingmate-devtools-progress" role="status">
-          <span className="wingmate-devtools-spinner" />
+          <StateDot state="ongoing" />
           <span className="wingmate-devtools-progress-label">
             正在处理，请稍候…
           </span>

@@ -24,6 +24,7 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     onSelect(): void;
     children: ReactNode;
   }>;
+  export const StateDot: ComponentType<{ state: 'ongoing' }>;
   export const Tag: ComponentType<{
     tone?: 'neutral' | 'success' | 'warning';
     children: ReactNode;
