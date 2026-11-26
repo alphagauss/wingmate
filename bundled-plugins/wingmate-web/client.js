@@ -58,7 +58,7 @@ window.__ModuleLoader__.load({
     };
     const alertStyle = {
       ...detailStyle,
-      color: 'var(--dsw-alias-label-error)',
+      color: 'var(--dsw-alias-state-error-primary)',
     };
     const valueStyle = {
       display: 'block',
