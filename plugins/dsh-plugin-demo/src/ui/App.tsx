@@ -1,15 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { statisticsPath } from '../types.ts';
 import type { Statistics } from '../types.ts';
-import { WebButton, StatisticsIcon } from './controls.tsx';
+import { StatisticsIcon } from './controls.tsx';
 import type { ButtonComponent } from './controls.tsx';
 
 export function App({
   openDetails,
-  Button = WebButton,
+  Button,
 }: {
   openDetails?: () => void;
-  Button?: ButtonComponent;
+  Button: ButtonComponent;
 }) {
   const [text, setText] = useState('你好，Wingmate!\n让插件独立生长。');
   const [result, setResult] = useState<{
@@ -86,7 +86,6 @@ export function App({
           <div className="plugin-demo-editor-footer">
             <span>文本仅用于本次计算，不会保存</span>
             <Button type="submit" variant="primary" disabled={pending}>
-              {pending && <span className="plugin-demo-spinner" />}
               {pending ? '统计中…' : '开始统计'}
             </Button>
           </div>
@@ -131,11 +130,10 @@ export function App({
                 <dt>{label}</dt>
                 <dd>
                   <span
-                    key={value ?? 'empty'}
                     className={
                       value === undefined
                         ? 'plugin-demo-value-empty'
-                        : 'plugin-demo-value'
+                        : undefined
                     }
                   >
                     {value === undefined ? '—' : value.toLocaleString()}

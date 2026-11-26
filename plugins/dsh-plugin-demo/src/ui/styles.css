@@ -25,7 +25,6 @@
   max-width: 880px;
   margin: 0 auto;
   padding: 40px 32px;
-  animation: plugin-demo-enter 180ms ease-out;
 }
 .plugin-demo h1,
 .plugin-demo h2,
@@ -59,7 +58,7 @@
 .plugin-demo h1 {
   font-size: 22px;
   line-height: 30px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .plugin-demo-header p {
   margin-top: 3px;
@@ -102,7 +101,7 @@
 .plugin-demo h2,
 .plugin-demo-details h3 {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .plugin-demo-editor-heading span,
 .plugin-demo-editor-footer > span,
@@ -155,18 +154,15 @@
   margin: 8px 0 0;
   font-size: 28px;
   line-height: 36px;
-  font-weight: 600;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.5px;
 }
 .plugin-demo-metric dd > span {
   display: block;
 }
-.plugin-demo-value {
-  animation: plugin-demo-enter 180ms ease-out;
-}
 .plugin-demo-value-empty {
-  color: var(--dsw-alias-label-dimmed, #b5b8be);
+  color: var(--demo-muted);
 }
 .plugin-demo-metric small {
   display: block;
@@ -186,14 +182,12 @@
 .plugin-demo .plugin-demo-error {
   margin-top: 12px;
   color: var(--dsw-alias-state-error-primary, #cf4242);
-  animation: plugin-demo-enter 160ms ease-out;
 }
 .plugin-demo-details {
   flex-wrap: wrap;
   padding: 16px;
   border: 0.5px solid var(--demo-border);
   border-radius: var(--dsw-radius-md, 12px);
-  animation: plugin-demo-enter 180ms ease-out;
 }
 .plugin-demo-details p {
   margin-top: 3px;
@@ -219,6 +213,9 @@
   background: transparent;
   font: inherit;
   cursor: pointer;
+  transition:
+    background-color 150ms ease-out,
+    opacity 150ms ease-out;
 }
 .plugin-demo-button[data-size="sm"] {
   height: 28px;
@@ -238,24 +235,9 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
-.plugin-demo button,
-.plugin-demo-details button {
-  transition:
-    background-color 150ms ease-out,
-    opacity 150ms ease-out;
-}
-.plugin-demo button:focus-visible,
-.plugin-demo-details button:focus-visible {
+.plugin-demo-button:focus-visible {
   outline: 2px solid var(--dsw-alias-state-business-primary, #4d6bfe);
   outline-offset: 3px;
-}
-.plugin-demo-spinner {
-  width: 14px;
-  height: 14px;
-  border: 1.5px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: plugin-demo-spin 800ms linear infinite;
 }
 .plugin-demo-web {
   font-family: system-ui, sans-serif;
@@ -290,21 +272,6 @@
     --dsw-alias-interactive-bg-hover: #282a31;
   }
 }
-@keyframes plugin-demo-enter {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@keyframes plugin-demo-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 @media (max-width: 640px) {
   .plugin-demo {
     padding: 24px 16px;
@@ -327,11 +294,8 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .plugin-demo,
-  .plugin-demo *,
-  .plugin-demo-details,
-  .plugin-demo-details * {
-    animation: none;
+  .plugin-demo-editor,
+  .plugin-demo-button {
     transition: none;
   }
 }
