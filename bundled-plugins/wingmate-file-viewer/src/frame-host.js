@@ -89,9 +89,7 @@ export async function mountFrame(container, base, bytes, filename, signal) {
               filename,
               buffer,
               locale: document.documentElement.lang || 'zh-CN',
-              theme: document.documentElement.classList.contains('dark')
-                ? 'dark'
-                : 'system',
+              theme: document.documentElement.dataset.dsThemeSource || 'system',
             },
             location.origin,
             [buffer],

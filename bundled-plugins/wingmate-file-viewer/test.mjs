@@ -96,7 +96,7 @@ test('解析并发有界，取消排队和运行中的预览，消息只能完�
     location: { origin: 'http://localhost' },
     document: {
       createElement: () => new Frame(),
-      documentElement: { lang: 'en', classList: { contains: () => false } },
+      documentElement: { lang: 'en', dataset: { dsThemeSource: 'dark' } },
     },
   });
   const controllers = Array.from({ length: 4 }, () => new AbortController());
@@ -132,6 +132,7 @@ test('解析并发有界，取消排队和运行中的预览，消息只能完�
     const [one, two] = [...frames];
     done(one.contentWindow);
     await first;
+    document.documentElement.dataset.dsThemeSource = 'light';
     const next = start(3);
     const abortNext = assert.rejects(next, { name: 'AbortError' });
     await new Promise((resolve) => setImmediate(resolve));
@@ -140,6 +141,10 @@ test('解析并发有界，取消排队和运行中的预览，消息只能完�
     await abortNext;
     done(two.contentWindow);
     await second;
+    assert.deepEqual(
+      posted.map((message) => message.theme),
+      ['dark', 'dark', 'light'],
+    );
     controllers[0].abort();
     controllers[1].abort();
     assert.equal(
