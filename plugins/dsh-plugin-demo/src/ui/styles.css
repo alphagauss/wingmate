@@ -285,9 +285,6 @@
     padding-left: 16px;
     padding-right: 16px;
   }
-  .plugin-demo-editor-footer > span {
-    max-width: 150px;
-  }
   .plugin-demo-results-heading {
     flex-wrap: wrap;
     gap: 4px;
