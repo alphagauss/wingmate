@@ -79,9 +79,11 @@
   background: var(--dsw-alias-bg-module-platform);
   color: var(--dsw-alias-label-secondary);
 }
+.wingmate-devtools-project-info {
+  overflow-wrap: anywhere;
+}
 .wingmate-devtools .wingmate-devtools-path {
   margin-top: 3px;
-  overflow-wrap: anywhere;
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   line-height: 18px;
