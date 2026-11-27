@@ -53,19 +53,19 @@ def download(url, destination, checksum=None, fallback=None):
 
 def download_ubuntu_source(package, version, directory, output):
     origin = f"https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/{package}/{quote(version)}"
+    pool = package[:4] if package.startswith("lib") else package[0]
+    archive = f"https://archive.ubuntu.com/ubuntu/pool/main/{pool}/{package}"
     dsc = f"{package}_{version.split(':')[-1]}.dsc"
     directory.mkdir(parents=True, exist_ok=True)
     output.mkdir(parents=True, exist_ok=True)
     descriptor = directory / dsc
     if not descriptor.is_file():
-        download(f"{origin}/{quote(dsc)}", descriptor)
+        download(f"{archive}/{quote(dsc)}", descriptor, fallback=f"{origin}/{quote(dsc)}")
     fields = descriptor.read_text()
     if f"\nSource: {package}\n" not in fields or f"\nVersion: {version}\n" not in fields:
         raise ValueError(f"Unexpected source package or version in {dsc}")
     checksums = fields.split("\nChecksums-Sha256:\n", 1)[1]
     files = [dsc]
-    pool = package[:4] if package.startswith("lib") else package[0]
-    archive = f"https://archive.ubuntu.com/ubuntu/pool/main/{pool}/{package}"
     for line in checksums.splitlines():
         if not line.startswith(" "):
             break

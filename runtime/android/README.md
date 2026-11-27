@@ -22,7 +22,7 @@ Android 共享存储可能不支持 `flock` 和硬链接。共享 `.dsh` 内的�
 
 资源包的安装、启停与构建入口见 [Wingmate Android](../../apps/mobile/README.md)。
 
-发行流程用 `bash runtime/android/build-runtime.sh <源码输出目录>` 同时准备 Gradle 载荷和源码归档的输入。Ubuntu 源码从实际选入的二进制包版本解析，归档包括其 `.dsc`、源码和补丁。其余来源见 [随包组件源码说明](SOURCES.md)。
+发行流程用 `bash runtime/android/build-runtime.sh <源码输出目录>` 同时准备 Gradle 载荷和源码归档的输入。Ubuntu 源码从实际选入的二进制包版本解析，归档包括其 `.dsc`、源码和补丁。所需文件优先从 Ubuntu Archive 下载，失败时回退到 Launchpad 的对应版本。其余来源见 [随包组件源码说明](SOURCES.md)。
 
 ## Ubuntu 系统依赖
 
