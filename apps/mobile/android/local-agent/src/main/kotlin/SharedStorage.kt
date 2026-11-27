@@ -6,16 +6,23 @@ import android.content.pm.PackageManager
 import android.os.Environment
 import java.io.File
 
-object SharedWorkspace {
-    const val guestPath = "/root/workspace"
+object SharedStorage {
+    const val guestWorkspace = "/root/workspace"
+    const val guestDshHome = "/root/.dsh"
 
     @Suppress("DEPRECATION")
-    val directory: File
+    private val directory: File
         get() =
             File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
                 "Wingmate",
             )
+
+    val workspace: File
+        get() = directory.resolve("workspace")
+
+    val dshHome: File
+        get() = directory.resolve(".dsh")
 
     private val permissions =
         listOf(
@@ -29,12 +36,13 @@ object SharedWorkspace {
 
     fun hasPermission(context: Context): Boolean = missingPermissions(context).isEmpty()
 
-    internal fun prepare(context: Context): File {
-        check(hasPermission(context)) { "Shared workspace storage permission is required" }
-        val path = directory
-        check((path.isDirectory || path.mkdirs()) && path.canRead() && path.canWrite()) {
-            "Shared workspace is unavailable: ${path.absolutePath}"
+    internal fun prepare(context: Context) {
+        check(hasPermission(context)) { "Shared storage permission is required" }
+        for (path in listOf(workspace, dshHome)) {
+            path.mkdirs()
+            check(path.isDirectory && path.canRead() && path.canWrite()) {
+                "Shared storage is unavailable: ${path.absolutePath}"
+            }
         }
-        return path
     }
 }

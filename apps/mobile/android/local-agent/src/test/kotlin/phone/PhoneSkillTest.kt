@@ -35,19 +35,18 @@ class PhoneSkillTest {
 
     @Test
     fun phoneSkillRequiresApprovalAndPublishesOnlyNewNames() {
-        val root = temporary.newFolder("rootfs")
-        assertTrue(root.resolve("root/.dsh").mkdirs())
+        val home = temporary.newFolder("Wingmate", ".dsh")
         val draft = PhoneSkill.draft("check-transit", "Check transit", "1. Open the transit app.")
-        val skill = root.resolve("root/.dsh/skills/phone-check-transit/SKILL.md")
+        val skill = home.resolve("skills/phone-check-transit/SKILL.md")
         assertThrows(PhoneProblem::class.java) { PhoneSkill.draft("../outside", "Title", "Step") }
-        assertThrows(PhoneProblem::class.java) { PhoneSkill.install(root, draft) { false } }
+        assertThrows(PhoneProblem::class.java) { PhoneSkill.install(home, draft) { false } }
         assertFalse(checkNotNull(skill.parentFile).exists())
-        PhoneSkill.install(root, draft) { true }
+        PhoneSkill.install(home, draft) { true }
         val saved = skill.readText()
         assertTrue(saved.contains("disable-model-invocation: true"))
         assertTrue(saved.contains(draft.steps))
         assertThrows(PhoneProblem::class.java) {
-            PhoneSkill.install(root, draft.copy(steps = "Changed")) { true }
+            PhoneSkill.install(home, draft.copy(steps = "Changed")) { true }
         }
         assertEquals(saved, skill.readText())
     }

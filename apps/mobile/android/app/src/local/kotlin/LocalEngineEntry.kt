@@ -14,7 +14,7 @@ import androidx.lifecycle.MutableLiveData
 import dev.wingmate.mobile.i18n.ConnectionStrings
 import dev.wingmate.mobile.runtime.LocalRuntime
 import dev.wingmate.mobile.runtime.RuntimeStatus
-import dev.wingmate.mobile.runtime.SharedWorkspace
+import dev.wingmate.mobile.runtime.SharedStorage
 import dev.wingmate.mobile.settings.LocalEngineSettings
 import dev.wingmate.mobile.settings.SettingsUi
 import dev.wingmate.mobile.theme.dp
@@ -29,14 +29,13 @@ private class EngineSettings(
     private val open: (Uri) -> Unit,
 ) : LocalEngineSettings {
     private val labels = ConnectionStrings(activity)
-    private val backup = EngineBackupSettings(activity, labels, ::startWithWorkspace)
-    private val workspaceChanged = MutableLiveData(Unit)
+    private val storageChanged = MutableLiveData(Unit)
     private val storagePermission =
         activity.registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             result ->
-            val granted = SharedWorkspace.hasPermission(activity)
+            val granted = SharedStorage.hasPermission(activity)
             if (granted) LocalRuntime.start(activity) else statusBeforeStart = null
-            workspaceChanged.value = Unit
+            storageChanged.value = Unit
             if (
                 !granted &&
                     !activity.isFinishing &&
@@ -45,7 +44,7 @@ private class EngineSettings(
                     }
             ) {
                 AlertDialog.Builder(activity)
-                    .setMessage(labels["localAgent.workspacePermissionHint"])
+                    .setMessage(labels["localAgent.storagePermissionHint"])
                     .setNegativeButton(labels["common.cancel"], null)
                     .setPositiveButton(labels["scan.openSettings"]) { _, _ ->
                         activity.startActivity(
@@ -66,9 +65,6 @@ private class EngineSettings(
     private val installed
         get() = LocalRuntime.isInstalled(activity)
 
-    private val backupBusy
-        get() = LocalRuntime.backupBusy.value == true
-
     private var statusBeforeStart: RuntimeStatus? = null
 
     override val openWorkbench: (() -> Unit)?
@@ -78,7 +74,7 @@ private class EngineSettings(
         get() = preferences.getBoolean("auto_start", false)
 
     override val shouldStartOnLaunch: Boolean
-        get() = autoStartOnLaunch && installed && !backupBusy && status != RuntimeStatus.Stopping
+        get() = autoStartOnLaunch && installed && status != RuntimeStatus.Stopping
 
     override val launchPending: Boolean
         get() =
@@ -90,15 +86,15 @@ private class EngineSettings(
         val state = status
         if (state == RuntimeStatus.Stopped || state is RuntimeStatus.Failed) {
             statusBeforeStart = state
-            startWithWorkspace()
+            startWithStorage()
         }
     }
 
-    private fun startWithWorkspace() {
-        if (SharedWorkspace.hasPermission(activity)) {
+    private fun startWithStorage() {
+        if (SharedStorage.hasPermission(activity)) {
             LocalRuntime.start(activity)
         } else {
-            storagePermission.launch(SharedWorkspace.missingPermissions(activity).toTypedArray())
+            storagePermission.launch(SharedStorage.missingPermissions(activity).toTypedArray())
         }
     }
 
@@ -131,8 +127,7 @@ private class EngineSettings(
             if (it !== statusBeforeStart) statusBeforeStart = null
             changed()
         }
-        workspaceChanged.observe(activity) { changed() }
-        LocalRuntime.backupBusy.observe(activity) { changed() }
+        storageChanged.observe(activity) { changed() }
     }
 
     override fun render(ui: SettingsUi, body: LinearLayout) =
@@ -175,12 +170,11 @@ private class EngineSettings(
                             }
                         controls.addView(
                             actionButton(
-                                    labels[action],
-                                    R.drawable.ic_settings_start,
-                                    primary = true,
-                                    action = ::startWithWorkspace,
-                                )
-                                .apply { isEnabled = !backupBusy },
+                                labels[action],
+                                R.drawable.ic_settings_start,
+                                primary = true,
+                                action = ::startWithStorage,
+                            ),
                             -1,
                             -2,
                         )
@@ -243,55 +237,43 @@ private class EngineSettings(
                 )
                 addView(row(labels["localAgent.logs"], action = { logs(ui) }))
             }
-            body.section(labels["localAgent.storageBackup"]) {
-                val path = SharedWorkspace.directory
-                val granted = SharedWorkspace.hasPermission(activity)
-                val availability =
-                    when {
-                        !granted || !path.exists() -> labels["localAgent.workspaceUnmounted"]
-                        !path.isDirectory || !path.canRead() || !path.canWrite() ->
-                            labels["localAgent.workspaceUnavailable"]
-                        else -> null
-                    }
+            body.section(labels["localAgent.storage"]) {
+                val granted = SharedStorage.hasPermission(activity)
                 val locations =
-                    listOfNotNull(
-                            labels["localAgent.workspacePhonePath"].format(path.absolutePath),
-                            labels["localAgent.workspaceGuestPath"].format(
-                                SharedWorkspace.guestPath,
-                            ),
-                            availability,
-                        )
-                        .joinToString("\n")
+                    listOf(
+                        Triple(
+                            "localAgent.workspaceShared",
+                            SharedStorage.workspace,
+                            SharedStorage.guestWorkspace,
+                        ),
+                        Triple(
+                            "localAgent.dshData",
+                            SharedStorage.dshHome,
+                            SharedStorage.guestDshHome,
+                        ),
+                    )
+                for ((title, path, guestPath) in locations) {
+                    val availability =
+                        when {
+                            !granted -> labels["localAgent.storageUnavailable"]
+                            !path.exists() -> labels["localAgent.storageNotCreated"]
+                            !path.isDirectory || !path.canRead() || !path.canWrite() ->
+                                labels["localAgent.storageUnavailable"]
+                            else -> null
+                        }
+                    val subtitle =
+                        listOfNotNull(
+                                labels["localAgent.storagePhonePath"].format(path.absolutePath),
+                                labels["localAgent.storageGuestPath"].format(guestPath),
+                                availability,
+                            )
+                            .joinToString("\n")
+                    addView(
+                        row(labels[title], subtitle = subtitle, maxSubtitleLines = Int.MAX_VALUE),
+                    )
+                }
                 addView(
-                    row(
-                        labels["localAgent.workspaceShared"],
-                        subtitle = locations,
-                        maxSubtitleLines = Int.MAX_VALUE,
-                    ),
-                )
-                val canBackup =
-                    !backupBusy &&
-                        status !is RuntimeStatus.Installing &&
-                        status != RuntimeStatus.Starting &&
-                        status != RuntimeStatus.Stopping
-                addView(
-                    row(
-                        labels["localAgent.backupExport"],
-                        action =
-                            if (canBackup && LocalRuntime.hasBackupData(activity))
-                                backup::pickExport
-                            else null,
-                    ),
-                )
-                addView(
-                    row(
-                        labels["localAgent.backupImport"],
-                        action = if (canBackup) backup::pickImport else null,
-                    ),
-                )
-                val hint = if (backupBusy) "localAgent.backupBusy" else "localAgent.backupHint"
-                addView(
-                    text(labels[hint], 13f).apply {
+                    text(labels["localAgent.dshDataSharedHint"], 13f).apply {
                         setPadding(
                             activity.dp(16),
                             activity.dp(8),

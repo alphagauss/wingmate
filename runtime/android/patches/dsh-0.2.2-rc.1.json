@@ -16,5 +16,86 @@
     "sha256": "20d82ef343a4ee06f1ace8d56521b3e6c7cbbf52816acf056e9977839d31c54b",
     "before": "const target = resolve(path ?? home);",
     "after": "const target = resolve(path ?? \"/root/workspace\");"
+  },
+  {
+    "id": "allow-credentials-on-android-shared-dsh-home",
+    "package": "@deepseek-ai/dsh-credentials-local",
+    "version": "0.2.2-rc.1",
+    "file": "lib/index.js",
+    "sha256": "6b4926ef62bfeb95bc3d7687b85303d739a41e813fe05ac06de50111361da069",
+    "before": "if (process.platform === \"win32\") return;\n\tif ((mode & GROUP_OTHER_BITS) === 0) return;",
+    "after": "if (process.platform === \"win32\") return;\n\t// Android shared storage synthesizes the mode reported for this file.\n\tif (filename === \"/root/.dsh/.credentials.yaml\") return;\n\tif ((mode & GROUP_OTHER_BITS) === 0) return;"
+  },
+  {
+    "id": "load-android-session-storage",
+    "package": "@deepseek-ai/dsh-session-persistence-jsonl",
+    "version": "0.2.2-rc.1",
+    "file": "lib/index.js",
+    "sha256": "69efef5f84dddf947032bc1425067878fa610416c8885acde2ded9b01230c9b7",
+    "before": "import { createHash, randomBytes } from \"node:crypto\";",
+    "after": "import { createHash, randomBytes } from \"node:crypto\";\nimport { publishSessionFile, sessionLockPath } from \"/opt/wingmate/shared-storage.mjs\";"
+  },
+  {
+    "id": "lock-shared-sessions-on-private-storage",
+    "package": "@deepseek-ai/dsh-session-persistence-jsonl",
+    "version": "0.2.2-rc.1",
+    "file": "lib/index.js",
+    "sha256": "1deffb21ec1c7908cacb6816452249d84157370ba695c1320424f48a168601b7",
+    "before": "\tstatic async acquire(dir, id) {\n\t\tconst path = join(dir, LEASE_FILENAME);\n\t\tawait mkdir(dir, {\n\t\t\trecursive: true,\n\t\t\tmode: 448\n\t\t});",
+    "after": "\tstatic async acquire(dir, id) {\n\t\tawait mkdir(dir, {\n\t\t\trecursive: true,\n\t\t\tmode: 448\n\t\t});\n\t\tconst path = await sessionLockPath(dir, LEASE_FILENAME);"
+  },
+  {
+    "id": "publish-shared-session-log-with-rename",
+    "package": "@deepseek-ai/dsh-session-persistence-jsonl",
+    "version": "0.2.2-rc.1",
+    "file": "lib/index.js",
+    "sha256": "5af54c0c2434a102d371601d5be03ce69573e12d600c3d28f7a6878521b13c09",
+    "before": "await link(tmp, finalPath);",
+    "after": "await publishSessionFile(tmp, finalPath, link);"
+  },
+  {
+    "id": "publish-shared-session-migration-with-rename",
+    "package": "@deepseek-ai/dsh-session-persistence-jsonl",
+    "version": "0.2.2-rc.1",
+    "file": "lib/index.js",
+    "sha256": "de775e9506d39bd836d3a1e0bddb1cf0e188175c038b67ec1993957872078e6d",
+    "before": "await internals.fs.link(staged, currentPath);",
+    "after": "await publishSessionFile(staged, currentPath, internals.fs.link);"
+  },
+  {
+    "id": "load-android-attachment-storage",
+    "package": "@deepseek-ai/dsh-attachment-local",
+    "version": "0.2.2-rc.1",
+    "file": "lib/index.js",
+    "sha256": "ff717f87226b59d6224aff67796b43d5fd72b98d0e74fa91a952affaf3285f9d",
+    "before": "import { createLazyRequire } from \"@deepseek-ai/dsh-lazy-require\";",
+    "after": "import { createLazyRequire } from \"@deepseek-ai/dsh-lazy-require\";\nimport { withFileLock } from \"@deepseek-ai/dsh-atomic-write\";\nimport { isSharedDshPath, privateLockTarget, publishSharedFile } from \"/opt/wingmate/shared-storage.mjs\";"
+  },
+  {
+    "id": "copy-shared-attachment-alias",
+    "package": "@deepseek-ai/dsh-attachment-local",
+    "version": "0.2.2-rc.1",
+    "file": "lib/index.js",
+    "sha256": "6644ce5718623be3aa3286970d25173f5106a469d952cf5d568497bdb764d654",
+    "before": "async function publishImmutableAlias(root, source, target, sha256) {",
+    "after": "async function publishImmutableAlias(root, source, target, sha256) {\n\tif (isSharedDshPath(target)) {\n\t\tconst staged = await stageImmutableObject(root, createReadStream(source));\n\t\tif (staged.sha256 !== sha256) {\n\t\t\tawait removeTemporary(staged.path);\n\t\t\tthrow new AttachmentError(\"Stored attachment failed integrity verification.\", \"ATTACHMENT_CORRUPT\");\n\t\t}\n\t\treturn publishStagedObject(root, target, staged);\n\t}"
+  },
+  {
+    "id": "publish-shared-attachment-with-rename",
+    "package": "@deepseek-ai/dsh-attachment-local",
+    "version": "0.2.2-rc.1",
+    "file": "lib/index.js",
+    "sha256": "c1a9b85ea51545f6a8ba6253ceb3e4d7ee5a89facf7260855311b8fe267caac0",
+    "before": "await link(staged.path, target);",
+    "after": "if (isSharedDshPath(target)) {\n\t\t\t\tconst lock = await privateLockTarget(\"attachment\", target);\n\t\t\t\tawait withFileLock(lock, () => publishSharedFile(staged.path, target));\n\t\t\t} else await link(staged.path, target);"
+  },
+  {
+    "id": "clean-up-shared-attachment-stage",
+    "package": "@deepseek-ai/dsh-attachment-local",
+    "version": "0.2.2-rc.1",
+    "file": "lib/index.js",
+    "sha256": "7441959d607ba224c64db96dbd2801be967eff5135513b1b3f7af9ad3ae27a5b",
+    "before": "await unlink(staged.path);",
+    "after": "await removeTemporary(staged.path);"
   }
 ]

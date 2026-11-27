@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 // The local socket and first-line credential exchange come from dsh-Go's PhoneBridge (AGPLv3).
-internal class PhoneBridge(private val control: PhoneControl, private val rootfs: File) :
+internal class PhoneBridge(private val control: PhoneControl, private val dshHome: File) :
     Closeable, PhoneControl.ToolsListener {
     val name = "wingmate.phone.${UUID.randomUUID()}"
     val token = UUID.randomUUID().toString()
@@ -142,7 +142,7 @@ internal class PhoneBridge(private val control: PhoneControl, private val rootfs
                 Request(
                     McpServer.Call(id, tool, args),
                     if (tool == PhoneSkill.tool.name) {
-                        { context -> PhoneSkill.prepare(context, rootfs, args) }
+                        { context -> PhoneSkill.prepare(context, dshHome, args) }
                     } else null,
                 ) { result ->
                     if (requests.remove(id, request)) send(McpServer.output(id, result))

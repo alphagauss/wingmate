@@ -26,9 +26,14 @@ Android 工程沿用 Gradle 默认源码集，应用 Kotlin 源码在 `android/a
 
 `android/phone-control/` 提供 Android 手机操控与共用的 MCP 工具定义，可以独立构建。本机 DSH 的 MCP 启动配置、套接字桥接和技能保存由 `local-agent` 接入。应用的本地版装配两个模块，纯远程版均不打包。
 
-本机引擎的「存储与备份」显示共享工作区在手机和 DSH 中的路径。启动引擎时如缺少共享存储权限，应用先请求该权限。只有确认手机的 `Documents/Wingmate` 已挂载到 DSH 的 `~/workspace`（`/root/workspace`）并可读写后，才启动 DSH。首次初始化的默认工作区位于共享目录下的 `deepseek-harness/default-workspace`。「添加工作区」默认打开共享目录，可以直接在这里新建文件夹。
+本机引擎的「存储」显示工作区和 DSH 数据在手机和 DSH 中的路径。启动时如缺少共享存储权限，应用先请求该权限。两处挂载均通过检查后才启动 DSH。
 
-「导出 DSH 备份」通过系统文件选择器保存未加密的 `.tar.gz`，其中包含 `.dsh` 内的会话、设置及保存过的凭据。工作区文件保存在各自的工作区目录。导入会先校验归档，确认后停止引擎并替换 `.dsh`。旧目录仅在替换期间临时保留，替换成功后删除，移入新目录失败时恢复旧目录。全新安装可直接导入和导出数据，Linux 运行时在首次启动引擎时释放。导出时如引擎仍在运行，也会在选好文件后请求停机。
+| 手机共享目录 | DSH 路径 | 内容 |
+| --- | --- | --- |
+| `Documents/Wingmate/workspace` | `/root/workspace` | 默认工作区在其下的 `deepseek-harness/default-workspace`，「添加工作区」也从这里打开。 |
+| `Documents/Wingmate/.dsh` | `/root/.dsh` | DSH 会话、设置、技能和保存的凭据。有相应共享存储权限的其他应用也可访问。 |
+
+覆盖更新或卸载重装后，启动引擎会继续使用这两个共享目录。旧版在应用私有目录中的 DSH 数据以及直接放在 `Documents/Wingmate` 下的工作区不会自动搬迁。换机或需要保留副本时，先停止本机引擎，再用能够显示隐藏目录的文件管理器完整复制 `workspace` 和 `.dsh`。恢复时先停机，再把副本放回表中对应位置。
 
 首次安装从 APK 释放完整环境。之后在基础环境身份相同的情况下，只更新 DSH、Node 和应用管理的文件，保留 Linux 环境、Python 用户包、会话和工作区。基础环境不兼容时报告原因，保留现有目录。载荷构建和移植来源见 [Android 本地运行载荷](../../runtime/android/README.md)，真机验收范围见 [D1](../../ARCHITECTURE_PLAN.md#d1-android-本地运行版)。
 

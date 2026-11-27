@@ -33,7 +33,7 @@ internal object PhoneSkill {
             "steps",
         )
 
-    fun prepare(context: Context, rootfs: File, args: Map<*, *>): PhoneControl.Action {
+    fun prepare(context: Context, dshHome: File, args: Map<*, *>): PhoneControl.Action {
         val draft =
             draft(args["name"] as String, args["description"] as String, args["steps"] as String)
         val summary =
@@ -52,7 +52,7 @@ internal object PhoneSkill {
             thread(name = "wingmate-phone-skill", isDaemon = true) {
                 val result = runCatching {
                     phoneCheck(live(), "The phone skill request was cancelled.")
-                    install(rootfs, draft, live)
+                    install(dshHome, draft, live)
                     true
                 }
                 Handler(Looper.getMainLooper()).post { complete(result) }
@@ -89,11 +89,10 @@ internal object PhoneSkill {
         return Draft("phone-$name", summary, body)
     }
 
-    fun install(rootfs: File, draft: Draft, approved: () -> Boolean) {
-        val root = rootfs.toPath()
-        val home = root.resolve("root/.dsh")
+    fun install(dshHome: File, draft: Draft, approved: () -> Boolean) {
+        val home = dshHome.toPath()
         phoneCheck(
-            listOf(root.parent, root, root.resolve("root"), home).all {
+            listOf(home.parent, home).all {
                 Files.isDirectory(it, NOFOLLOW_LINKS)
             },
             "Start the local DSH engine before saving a phone skill.",

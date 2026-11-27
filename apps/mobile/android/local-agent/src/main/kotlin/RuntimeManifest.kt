@@ -18,7 +18,7 @@ internal data class RuntimeManifest(
                 context.assets.open("runtime/manifest.json").bufferedReader().use {
                     JSONObject(it.readText())
                 }
-            require(json.getInt("schema") == 1 && json.getString("abi") == "arm64-v8a")
+            require(json.getInt("schema") == 2 && json.getString("abi") == "arm64-v8a")
             require(json.getString("rootfs") == "rootfs-arm64-v8a.tar.xz")
             val launch = json.getJSONObject("launch")
             val argv = launch.getJSONArray("argv")

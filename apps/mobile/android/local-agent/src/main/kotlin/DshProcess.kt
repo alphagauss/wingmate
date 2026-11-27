@@ -64,7 +64,6 @@ internal class DshProcess(
 
     fun start(
         manifest: RuntimeManifest,
-        workspace: File,
         guestEnv: Map<String, String>,
         withPhone: Boolean,
     ) {
@@ -78,23 +77,26 @@ internal class DshProcess(
         }
         port = pickPort()
         val tmp = File(context.cacheDir, "proot-tmp").apply { mkdirs() }
+        val workspace = SharedStorage.workspace.canonicalPath
+        val dshHome = SharedStorage.dshHome.canonicalPath
         val vars =
             mapOf(
                 "{NATIVE_LIB_DIR}" to context.applicationInfo.nativeLibraryDir,
                 "{ROOTFS}" to rootfs.canonicalPath,
-                "{WORKSPACE}" to workspace.canonicalPath,
+                "{WORKSPACE}" to workspace,
+                "{DSH_HOME}" to dshHome,
                 "{TMP}" to tmp.absolutePath,
                 "{PORT}" to port.toString(),
             )
         fun expand(s: String) = vars.entries.fold(s) { acc, (k, v) -> acc.replace(k, v) }
 
-        val workspaceIdentity = Os.stat(workspace.absolutePath)
+        fun identity(path: String) = Os.stat(path).let { "${it.st_dev}:${it.st_ino}" }
         val effectiveGuestEnv =
             guestEnv +
                 mapOf(
                     "DSH_GO_RUNTIME_ROOT" to rootfs.canonicalPath,
-                    "WINGMATE_WORKSPACE_ID" to
-                        "${workspaceIdentity.st_dev}:${workspaceIdentity.st_ino}",
+                    "WINGMATE_WORKSPACE_ID" to identity(workspace),
+                    "WINGMATE_DSH_HOME_ID" to identity(dshHome),
                 )
         val argv =
             manifest.launchArgv.flatMap { arg ->

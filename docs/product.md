@@ -20,7 +20,7 @@ Wingmate 是面向个人使用的 DeepSeek Harness（DSH）发行版。它负责
 
 ## 数据归属
 
-发行版的 DSH 会话、凭据与设置沿用官方默认位置，不要求便携化或随可执行文件搬迁。Wingmate 的管理数据与可重新释放的运行内容独立存放，不能把它们与 DSH 用户数据一起清理。具体位置与管理边界见 [服务模块](../crates/wingmate-service/README.md)。
+桌面版的 DSH 会话、凭据与设置沿用官方默认位置。Wingmate 的管理数据与可重新释放的运行内容独立存放，不能把它们与 DSH 用户数据一起清理。具体位置与管理边界见 [服务模块](../crates/wingmate-service/README.md)。Android 本地版将 DSH 用户数据和默认工作区放在手机共享存储中，路径见 [Android 本机引擎](../apps/mobile/README.md#工程布局)。
 
 ## 当前阶段的选择
 

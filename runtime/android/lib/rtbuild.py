@@ -677,7 +677,7 @@ def overlay_entries(runtime_info, patch_path):
     s("usr/local/bin/npm", "../../../opt/node/bin/npm")
     s("usr/local/bin/npx", "../../../opt/node/bin/npx")
     s("usr/local/bin/corepack", "../../../opt/node/bin/corepack")
-    for name in ("dns.mjs", "proot-dns.mjs"):
+    for name in ("dns.mjs", "proot-dns.mjs", "shared-storage.mjs"):
         with open(os.path.join(GUEST_SCRIPTS, name), "rb") as source:
             E["opt/wingmate/" + name] = Entry("file", 0o644, data=source.read(), origin="overlay")
     f("usr/local/bin/dsh",
@@ -1097,11 +1097,12 @@ def cmd_assemble(args):
 def launch_template():
     """The proot invocation the app runs (placeholders expanded by DshProcess.kt)."""
     workspace_path = "/root/workspace"
+    dsh_home = "/root/.dsh"
     guest_env = [
         "HOME=/root", "USER=root", "LOGNAME=root", "SHELL=/bin/bash",
         "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "LANG=C.UTF-8", "TERM=xterm-256color", "TMPDIR=/tmp",
-        "DSH_HOME=/root/.dsh",
+        "DSH_HOME=" + dsh_home,
         # Linux font discovery appends /fonts; Android's fonts are in the bound /system.
         "XDG_DATA_DIRS=/usr/local/share:/usr/share:/system",
         # pnpm 11 reads its registry from here (not from any npmrc outside $HOME); see DSH_WEB_PATCH
@@ -1115,6 +1116,7 @@ def launch_template():
         "--kill-on-exit", "--link2symlink", "--sysvipc", "-L", "-0",
         "--rootfs={ROOTFS}", "--cwd=/root",
         "-b", "{WORKSPACE}:" + workspace_path,
+        "-b", "{DSH_HOME}:" + dsh_home,
         "-b", "/dev",
         "-b", "/dev/urandom:/dev/random",
         "-b", "/proc",
@@ -1131,10 +1133,13 @@ def launch_template():
     ] + guest_env + [
         "{GUEST_ENV}",
         "/bin/sh", "-c",
-        f'if [ "$(stat -Lc %d:%i {workspace_path})" != "$WINGMATE_WORKSPACE_ID" ] || '
-        f'[ ! -r {workspace_path} ] || [ ! -w {workspace_path} ] || [ ! -x {workspace_path} ]; then '
-        f'echo "Shared workspace could not be mounted at {workspace_path}" >&2; exit 1; fi; '
-        'unset WINGMATE_WORKSPACE_ID; '
+        'check_mount() { '
+        'if [ "$(stat -Lc %d:%i "$1")" != "$2" ] || '
+        '[ ! -r "$1" ] || [ ! -w "$1" ] || [ ! -x "$1" ]; then '
+        'echo "Shared storage could not be mounted at $1" >&2; exit 1; fi; }; '
+        f'check_mount {workspace_path} "$WINGMATE_WORKSPACE_ID"; '
+        f'check_mount {dsh_home} "$WINGMATE_DSH_HOME_ID"; '
+        'unset WINGMATE_WORKSPACE_ID WINGMATE_DSH_HOME_ID; '
         "echo $$ > /tmp/dsh-web.pid; exec /usr/local/bin/dsh web --patch " + DSH_WEB_PATCH
         + " --host 127.0.0.1 --port {PORT} --no-open",
     ]
@@ -1150,7 +1155,8 @@ def launch_template():
         "placeholders": {
             "{NATIVE_LIB_DIR}": "applicationInfo.nativeLibraryDir (libs must be extracted: useLegacyPackaging=true)",
             "{ROOTFS}": "filesDir/runtime/rootfs",
-            "{WORKSPACE}": "Android shared Documents/Wingmate directory",
+            "{WORKSPACE}": "Android shared Documents/Wingmate/workspace directory",
+            "{DSH_HOME}": "Android shared Documents/Wingmate/.dsh directory",
             "{TMP}": "app-private writable dir for PROOT_TMP_DIR (e.g. cacheDir/proot-tmp)",
             "{FILES_DIR}": "context.filesDir (unused by this template)",
             "{PORT}": "loopback port chosen by the app",
@@ -1182,8 +1188,8 @@ def launch_template():
         },
         "files": {
             "resolvConf": "{ROOTFS}/etc/resolv.conf",
-            "dshHome": "{ROOTFS}/root/.dsh",
-            "credentials": "{ROOTFS}/root/.dsh/.credentials.yaml (mode 0600; 'version: 1' + 'refs: {DEEPSEEK_API_KEY: ...}')",
+            "dshHome": "{DSH_HOME}",
+            "credentials": "{DSH_HOME}/.credentials.yaml ('version: 1' + 'refs: {DEEPSEEK_API_KEY: ...}')",
             "l2sDir": "{ROOTFS}/root/.l2s (must exist; created by the archive)",
         },
     }
@@ -1194,7 +1200,7 @@ def cmd_manifest(args):
     jni = json.load(open(args.jnilibs))
     v = json.loads(args.versions)
     m = {
-        "schema": 1,
+        "schema": 2,
         "runtimeVersion": v["runtimeVersion"],
         "upgrade": report.get("upgrade"),
         "abi": args.abi,

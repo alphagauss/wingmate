@@ -12,7 +12,13 @@ DSH 使用 Wingmate 的 npm 锁安装 Linux ARM64 glibc 依赖，复用 [Office 
 
 本机工作台通过回环地址连接 DSH。Android 没有默认网络时，WebView 会报告离线，回环地址仍然可用。Android 载荷对回环页面使用实际的连接状态。升级 DSH 时，复验手机离线下的自动连接；上游能独立处理回环连接后可移除此补丁。
 
-来宾没有桌面环境的 XDG 目录查询工具，因此 DSH 的 Documents 路径配置使用 PRoot 的共享工作区挂载点。目录选择器的起点通过 Android 载荷补丁设在同一挂载点。上游支持配置起点后，可用配置替换补丁。用户路径与备份入口见 [Wingmate Android](../../apps/mobile/README.md#工程布局)。
+来宾没有桌面环境的 XDG 目录查询工具，因此 DSH 的 Documents 路径配置使用 PRoot 的共享工作区挂载点。目录选择器的起点通过 Android 载荷补丁设在同一挂载点。上游支持配置起点后，可用配置替换补丁。两处共享目录的用途及手动备份见 [Wingmate Android](../../apps/mobile/README.md#工程布局)。
+
+Android 共享存储由系统管理文件的访问权限，来宾看到的权限位可能宽于 DSH 凭据组件要求的 `0600`。Android 载荷仅对 `/root/.dsh/.credentials.yaml` 跳过此权限位校验。升级 DSH 时，真机确认写入凭据后重启仍能读取。上游支持显式配置该路径的权限位策略后，可用配置替换补丁。
+
+Android 共享存储可能不支持 `flock` 和硬链接。共享 `.dsh` 内的会话用私有存储上的 `flock` 文件维持跨进程写入互斥，日志在持锁期间通过同目录重命名发布。升级 DSH 时，真机验证创建会话、停止后续接和卸载重装后读取。上游支持独立配置会话锁目录与原子发布方式后，可用配置替换补丁。
+
+共享 `.dsh` 中的附件也通过私有目录中的写锁和同一挂载内的重命名发布。保留原文件名的附件路径需要独立副本。升级 DSH 时，真机验证图片和普通文件能够保存并读回。上游支持在无硬链接的文件系统上存储附件后，可移除此补丁。
 
 资源包的安装、启停与构建入口见 [Wingmate Android](../../apps/mobile/README.md)。
 
@@ -24,4 +30,4 @@ DSH 使用 Wingmate 的 npm 锁安装 Linux ARM64 glibc 依赖，复用 [Office 
 
 新增或升级随包 Ubuntu 系统依赖时，从 Ubuntu Ports 取得与基础环境匹配的 ARM64 索引，验证各发行套件的 `InRelease` 签名和索引 SHA-256。用 [`rtbuild.py resolve-debs`](lib/rtbuild.py) 重新解析完整的 `want` 清单。参数 `--base` 使用构建脚本锁定的 Ubuntu Base 归档，`--arch` 使用 `arm64`，各索引分别通过 `--packages` 传入。审阅 `--out` 生成的锁文件差异，再构建载荷，验证受影响的命令和对应源码归档。包变更影响提示中的工具限制时，同步更新 [Android 本机环境插件](../../bundled-plugins/wingmate-android-environment/README.md)。
 
-实际随包的 `.deb` 内容参与计算基础环境身份。安装器遇到不同基础环境时保留现有 rootfs 并阻止引擎升级。含系统包变更的发行按新基础环境准备，用户数据与备份范围见 [Android 本机引擎](../../apps/mobile/README.md#工程布局)。
+实际随包的 `.deb` 内容参与计算基础环境身份。安装器遇到不同基础环境时保留现有 rootfs 并阻止引擎升级。含系统包变更的发行按新基础环境准备，用户数据位置见 [Android 本机引擎](../../apps/mobile/README.md#工程布局)。
