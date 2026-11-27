@@ -7,7 +7,7 @@ use std::{
     fs, io,
     path::{Path, PathBuf},
 };
-use wingmate_service::runtime::toolchain_node;
+use wingmate_service::runtime::{toolchain_fallback, toolchain_node};
 
 const REVISION: &str = ".wingmate-toolchains";
 const PREVIOUS: &str = ".toolchains-previous";
@@ -69,6 +69,7 @@ fn check_entries(root: &Path) -> Result<()> {
     });
     let node = toolchain_node(root);
     let bin = node.parent().unwrap();
+    let fallback = toolchain_fallback(root);
     for entry in [
         node.clone(),
         bin.join(if cfg!(windows) { "npm.cmd" } else { "npm" }),
@@ -79,6 +80,8 @@ fn check_entries(root: &Path) -> Result<()> {
         modules.join("npm/bin/npx-cli.js"),
         modules.join("pnpm/bin/pnpm.mjs"),
         modules.join("pnpm/bin/pnpx.mjs"),
+        fallback.join(if cfg!(windows) { "rg.exe" } else { "rg" }),
+        fallback.join(if cfg!(windows) { "jq.exe" } else { "jq" }),
     ] {
         anyhow::ensure!(entry.is_file(), "随包工具缺少入口：{}", entry.display());
     }
@@ -120,7 +123,7 @@ impl Prepared {
         let has_live = installed(&live)?.is_some();
         if has_live {
             #[cfg(windows)]
-            windows::release(&toolchain_node(&live), approval)?;
+            windows::release(&live, approval)?;
             #[cfg(not(windows))]
             let _ = approval;
             if installed(&previous)?.is_some() {

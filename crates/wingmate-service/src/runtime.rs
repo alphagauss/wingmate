@@ -19,6 +19,10 @@ pub fn toolchain_node(root: &Path) -> PathBuf {
     }
 }
 
+pub fn toolchain_fallback(root: &Path) -> PathBuf {
+    root.join("fallback")
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Runtime {
     pub id: String,
@@ -34,16 +38,19 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn toolchain_environment(&self, home: &Path, command: &mut Command) -> Result<()> {
-        if self.node == toolchain_node(&home.join("toolchains")) {
+        let tools = home.join("toolchains");
+        if self.node == toolchain_node(&tools) {
             let inherited = std::env::var_os("PATH").unwrap_or_default();
             let managed = self.node.parent().context("Node 路径没有父目录")?;
-            let path = std::env::join_paths(
-                [managed.to_path_buf()].into_iter().chain(
-                    std::env::split_paths(&inherited)
-                        .filter(|path| !path.as_os_str().is_empty() && path != managed),
-                ),
-            )?;
-            command.env("PATH", path);
+            let fallback = toolchain_fallback(&tools);
+            let mut entries = vec![managed.to_path_buf()];
+            entries.extend(std::env::split_paths(&inherited).filter(|path| {
+                !path.as_os_str().is_empty() && path != managed && path != &fallback
+            }));
+            if fallback.is_dir() {
+                entries.push(fallback);
+            }
+            command.env("PATH", std::env::join_paths(entries)?);
         } else {
             #[cfg(target_os = "macos")]
             if let Some(path) = &self.search_path {
@@ -138,4 +145,72 @@ pub fn isolate_standard_pipes() -> Result<()> {
 #[cfg(not(windows))]
 pub fn isolate_standard_pipes() -> Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_runtime(node: PathBuf) -> Runtime {
+        Runtime {
+            id: "dsh-test".into(),
+            revision: "test".into(),
+            directory: PathBuf::from("runtime"),
+            node,
+            #[cfg(target_os = "macos")]
+            search_path: None,
+            dsh_home: None,
+            agents_home: None,
+        }
+    }
+
+    fn command_path(command: &Command) -> Option<Vec<PathBuf>> {
+        command
+            .get_envs()
+            .find(|(key, _)| key.eq_ignore_ascii_case("PATH"))
+            .and_then(|(_, value)| value)
+            .map(|value| std::env::split_paths(value).collect())
+    }
+
+    #[test]
+    fn toolchain_environment_prepends_js_tools_and_appends_fallback() -> Result<()> {
+        let home = tempfile::tempdir()?;
+        let tools = home.path().join("toolchains");
+        let node = toolchain_node(&tools);
+        let managed = node.parent().unwrap().to_path_buf();
+        let fallback = toolchain_fallback(&tools);
+        fs::create_dir_all(&managed)?;
+        let runtime = test_runtime(node);
+
+        let mut without_fallback = Command::new("cmd");
+        runtime.toolchain_environment(home.path(), &mut without_fallback)?;
+        let entries = command_path(&without_fallback).context("缺少 PATH")?;
+        assert_eq!(entries.first(), Some(&managed));
+        assert!(!entries.contains(&fallback));
+
+        fs::create_dir_all(&fallback)?;
+        let mut with_fallback = Command::new("cmd");
+        runtime.toolchain_environment(home.path(), &mut with_fallback)?;
+        let entries = command_path(&with_fallback).context("缺少 PATH")?;
+        assert_eq!(entries.first(), Some(&managed));
+        assert_eq!(entries.last(), Some(&fallback));
+        assert_eq!(entries.iter().filter(|entry| *entry == &managed).count(), 1);
+        assert_eq!(
+            entries.iter().filter(|entry| *entry == &fallback).count(),
+            1
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn system_node_does_not_inject_managed_toolchain_paths() -> Result<()> {
+        let home = tempfile::tempdir()?;
+        let tools = home.path().join("toolchains");
+        fs::create_dir_all(toolchain_fallback(&tools))?;
+        let runtime = test_runtime(PathBuf::from("node"));
+        let mut command = Command::new("cmd");
+        runtime.toolchain_environment(home.path(), &mut command)?;
+        assert_eq!(command_path(&command), None);
+        Ok(())
+    }
 }

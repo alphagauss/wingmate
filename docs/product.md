@@ -27,7 +27,7 @@ Wingmate 是面向个人使用的 DeepSeek Harness（DSH）发行版。它负责
 | 选择 | 当前范围及取舍 |
 | --- | --- |
 | 无 GUI 的统一入口与可选桌面 | CLI 可独立准备和启动；桌面采用 Tauri，自有首页承担启动与恢复，聊天和 Agent 交互复用官方 Web |
-| 发行版使用随包 Node 工具 | 单文件同时携带 Node、npm 和 pnpm，首次启动可离线释放。随包工具通过进程 PATH 提供给 DSH 与智能体 Shell。开发构建使用开发机工具。路径与升级规则见[发行入口](../crates/wingmate-launcher/README.md#随包工具) |
+| 发行版使用随包工具 | 单文件同时携带 `node`、`npm`、`npx`、`pnpm`、`pnpx`，以及 `rg`、`jq` 兜底命令，首次启动可离线释放。随包 JS 工具前置、兜底工具后置注入 DSH 与智能体 Shell 的进程 PATH。开发构建使用开发机工具。路径与升级规则见[发行入口](../crates/wingmate-launcher/README.md#随包工具) |
 | 独立常驻管理服务 | 管理服务使用已安装的业务运行内容，业务停止后仍可再次启动。本机 CLI 与桌面使用本机管理接口 |
 | Web 接入 | 本机浏览器可配对访问。局域网和公网分享可独立开启，其他设备配对后可打开完整 DSH Web，并可在业务停止后从原地址启动后台。公网提供临时和具名隧道，真实公网验收范围见[架构计划](../ARCHITECTURE_PLAN.md#b3-cloudflare-公网隧道)。桌面可分享本机或连接其他主机，见[服务模块](../crates/wingmate-service/README.md#web-入口) |
 | 固定 npm 发布版本 | 构建使用明确版本及锁文件，当前不从上游源码编译 DSH |

@@ -30,11 +30,11 @@ Windows 将 `%LOCALAPPDATA%\Wingmate\bin` 放在用户 PATH 最前面，系统 P
 
 ## 随包工具
 
-正式版在管理目录的固定 `toolchains/` 下释放 `node`、`npm`、`npx`、`pnpm` 和 `pnpx`，不随包提供 `corepack`。Windows 将该目录作为命令目录，macOS 和 Linux 使用 `toolchains/bin/`。Wingmate 用随包 Node 的绝对路径启动 DSH，并将工具目录放在 DSH 进程 PATH 的最前面。智能体 Shell 和 DSH 终端继承该 PATH。用户和系统 PATH、外部 Shell 配置保持原样。
+正式版在管理目录的固定 `toolchains/` 下释放 `node`、`npm`、`npx`、`pnpm` 和 `pnpx`，不随包提供 `corepack`，并在 `toolchains/fallback/` 下提供 `rg` 与 `jq` 兜底命令。Windows 将 `toolchains/` 作为 JS 命令目录，macOS 和 Linux 使用 `toolchains/bin/`。Wingmate 用随包 Node 的绝对路径启动 DSH，将 JS 工具目录放在 DSH 进程 PATH 的最前面，将 `toolchains/fallback/` 放在 PATH 的最后面，使宿主已安装的 `rg` 或 `jq` 优先于随包版本。智能体 Shell 和 DSH 终端继承该 PATH。用户和系统 PATH、外部 Shell 配置保持原样。
 
 开发版启动后台时优先使用当前进程的 PATH 查找 Node.js。macOS 上检查失败时，会尝试从用户交互式登录 Shell 读取 PATH，再检查 Node.js。通过 Shell 恢复的 PATH 会传给 DSH 及其子进程。
 
-打开新版时继续连接已有后台。「重启并更新」或下次启动已停止的业务时切换随包工具。Windows 上如有同一用户的旧随包 Node 仍在运行，应用会列出占用进程，可选择结束这些进程后重试。CLI 对应命令是 `wingmate restart --force-toolchain`。这会中断这些进程正在执行的任务。
+打开新版时继续连接已有后台。「重启并更新」或下次启动已停止的业务时切换随包工具。Windows 上如有同一用户的旧随包工具进程仍在运行，应用会列出占用进程，可选择结束这些进程后重试。CLI 对应命令是 `wingmate restart --force-toolchain`。这会中断这些进程正在执行的任务。
 
 ## CLI 连接与诊断
 

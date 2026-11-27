@@ -180,6 +180,7 @@ if (!dev) {
         scratch.path,
         cache,
         registry,
+        join(root, 'work/cache/cli-tools'),
       ),
   );
 }

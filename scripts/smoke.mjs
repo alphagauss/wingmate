@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { on, once } from 'node:events';
 import { existsSync } from 'node:fs';
 import {
+  chmod,
   copyFile,
   mkdir,
   mkdtemp,
@@ -16,7 +17,7 @@ import {
   stat,
 } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { resolve, join, dirname } from 'node:path';
+import { resolve, join, dirname, delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const args = process.argv.slice(2).filter((arg) => arg !== '--keep-work');
@@ -203,8 +204,54 @@ try {
     ),
     { code: 'ENOENT' },
   );
+  const fallbackBin = join(tools, 'fallback');
+  const fallbackEnv = { ...toolEnv, PATH: fallbackBin };
+  const rgCheck = runTool('rg', ['--version'], fallbackEnv);
+  assert.equal(rgCheck.status, 0, rgCheck.error ?? rgCheck.stderr);
+  assert.match(rgCheck.stdout.trim(), /^ripgrep \d+\.\d+\.\d+/);
+  const jqCheck = runTool('jq', ['--version'], fallbackEnv);
+  assert.equal(jqCheck.status, 0, jqCheck.error ?? jqCheck.stderr);
+  assert.match(jqCheck.stdout.trim(), /^jq-\d+\.\d+\.\d+/);
+  const hostBin = join(work, 'fake-host-bin');
+  await mkdir(hostBin, { recursive: true });
+  const fakeJq = join(hostBin, process.platform === 'win32' ? 'jq.cmd' : 'jq');
+  const fakeNpm = join(
+    hostBin,
+    process.platform === 'win32' ? 'npm.cmd' : 'npm',
+  );
+  await writeFile(
+    fakeJq,
+    process.platform === 'win32'
+      ? '@echo host-jq-sentinel\r\n'
+      : '#!/bin/sh\necho host-jq-sentinel\n',
+  );
+  await writeFile(
+    fakeNpm,
+    process.platform === 'win32'
+      ? '@echo host-npm-sentinel\r\n'
+      : '#!/bin/sh\necho host-npm-sentinel\n',
+  );
+  if (process.platform !== 'win32') {
+    await chmod(fakeJq, 0o755);
+    await chmod(fakeNpm, 0o755);
+  }
+  const layeredEnv = {
+    ...toolEnv,
+    PATH: [toolsBin, hostBin, fallbackBin].join(delimiter),
+  };
+  const layeredJq = runTool('jq', ['--version'], layeredEnv);
+  assert.equal(layeredJq.status, 0, layeredJq.error ?? layeredJq.stderr);
+  assert.equal(layeredJq.stdout.trim(), 'host-jq-sentinel');
+  const layeredNpm = runTool('npm', ['--version'], layeredEnv);
+  assert.equal(layeredNpm.status, 0, layeredNpm.error ?? layeredNpm.stderr);
+  assert.equal(layeredNpm.stdout.trim(), toolVersions.npm);
+  const layeredRg = runTool('rg', ['--version'], layeredEnv);
+  assert.equal(layeredRg.status, 0, layeredRg.error ?? layeredRg.stderr);
+  assert.match(layeredRg.stdout.trim(), /^ripgrep \d+\.\d+\.\d+/);
+  await access(join(tools, 'licenses/ripgrep/LICENSE-MIT'));
+  await access(join(tools, 'licenses/jq/COPYING'));
   checks.push(
-    '发行版使用固定目录中的随包 Node，npm、npx、pnpm 与 pnpx 在无系统工具的 PATH 下可直接执行，且不含 corepack',
+    '发行版使用固定目录中的随包 Node，npm、npx、pnpm 与 pnpx 在无系统工具的 PATH 下可直接执行，且不含 corepack；rg 与 jq 作为 PATH 末尾兜底可用',
   );
   await assert.rejects(access(oldRuntime), { code: 'ENOENT' });
   assert.equal(await readFile(join(unmanaged, 'keep.txt'), 'utf8'), 'keep');
@@ -735,7 +782,7 @@ try {
               value: {
                 type: 'write',
                 sequence: 1,
-                data: "set WINGMATE_PTY_CHECK=wingmate-pty\recho %WINGMATE_PTY_CHECK%-ok\rnode -e \"console.log(['managed', require('node:path').basename(require('node:path').dirname(process.execPath))].join('-'))\"\rnpm --version\rpnpm with current --version\rexit\r",
+                data: "set WINGMATE_PTY_CHECK=wingmate-pty\recho %WINGMATE_PTY_CHECK%-ok\rnode -e \"console.log(['managed', require('node:path').basename(require('node:path').dirname(process.execPath))].join('-'))\"\rnpm --version\rpnpm with current --version\rrg --version\rjq --version\rexit\r",
               },
             }),
           );
@@ -750,8 +797,10 @@ try {
       assert.match(output, /managed-toolchains/);
       assert.ok(output.includes(toolVersions.npm), output);
       assert.ok(output.includes(toolVersions.pnpm), output);
+      assert.match(output, /ripgrep \d+\.\d+\.\d+/);
+      assert.match(output, /jq-\d+\.\d+\.\d+/);
       socket.send(JSON.stringify({ type: 'cancel', streamId: id }));
-      checks.push('实际 DSH 侧栏终端能启动 CMD、调用随包 Node、npm 和 pnpm');
+      checks.push('实际 DSH 侧栏终端能启动 CMD、调用随包 JS 工具及 rg、jq');
     }
     const {
       devices: [device],

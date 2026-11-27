@@ -67,7 +67,7 @@ fn token_user(process: HANDLE) -> Result<Vec<usize>> {
 fn identity(
     process: &OwnedHandle,
     pid: u32,
-    expected: &Path,
+    expected: &[PathBuf],
     current_user: &[usize],
 ) -> Result<Option<ToolchainProcess>> {
     let handle = process.as_raw_handle();
@@ -80,7 +80,10 @@ fn identity(
     let Ok(image) = image.canonicalize() else {
         return Ok(None);
     };
-    if !image.as_os_str().eq_ignore_ascii_case(expected.as_os_str()) {
+    if !expected
+        .iter()
+        .any(|path| image.as_os_str().eq_ignore_ascii_case(path.as_os_str()))
+    {
         return Ok(None);
     }
     let owner = token_user(handle)?;
@@ -106,11 +109,24 @@ fn identity(
     }))
 }
 
-pub(super) fn release(node: &Path, approval: ToolchainApproval<'_>) -> Result<()> {
-    if !node.is_file() {
+pub(super) fn release(tools: &Path, approval: ToolchainApproval<'_>) -> Result<()> {
+    let fallback = wingmate_service::runtime::toolchain_fallback(tools);
+    let candidates = [
+        ("node.exe", wingmate_service::runtime::toolchain_node(tools)),
+        ("rg.exe", fallback.join("rg.exe")),
+        ("jq.exe", fallback.join("jq.exe")),
+    ];
+    let mut names = Vec::new();
+    let mut expected = Vec::new();
+    for (name, path) in candidates {
+        if path.is_file() {
+            names.push(name);
+            expected.push(path.canonicalize()?);
+        }
+    }
+    if expected.is_empty() {
         return Ok(());
     }
-    let expected = node.canonicalize()?;
     let current_user = token_user(unsafe { GetCurrentProcess() })?;
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
@@ -130,7 +146,10 @@ pub(super) fn release(node: &Path, approval: ToolchainApproval<'_>) -> Result<()
                 .position(|&value| value == 0)
                 .unwrap_or(entry.szExeFile.len())],
         );
-        if name.eq_ignore_ascii_case("node.exe") {
+        if names
+            .iter()
+            .any(|candidate| name.eq_ignore_ascii_case(candidate))
+        {
             let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
             if !handle.is_null() {
                 let handle = unsafe { OwnedHandle::from_raw_handle(handle) };

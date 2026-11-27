@@ -1,0 +1,65 @@
+{
+  "rg": {
+    "version": "16.0.0",
+    "origins": [
+      "https://github.com/BurntSushi/ripgrep/releases/download/16.0.0"
+    ],
+    "licenses": ["COPYING", "LICENSE-MIT", "UNLICENSE"],
+    "assets": {
+      "win-x64": {
+        "file": "ripgrep-16.0.0-x86_64-pc-windows-msvc.zip",
+        "sha256": "f418ae83e63046a94a7b5f3a44bf3a169f66e689164856ecee02547131c73931"
+      },
+      "win-arm64": {
+        "file": "ripgrep-16.0.0-aarch64-pc-windows-msvc.zip",
+        "sha256": "3302ede09745d33ca2b287bf3c6434c54cb35c3b408a7d3a265939961add5a1a"
+      },
+      "linux-x64": {
+        "file": "ripgrep-16.0.0-x86_64-unknown-linux-musl.tar.gz",
+        "sha256": "54268ab4643c00a290a29b0086066d64b3f56236dd805ec64629a86f9bd29fd0"
+      },
+      "linux-arm64": {
+        "file": "ripgrep-16.0.0-aarch64-unknown-linux-musl.tar.gz",
+        "sha256": "374f1886be881e8e8683d7107278f7af1b6017fda75eb97de71f5783f42b0110"
+      },
+      "darwin-x64": {
+        "file": "ripgrep-16.0.0-x86_64-apple-darwin.tar.gz",
+        "sha256": "aa9183b0e0bfac03c5818895ad18b75001c402d230063898abfe5a58cd413caa"
+      },
+      "darwin-arm64": {
+        "file": "ripgrep-16.0.0-aarch64-apple-darwin.tar.gz",
+        "sha256": "5a145656d5067144001bfce6648767fd3254599aa736f1ffdb7fb907760b8ca1"
+      }
+    }
+  },
+  "jq": {
+    "version": "1.8.2",
+    "origins": ["https://github.com/jqlang/jq/releases/download/jq-1.8.2"],
+    "assets": {
+      "win-x64": {
+        "file": "jq-windows-amd64.exe",
+        "sha256": "a6fc67fedaf9128a3309a1e2ebb8b986aeccf70122ee46d2cb4849e423f0c627"
+      },
+      "win-arm64": {
+        "file": "jq-windows-arm64.exe",
+        "sha256": "083b5377392bc57cf27052b6d20a2d927770683bca844632901ff38b4b7b0ac7"
+      },
+      "linux-x64": {
+        "file": "jq-linux-amd64",
+        "sha256": "b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f"
+      },
+      "linux-arm64": {
+        "file": "jq-linux-arm64",
+        "sha256": "8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309"
+      },
+      "darwin-x64": {
+        "file": "jq-macos-amd64",
+        "sha256": "e94b266e3c26690550006abe63152b782280f4e14374accdf04cbde844f00bc0"
+      },
+      "darwin-arm64": {
+        "file": "jq-macos-arm64",
+        "sha256": "2d75340ba57a4b4b4c8708a21c2dc8e958a48aaa8bba13b27f77f6e4c0eca07e"
+      }
+    }
+  }
+}
