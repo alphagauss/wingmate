@@ -83,6 +83,43 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+      - name: Stage and smoke test macOS DMG
+        run: |
+          mkdir release
+          dmg=release/wingmate-macos-arm64.dmg
+          cp target/release/bundle/dmg/Wingmate_*_aarch64.dmg "$dmg"
+
+          mount_point="$RUNNER_TEMP/wingmate-dmg"
+          mkdir "$mount_point"
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_point" "$dmg"
+          trap 'hdiutil detach "$mount_point"' EXIT
+          [[ "$(readlink "$mount_point/Applications")" == /Applications ]]
+          codesign --verify "$mount_point/Wingmate.app"
+          pnpm test:smoke "$mount_point/Wingmate.app/Contents/MacOS/wingmate"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wingmate-macos-arm64.dmg
+          path: release/wingmate-macos-arm64.dmg
+          archive: false
+          if-no-files-found: error
+          overwrite: true
+
   android:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -191,7 +228,7 @@ jobs:
 
   publish:
     if: github.event_name == 'push'
-    needs: [windows, linux, android]
+    needs: [windows, linux, macos, android]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -214,8 +251,8 @@ jobs:
         run: |
           tag="$GITHUB_REF_NAME"
           [[ "$(gh api "repos/$GH_REPO/commits/tags/$tag" --jq .sha)" == "$GITHUB_SHA" ]]
-          files=(wingmate-windows-x64.exe wingmate-linux-x64 wingmate-android-remote.apk
-                 wingmate-android-local.apk wingmate-android-runtime-sources.tar)
+          files=(wingmate-windows-x64.exe wingmate-linux-x64 wingmate-macos-arm64.dmg
+                 wingmate-android-remote.apk wingmate-android-local.apk wingmate-android-runtime-sources.tar)
           sha256sum "${files[@]}" > SHA256SUMS.txt
           files+=(SHA256SUMS.txt)
 
@@ -236,6 +273,7 @@ jobs:
             cat >> "$notes" <<EOF
           - \`wingmate-windows-x64.exe\` · Windows x64，自带 Node.js、npm 和 pnpm。
           - \`wingmate-linux-x64\` · Linux x64，在 Ubuntu 24.04 上构建，自带 Node.js、npm 和 pnpm。下载后执行 \`chmod +x wingmate-linux-x64\`，再运行 \`./wingmate-linux-x64\` 打开桌面，或用 \`./wingmate-linux-x64 start\` 启动后台。桌面需要 WebKitGTK 4.1。
+          - \`wingmate-macos-arm64.dmg\` · Apple Silicon。双击挂载后，在访达中将 Wingmate 拖入「应用程序」。应用使用临时签名，未经 Apple 公证。
           - \`wingmate-android-remote.apk\` · Android 远程版，连接已有 Wingmate 主机。
           - \`wingmate-android-local.apk\` · Android 本地版，可在 Android 8.0 及以上的 ARM64 手机上运行 DSH。
 

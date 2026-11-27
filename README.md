@@ -68,7 +68,7 @@ macOS 的 `pnpm build` 会在完整发行入口编译后自动生成 `.app` 和 
 
 验证范围见[验证约定](scripts/README.md)。测试专用目录按[收尾步骤](docs/runtime-debugging.md#收尾)清理。
 
-在 GitHub Actions 构建试用包或发布 Windows x64、Linux x64 桌面包和 Android APK，见[自动打包与发布](docs/runtime-maintenance.md#自动打包与发布)。
+在 GitHub Actions 构建试用包或发布 Windows x64、Linux x64 桌面包、macOS ARM64 DMG 和 Android APK，见[自动打包与发布](docs/runtime-maintenance.md#自动打包与发布)。
 
 ## 文档与模块
 
