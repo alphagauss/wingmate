@@ -59,8 +59,8 @@ android {
         applicationId = "dev.wingmate.mobile"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1004
-        versionName = "0.4.0"
+        versionCode = 1005
+        versionName = "0.4.1"
     }
 
     compileOptions {
