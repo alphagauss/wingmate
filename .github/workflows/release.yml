@@ -217,12 +217,23 @@ jobs:
           done
       - uses: actions/upload-artifact@v7
         with:
-          name: wingmate-android
-          compression-level: 0
-          path: |
-            release/wingmate-android-remote.apk
-            release/wingmate-android-local.apk
-            release/wingmate-android-runtime-sources.tar
+          name: wingmate-android-remote.apk
+          path: release/wingmate-android-remote.apk
+          archive: false
+          if-no-files-found: error
+          overwrite: true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wingmate-android-local.apk
+          path: release/wingmate-android-local.apk
+          archive: false
+          if-no-files-found: error
+          overwrite: true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wingmate-android-runtime-sources.tar
+          path: release/wingmate-android-runtime-sources.tar
+          archive: false
           if-no-files-found: error
           overwrite: true
 

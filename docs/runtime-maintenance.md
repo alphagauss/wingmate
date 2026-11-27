@@ -54,7 +54,7 @@ pnpm tauri bundle --config src-tauri/tauri.bundle.macos.conf.json
 
 [Build and release Wingmate](../.github/workflows/release.yml) 在 Windows x64 和 Ubuntu 24.04 x64 上分别构建并冒烟测试桌面单文件，在 macOS ARM64 上构建 DMG 并冒烟测试映像内的发行入口，在 Ubuntu 上构建、签名并检查 Android 远程版和 ARM64 本地版 APK。Linux 直接发布 ELF 可执行文件，桌面和 CLI 共用该入口。macOS 的 `wingmate-macos-arm64.dmg` 供 Apple Silicon 使用，挂载后可将 `Wingmate.app` 拖入「应用程序」。应用使用临时签名，未经 Apple 公证，首次打开可能需要在系统设置中手动允许。[Tauri 签名说明](https://v2.tauri.app/distribute/sign/macos/#ad-hoc-signing)
 
-手动运行可在 Actions 的 Artifacts 下载试用包。每次手动运行都会为 APK 生成新的测试证书，覆盖安装需要与设备上已有 APK 的签名相同。
+手动运行可在 Actions 的 Artifacts 分别下载两个 Android APK 和运行时源码归档，以及各桌面试用包。每次手动运行都会为 APK 生成新的测试证书，覆盖安装需要与设备上已有 APK 的签名相同。
 
 在仓库的 **Settings → Secrets and variables → Actions** 配置以下签名密钥，两个 APK 的后续版本都沿用同一密钥。
 
