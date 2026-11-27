@@ -2,7 +2,7 @@
 
 从 Wingmate 根目录运行 `pnpm runtime:android`。MJS 入口在 Linux 上直接调用构建工具，在 Windows 上使用默认 WSL 发行版。构建环境需要 Bash、Python 3.11+、curl、xz、tar 和常用 Linux 工具。Python 3.11 至 3.13 还需 `zstd` 解包 Ubuntu deb。脚本自行下载锁定的 Linux Node 构建 DSH 依赖和预装插件。下载缓存位于 `work/cache/android`，交付给 Gradle 的构建输入是 `work/build/android/runtime-arm64-v8a.zip`。其中的清单记录 XZ 归档与 PRoot 原生库的校验值，构建报告记录裁剪原因和解包占用。首次准备后，手机可直接从本地 APK 释放环境。
 
-Linux 基础包、Node、Python 和 PRoot 按 [dsh-Go 的 288234ae](https://github.com/ccch1mneyyy/dsh-Go/tree/288234ae52fdfcfc2b0a0388763c371d0b09ea7d) 移植。保留 Ubuntu 的 apt/dpkg、Git、时区和证书，保留 Node 的 npm、pnpm 与 Python 的 pip、venv。文档、缓存、Python 测试和 GUI 组件按上游规则裁剪。Ubuntu deb 锁从该基础包信任的签名索引生成。PRoot 二进制采用 Termux 包及其构建配方，重命名为 Android APK 可携带的原生库并修正 talloc 动态库名。
+Linux 基础包、Node、Python 和 PRoot 按 [dsh-Go 的 288234ae](https://github.com/ccch1mneyyy/dsh-Go/tree/288234ae52fdfcfc2b0a0388763c371d0b09ea7d) 移植。保留 Ubuntu 的 apt/dpkg、Git、时区和证书，保留 Node 的 npm、pnpm 与 Python 的 pip、venv。文档、缓存、Python 测试和 GUI 组件按上游规则裁剪。PRoot 二进制采用 Termux 包及其构建配方，重命名为 Android APK 可携带的原生库并修正 talloc 动态库名。
 
 新安装的 Python 裁掉静态链接 Berkeley DB 的 `_dbm` 扩展。新建 `dbm` 数据库可使用 `dbm.dumb`，已有 `dbm.ndbm` 数据库需在带原扩展的环境中读取。Ubuntu 的 PAM、Perl 和 SASL 模块仍依赖系统 `libdb5.3`，该库继续随包提供。
 
@@ -17,3 +17,11 @@ DSH 使用 Wingmate 的 npm 锁安装 Linux ARM64 glibc 依赖，复用 [Office 
 资源包的安装、启停与构建入口见 [Wingmate Android](../../apps/mobile/README.md)。
 
 发行流程用 `bash runtime/android/build-runtime.sh <源码输出目录>` 同时准备 Gradle 载荷和源码归档的输入。Ubuntu 源码从实际选入的二进制包版本解析，归档包括其 `.dsc`、源码和补丁。其余来源见 [随包组件源码说明](SOURCES.md)。
+
+## Ubuntu 系统依赖
+
+本地版随 Ubuntu 基础环境交付 `curl`、`jq`、`zip`、`unzip` 和 `rg`（包名 `ripgrep`），供 DSH 和用户从标准 Shell 路径直接调用。构建按 [Ubuntu ARM64 包锁](locks/ubuntu-noble-arm64.json) 下载和校验 `.deb`，保留 dpkg 记录，首次安装时随 APK 离线释放。
+
+新增或升级随包 Ubuntu 系统依赖时，从 Ubuntu Ports 取得与基础环境匹配的 ARM64 索引，验证各发行套件的 `InRelease` 签名和索引 SHA-256。用 [`rtbuild.py resolve-debs`](lib/rtbuild.py) 重新解析完整的 `want` 清单。参数 `--base` 使用构建脚本锁定的 Ubuntu Base 归档，`--arch` 使用 `arm64`，各索引分别通过 `--packages` 传入。审阅 `--out` 生成的锁文件差异，再构建载荷，验证受影响的命令和对应源码归档。包变更影响提示中的工具限制时，同步更新 [Android 本机环境插件](../../bundled-plugins/wingmate-android-environment/README.md)。
+
+实际随包的 `.deb` 内容参与计算基础环境身份。安装器遇到不同基础环境时保留现有 rootfs 并阻止引擎升级。含系统包变更的发行按新基础环境准备，用户数据与备份范围见 [Android 本机引擎](../../apps/mobile/README.md#工程布局)。

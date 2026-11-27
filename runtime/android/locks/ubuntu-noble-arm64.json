@@ -3,7 +3,12 @@
   "want": [
     "tzdata",
     "ca-certificates",
-    "git"
+    "git",
+    "curl",
+    "jq",
+    "ripgrep",
+    "unzip",
+    "zip"
   ],
   "packages": [
     {
@@ -14,6 +19,17 @@
       "sha256": "f9fbacd417b515450b831032cc39d18059e9874e67525679a43c16071dabf9a0",
       "size": 140064,
       "installedSize": 330,
+      "upgradesBase": null,
+      "neededBy": "requested"
+    },
+    {
+      "package": "curl",
+      "version": "8.5.0-2ubuntu10.16",
+      "architecture": "arm64",
+      "filename": "pool/main/c/curl/curl_8.5.0-2ubuntu10.16_arm64.deb",
+      "sha256": "b3f66040e895d5a2bb9eb3fca5d98766997348080e445c209a29b1819a9a7d60",
+      "size": 221812,
+      "installedSize": 556,
       "upgradesBase": null,
       "neededBy": "requested"
     },
@@ -40,6 +56,17 @@
       "neededBy": "git"
     },
     {
+      "package": "jq",
+      "version": "1.7.1-3ubuntu0.24.04.2",
+      "architecture": "arm64",
+      "filename": "pool/main/j/jq/jq_1.7.1-3ubuntu0.24.04.2_arm64.deb",
+      "sha256": "d26709d728bf14016eac6ec5e56f88027b1751dffe1471e8cda3f6f8a0c8c1dc",
+      "size": 64640,
+      "installedSize": 148,
+      "upgradesBase": null,
+      "neededBy": "requested"
+    },
+    {
       "package": "libbrotli1",
       "version": "1.1.0-2ubuntu0.1",
       "architecture": "arm64",
@@ -60,6 +87,17 @@
       "installedSize": 877,
       "upgradesBase": null,
       "neededBy": "git"
+    },
+    {
+      "package": "libcurl4t64",
+      "version": "8.5.0-2ubuntu10.16",
+      "architecture": "arm64",
+      "filename": "pool/main/c/curl/libcurl4t64_8.5.0-2ubuntu10.16_arm64.deb",
+      "sha256": "41fa5964da7f422e0729d2355317254e3ee1a28eda9eba70423ed43f77cc7477",
+      "size": 337276,
+      "installedSize": 940,
+      "upgradesBase": null,
+      "neededBy": "curl"
     },
     {
       "package": "liberror-perl",
@@ -115,6 +153,17 @@
       "installedSize": 422,
       "upgradesBase": null,
       "neededBy": "libcurl3t64-gnutls"
+    },
+    {
+      "package": "libjq1",
+      "version": "1.7.1-3ubuntu0.24.04.2",
+      "architecture": "arm64",
+      "filename": "pool/main/j/jq/libjq1_1.7.1-3ubuntu0.24.04.2_arm64.deb",
+      "sha256": "0dbdaf70784536d6dd15f2521101399e89b3b697926862e171b2beaffc6ac22e",
+      "size": 134982,
+      "installedSize": 362,
+      "upgradesBase": null,
+      "neededBy": "jq"
     },
     {
       "package": "libk5crypto3",
@@ -181,6 +230,17 @@
       "installedSize": 228,
       "upgradesBase": null,
       "neededBy": "libcurl3t64-gnutls"
+    },
+    {
+      "package": "libonig5",
+      "version": "6.9.9-1build1",
+      "architecture": "arm64",
+      "filename": "pool/main/libo/libonig/libonig5_6.9.9-1build1_arm64.deb",
+      "sha256": "12044a8919f3aae339652bfcd8b424245d6606a6124ae3ce08682485c12b124f",
+      "size": 171690,
+      "installedSize": 697,
+      "upgradesBase": null,
+      "neededBy": "libjq1"
     },
     {
       "package": "libperl5.38t64",
@@ -293,6 +353,17 @@
       "neededBy": "perl"
     },
     {
+      "package": "ripgrep",
+      "version": "14.1.0-1",
+      "architecture": "arm64",
+      "filename": "pool/universe/r/rust-ripgrep/ripgrep_14.1.0-1_arm64.deb",
+      "sha256": "71fe8a5667bc87d2bca175a3426c6ec518e0679cc821d23ae7056de7096f04de",
+      "size": 1455230,
+      "installedSize": 4878,
+      "upgradesBase": null,
+      "neededBy": "requested"
+    },
+    {
       "package": "tzdata",
       "version": "2026e-0ubuntu0.24.04.1",
       "architecture": "all",
@@ -300,6 +371,28 @@
       "sha256": "2f6794a7f31753fc947d9ac02ff03ea46510f34864f9d132a93d7b105e3c4447",
       "size": 282136,
       "installedSize": 1389,
+      "upgradesBase": null,
+      "neededBy": "requested"
+    },
+    {
+      "package": "unzip",
+      "version": "6.0-28ubuntu4.1",
+      "architecture": "arm64",
+      "filename": "pool/main/u/unzip/unzip_6.0-28ubuntu4.1_arm64.deb",
+      "sha256": "6c03087d20f67ec7333b65090e4bbcb7f680d4c045b1e81c8421634e87297d23",
+      "size": 171314,
+      "installedSize": 491,
+      "upgradesBase": null,
+      "neededBy": "requested"
+    },
+    {
+      "package": "zip",
+      "version": "3.0-13ubuntu0.2",
+      "architecture": "arm64",
+      "filename": "pool/main/z/zip/zip_3.0-13ubuntu0.2_arm64.deb",
+      "sha256": "eb5cdd968c17cbd740c602a822402f8209def950ae2be36338658f2c7e145c04",
+      "size": 171060,
+      "installedSize": 532,
       "upgradesBase": null,
       "neededBy": "requested"
     }

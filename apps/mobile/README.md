@@ -32,6 +32,8 @@ Android 工程沿用 Gradle 默认源码集，应用 Kotlin 源码在 `android/a
 
 首次安装从 APK 释放完整环境。之后在基础环境身份相同的情况下，只更新 DSH、Node 和应用管理的文件，保留 Linux 环境、Python 用户包、会话和工作区。基础环境不兼容时报告原因，保留现有目录。载荷构建和移植来源见 [Android 本地运行载荷](../../runtime/android/README.md)，真机验收范围见 [D1](../../ARCHITECTURE_PLAN.md#d1-android-本地运行版)。
 
+本机 Agent 可直接调用 [随包 Ubuntu 命令](../../runtime/android/README.md#ubuntu-系统依赖)。
+
 ## 手机操控
 
 Android 本地版的「设置 → 手机操控」默认关闭。启用后，本机 DSH 可通过 `phone` MCP 工具读取主屏的无障碍元素、打开应用、点按、滚动、输入文字和按返回键。打开应用和其他写操作在手机上单独确认。测试读屏的结果只显示在手机上，Agent 调用读屏时的文字和所请求的截图可能进入已配置模型的请求。

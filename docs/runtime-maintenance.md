@@ -38,6 +38,8 @@
 
 Android 本地版与桌面正式版共用 [Node 下载锁](../runtime/locks/node.json)及 [pnpm 锁](../runtime/locks/pnpm/package-lock.json)。Node 下载先校验指定平台产物的 SHA-256。桌面将原生 Node、npm 与 pnpm 单独组装为 `toolchains` 组件，保留命令、运行库和许可，跳过发行包中的头文件。Android Linux 来宾保留自己的基础环境和运行配置。
 
+Android 本地版新增及升级随包 Ubuntu 系统依赖统一走 [Ubuntu `.deb` 锁定与打包流程](../runtime/android/README.md#ubuntu-系统依赖)。
+
 macOS 的 `pnpm build` 在完整发行入口构建完成后继续生成 `target/release/bundle/macos/Wingmate.app` 和 `target/release/bundle/dmg/` 下包含版本与架构的 DMG，裸 `target/release/wingmate` 同时保留。无 GUI 构建和其他平台不执行此安装包步骤。应用包的主程序必须是携带全部发行组件的 `wingmate`，不能使用仅含界面的 `wingmate-desktop`；因此安装包配置只在最后的 bundle 阶段显式加载，不作为 Tauri 自动合并的平台配置。
 
 已有完整发行构建时，可单独重新打包：

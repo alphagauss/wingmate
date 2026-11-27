@@ -1,6 +1,6 @@
 # Android 本机 Agent 环境
 
-随 Android 本地版预装，为本机 DSH 提供已随包交付的工具替代方案。Node 的 `fetch` 可发起 HTTP 请求，Python 的 `sqlite3` 和 `zipfile` 可处理 SQLite 数据库与 ZIP 文件。
+随 Android 本地版预装，向本机 DSH 说明运行环境及常用命令缺失时的替代用法。SQLite 命令行工具不可用时，使用 Python `sqlite3` 模块。
 
 插件通过 DSH 的 `systemPrompt.section()` 注册固定文本，供同一运行配置下的新会话复用提示词前缀。会随设备或会话变化的事实适合通过 DSH 运行时上下文提供。工具声明和执行权限沿用 DSH。
 
