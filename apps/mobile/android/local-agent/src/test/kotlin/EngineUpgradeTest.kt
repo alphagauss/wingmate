@@ -175,20 +175,27 @@ class EngineUpgradeTest {
     }
 
     @Test
-    fun missingOldAliasesCanBeAddedWithoutDroppingOtherGlobalPackages() {
+    fun missingManagedCommandIsInstalledWithoutDroppingOtherGlobalPackages() {
+        installed()
+        val command = "usr/local/bin/pnpx"
+        assertTrue(entry("rootfs", command).delete())
+        transaction().activate("new", spec)
+        assertUsers()
+        assertEquals("new", entry("rootfs", command).readText())
+    }
+
+    @Test
+    fun stagedCommandSymlinkIsPreservedOnUpgrade() {
         assumeTrue(Files.getFileStore(base.toPath()).supportsFileAttributeView("posix"))
         installed()
-        entry("rootfs", "usr/local/bin/pnx").delete()
         val dsh = entry("staging", "usr/local/bin/dsh")
         dsh.delete()
         Files.createSymbolicLink(dsh.toPath(), java.nio.file.Path.of("../../../opt/dsh/cli"))
         transaction().activate("new", spec)
-        assertUsers()
         assertEquals(
             "../../../opt/dsh/cli",
             Files.readSymbolicLink(entry("rootfs", "usr/local/bin/dsh").toPath()).toString(),
         )
-        assertEquals("new", entry("rootfs", "usr/local/bin/pnx").readText())
     }
 
     @Test
