@@ -74,8 +74,11 @@ fn check_entries(root: &Path) -> Result<()> {
         bin.join(if cfg!(windows) { "npm.cmd" } else { "npm" }),
         bin.join(if cfg!(windows) { "npx.cmd" } else { "npx" }),
         bin.join(if cfg!(windows) { "pnpm.cmd" } else { "pnpm" }),
+        bin.join(if cfg!(windows) { "pnpx.cmd" } else { "pnpx" }),
         modules.join("npm/bin/npm-cli.js"),
+        modules.join("npm/bin/npx-cli.js"),
         modules.join("pnpm/bin/pnpm.mjs"),
+        modules.join("pnpm/bin/pnpx.mjs"),
     ] {
         anyhow::ensure!(entry.is_file(), "随包工具缺少入口：{}", entry.display());
     }

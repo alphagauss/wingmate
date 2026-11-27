@@ -26,13 +26,13 @@ EM_NAMES = {3: "i386", 40: "arm", 62: "x86-64", 183: "aarch64"}
 NPMJS = "https://registry.npmjs.org/"
 DSH_WEB_PATCH = "/etc/dsh-app/dsh-web.patch.yml"
 GUEST_SCRIPTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "guest")
-PNPM_BINS = {"pnpm": "pnpm.mjs", "pnpx": "pnpx.mjs", "pn": "pnpm.mjs", "pnx": "pnpx.mjs"}
+PNPM_BINS = {"pnpm": "pnpm.mjs", "pnpx": "pnpx.mjs"}
 # Only these app-owned paths may change during an engine upgrade. Python (including
 # pip packages), dpkg, /usr and the rest of /usr/local remain the user's system.
 ENGINE_PATHS = [
     "opt/dsh", "opt/node", "opt/wingmate", "etc/dsh-app",
     "etc/profile.d/dsh-app.sh", "usr/local/lib/node_modules/pnpm",
-] + ["usr/local/bin/" + name for name in ("dsh", "node", "npm", "npx", "corepack", *PNPM_BINS)]
+] + ["usr/local/bin/" + name for name in ("dsh", "node", "npm", "npx", *PNPM_BINS)]
 
 
 def upgrade_descriptor(abi, ubuntu_version, base_sha, deb_shas, python_sha):
@@ -676,7 +676,6 @@ def overlay_entries(runtime_info, patch_path):
     s("usr/local/bin/node", "../../../opt/node/bin/node")
     s("usr/local/bin/npm", "../../../opt/node/bin/npm")
     s("usr/local/bin/npx", "../../../opt/node/bin/npx")
-    s("usr/local/bin/corepack", "../../../opt/node/bin/corepack")
     for name in ("dns.mjs", "proot-dns.mjs", "shared-storage.mjs"):
         with open(os.path.join(GUEST_SCRIPTS, name), "rb") as source:
             E["opt/wingmate/" + name] = Entry("file", 0o644, data=source.read(), origin="overlay")
@@ -921,6 +920,9 @@ def cmd_assemble(args):
             top = rel.split("/", 1)[0]
             if top not in keep_node_top:
                 drop("node-headers-docs", rel, m.size)
+                continue
+            if rel in ("bin/corepack", "lib/node_modules/corepack") or rel.startswith("lib/node_modules/corepack/"):
+                drop("node-corepack", rel, m.size)
                 continue
             dest = "opt/node/" + rel
             if m.isdir():

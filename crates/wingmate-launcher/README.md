@@ -30,7 +30,7 @@ Windows 将 `%LOCALAPPDATA%\Wingmate\bin` 放在用户 PATH 最前面，系统 P
 
 ## 随包工具
 
-正式版在管理目录的固定 `toolchains/` 下释放 Node、npm、npx 和 pnpm。Windows 将该目录作为命令目录，macOS 和 Linux 使用 `toolchains/bin/`。Wingmate 用随包 Node 的绝对路径启动 DSH，并将工具目录放在 DSH 进程 PATH 的最前面。智能体 Shell 和 DSH 终端继承该 PATH。用户和系统 PATH、外部 Shell 配置保持原样。
+正式版在管理目录的固定 `toolchains/` 下释放 `node`、`npm`、`npx`、`pnpm` 和 `pnpx`，不随包提供 `corepack`。Windows 将该目录作为命令目录，macOS 和 Linux 使用 `toolchains/bin/`。Wingmate 用随包 Node 的绝对路径启动 DSH，并将工具目录放在 DSH 进程 PATH 的最前面。智能体 Shell 和 DSH 终端继承该 PATH。用户和系统 PATH、外部 Shell 配置保持原样。
 
 开发版启动后台时优先使用当前进程的 PATH 查找 Node.js。macOS 上检查失败时，会尝试从用户交互式登录 Shell 读取 PATH，再检查 Node.js。通过 Shell 恢复的 PATH 会传给 DSH 及其子进程。
 

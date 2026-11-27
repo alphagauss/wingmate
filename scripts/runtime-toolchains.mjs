@@ -111,6 +111,8 @@ export async function prepareToolchains(cache, stage, npmCache, registry) {
   const modules = windows
     ? join(directory, 'node_modules')
     : join(directory, 'lib/node_modules');
+  await rm(join(modules, 'corepack'), { recursive: true, force: true });
+  if (!windows) await rm(join(bin, 'corepack'), { force: true });
   const node = join(bin, windows ? 'node.exe' : 'node');
   const install = join(stage, 'pnpm-install');
   await mkdir(install);
@@ -141,6 +143,7 @@ export async function prepareToolchains(cache, stage, npmCache, registry) {
     ['npm', 'npm/bin/npm-cli.js'],
     ['npx', 'npm/bin/npx-cli.js'],
     ['pnpm', 'pnpm/bin/pnpm.mjs'],
+    ['pnpx', 'pnpm/bin/pnpx.mjs'],
   ]) {
     const path = join(bin, windows ? `${name}.cmd` : name);
     await rm(path, { force: true });

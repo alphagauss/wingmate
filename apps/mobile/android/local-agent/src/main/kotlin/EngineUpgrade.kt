@@ -25,11 +25,8 @@ internal val ENGINE_PATHS =
         "usr/local/bin/node",
         "usr/local/bin/npm",
         "usr/local/bin/npx",
-        "usr/local/bin/corepack",
         "usr/local/bin/pnpm",
         "usr/local/bin/pnpx",
-        "usr/local/bin/pn",
-        "usr/local/bin/pnx",
     )
 
 internal data class EngineUpgradeSpec(

@@ -36,7 +36,7 @@
 
 `pnpm build` 先准备运行归档并构建独立服务，再构建桌面，最后构建携带这些并列组件的发行入口。`pnpm build --headless` 跳过桌面及其系统构建前提。服务自身不携带 DSH 归档或解压依赖；桌面只携带运行清单元数据，资源仅在外层发行入口保存一份。服务构建不反向依赖发行入口或桌面，避免嵌套归档和构建循环。
 
-Android 本地版与桌面正式版共用 [Node 下载锁](../runtime/locks/node.json)及 [pnpm 锁](../runtime/locks/pnpm/package-lock.json)。Node 下载先校验指定平台产物的 SHA-256。桌面将原生 Node、npm 与 pnpm 单独组装为 `toolchains` 组件，保留命令、运行库和许可，跳过发行包中的头文件。Android Linux 来宾保留自己的基础环境和运行配置。
+Android 本地版与桌面正式版共用 [Node 下载锁](../runtime/locks/node.json)及 [pnpm 锁](../runtime/locks/pnpm/package-lock.json)，统一提供 `node`、`npm`、`npx`、`pnpm` 和 `pnpx`，排除 `corepack`。Node 下载先校验指定平台产物的 SHA-256。桌面将原生工具组装为 `toolchains` 组件，保留命令、运行库和许可，跳过发行包中的头文件。Android Linux 来宾保留自己的基础环境和运行配置。
 
 Android 本地版新增及升级随包 Ubuntu 系统依赖统一走 [Ubuntu `.deb` 锁定与打包流程](../runtime/android/README.md#ubuntu-系统依赖)。
 

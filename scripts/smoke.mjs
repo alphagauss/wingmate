@@ -167,25 +167,44 @@ try {
     Object.entries(env).filter(([key]) => key.toUpperCase() !== 'PATH'),
   );
   toolEnv.PATH = toolsBin;
-  const toolVersions = {};
-  for (const tool of ['node', 'npm', 'pnpm']) {
-    const versionArgs =
-      tool === 'pnpm' ? ['with', 'current', '--version'] : ['--version'];
-    const result = spawnSync(
+  const runTool = (tool, args, customEnv = toolEnv) =>
+    spawnSync(
       process.platform === 'win32'
         ? join(process.env.SystemRoot, 'System32/cmd.exe')
-        : join(toolsBin, tool),
-      process.platform === 'win32'
-        ? ['/d', '/c', tool, ...versionArgs]
-        : versionArgs,
-      { cwd: work, env: toolEnv, encoding: 'utf8', windowsHide: true },
+        : tool,
+      process.platform === 'win32' ? ['/d', '/c', tool, ...args] : args,
+      { cwd: work, env: customEnv, encoding: 'utf8', windowsHide: true },
     );
+  const toolVersions = {};
+  for (const tool of ['node', 'npm', 'npx', 'pnpm']) {
+    const versionArgs =
+      tool === 'pnpm' ? ['with', 'current', '--version'] : ['--version'];
+    const result = runTool(tool, versionArgs);
     assert.equal(result.status, 0, result.error ?? result.stderr);
     toolVersions[tool] = result.stdout.trim();
     assert.match(toolVersions[tool], /^v?\d+\.\d+\.\d+$/);
   }
+  const pnpxCheck = runTool('pnpx', ['--help']);
+  assert.equal(pnpxCheck.status, 0, pnpxCheck.error ?? pnpxCheck.stderr);
+  assert.match(pnpxCheck.stdout, /Usage:\s+pnpm dlx\b/);
+  const modulesDir =
+    process.platform === 'win32'
+      ? join(tools, 'node_modules')
+      : join(tools, 'lib/node_modules');
+  await assert.rejects(access(join(modulesDir, 'corepack')), {
+    code: 'ENOENT',
+  });
+  await assert.rejects(
+    access(
+      join(
+        toolsBin,
+        process.platform === 'win32' ? 'corepack.cmd' : 'corepack',
+      ),
+    ),
+    { code: 'ENOENT' },
+  );
   checks.push(
-    '发行版使用固定目录中的随包 Node，npm 与 pnpm 在无系统工具的 PATH 下可直接执行',
+    '发行版使用固定目录中的随包 Node，npm、npx、pnpm 与 pnpx 在无系统工具的 PATH 下可直接执行，且不含 corepack',
   );
   await assert.rejects(access(oldRuntime), { code: 'ENOENT' });
   assert.equal(await readFile(join(unmanaged, 'keep.txt'), 'utf8'), 'keep');
