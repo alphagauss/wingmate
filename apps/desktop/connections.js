@@ -347,8 +347,10 @@ const sshForm = document.getElementById('ssh-form');
 const sshFingerprint = document.getElementById('ssh-fingerprint');
 const sshConnect = sshForm.querySelector('button[type="submit"]');
 let pendingFingerprint;
+let sshOffer;
 sshForm.addEventListener('input', () => {
   pendingFingerprint = undefined;
+  sshOffer = undefined;
   sshFingerprint.hidden = true;
   sshConnect.textContent = '连接 SSH';
 });
@@ -372,6 +374,7 @@ sshForm.addEventListener('submit', (event) => {
         target,
         secret: fields.get('secret') || undefined,
         fingerprint: pendingFingerprint,
+        approved: sshOffer,
       });
       if (result.status === 'confirm_host') {
         pendingFingerprint = result.fingerprint;
@@ -379,10 +382,26 @@ sshForm.addEventListener('submit', (event) => {
           '请核对 SSH 主机指纹 ' + result.fingerprint;
         sshFingerprint.hidden = false;
         sshConnect.textContent = '信任并连接';
+      } else if (result.status === 'install') {
+        sshOffer = result.offer;
+        sshFingerprint.hidden = false;
+        sshFingerprint.textContent = describeInstall(
+          target.username + '@' + target.host,
+          sshOffer,
+          result.path,
+        );
+        sshConnect.textContent = '安装并连接';
       } else {
         sshForm.elements.namedItem('secret').value = '';
         await close();
       }
+    } catch (error) {
+      if (sshOffer) {
+        sshFingerprint.hidden = true;
+        sshConnect.textContent = '连接 SSH';
+        sshOffer = undefined;
+      }
+      throw error;
     } finally {
       connectionBusy = false;
       for (const input of inputs) input.disabled = false;
@@ -396,6 +415,16 @@ const wslStatus = document.getElementById('wsl-status');
 const wslConnect = document.getElementById('wsl-connect');
 const wslExecutable = document.getElementById('wsl-wingmate');
 let wslOffer;
+
+function describeInstall(target, offer, path) {
+  const size = Math.ceil(offer.size / 1024 / 1024);
+  return [
+    '未找到 Wingmate。',
+    target,
+    offer.tag + ' · ' + size + ' MiB',
+    path,
+  ].join(' ');
+}
 
 function resetWslOffer() {
   wslOffer = undefined;
@@ -439,13 +468,11 @@ document.getElementById('wsl-form').addEventListener('submit', (event) => {
       });
       if (result.status === 'install') {
         wslOffer = result.offer;
-        const size = Math.ceil(wslOffer.size / 1024 / 1024);
-        wslStatus.textContent = [
-          '未找到 Wingmate。',
+        wslStatus.textContent = describeInstall(
           wslDistro.value + ' · ' + result.user,
-          wslOffer.tag + ' · ' + size + ' MiB',
+          wslOffer,
           result.path,
-        ].join(' ');
+        );
         wslConnect.textContent = '安装并连接';
         return;
       }

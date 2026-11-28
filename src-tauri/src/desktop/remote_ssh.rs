@@ -1,5 +1,5 @@
 //! SSH 登录、主机指纹确认和到目标 Wingmate 网关的本地转发。
-use super::{remote, remote_relay::BoxStream, Desktop};
+use super::{remote, remote_install, remote_relay::BoxStream, Desktop};
 use anyhow::{bail, ensure, Context, Result};
 use russh::{
     client,
@@ -11,7 +11,7 @@ use std::{
     collections::BTreeMap,
     fs::{self, OpenOptions},
     io::Write,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -68,7 +68,13 @@ impl Target {
 #[derive(Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub(super) enum Reply {
-    ConfirmHost { fingerprint: String },
+    ConfirmHost {
+        fingerprint: String,
+    },
+    Install {
+        offer: remote_install::Offer,
+        path: &'static str,
+    },
     Connected,
 }
 
@@ -195,7 +201,9 @@ async fn exec(
 ) -> Result<(u32, Vec<u8>, Vec<u8>)> {
     tokio::time::timeout(timeout, async {
         let mut channel = session.channel_open_session().await?;
-        channel.exec(true, command).await?;
+        channel
+            .exec(true, format!("sh -c {}", remote::shell_quote(&command)))
+            .await?;
         let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
         let mut status = None;
         while let Some(message) = channel.wait().await {
@@ -218,6 +226,85 @@ async fn exec(
     .context("SSH 命令执行超时")?
 }
 
+async fn checked_exec(session: &Session, script: String) -> Result<String> {
+    let (status, stdout, stderr) = exec(session, script, Duration::from_secs(15)).await?;
+    ensure!(
+        status == 0,
+        "SSH 命令失败（退出码 {status}）。{}",
+        String::from_utf8_lossy(&stderr)
+            .trim()
+            .chars()
+            .take(500)
+            .collect::<String>()
+    );
+    Ok(String::from_utf8(stdout)?.trim().to_owned())
+}
+
+async fn platform(session: &Session) -> Result<String> {
+    let output = checked_exec(session, "uname -sm".into()).await?;
+    Ok(output
+        .lines()
+        .last()
+        .context("SSH 服务器未返回系统信息")?
+        .to_owned())
+}
+
+async fn upload(session: &Session, path: &Path, offer: &remote_install::Offer) -> Result<()> {
+    let result = checked_exec(
+        session,
+        r#"
+        umask 077
+        base="$HOME/.wingmate/remote-install"
+        mkdir -p -- "$base" || exit
+        mktemp "$base/.part.XXXXXXXXXX"
+    "#
+        .into(),
+    )
+    .await?;
+    // 登录 Shell 可能有欢迎词。仅使用 mktemp 的最后一行和本任务专用的路径形状。
+    let staged = result.lines().last().context("服务器未返回临时文件位置")?;
+    let (base, name) = staged
+        .rsplit_once('/')
+        .context("服务器返回的临时文件位置无效")?;
+    ensure!(
+        base.starts_with('/')
+            && base.ends_with("/.wingmate/remote-install")
+            && !staged.chars().any(char::is_control)
+            && name
+                .strip_prefix(".part.")
+                .is_some_and(|suffix| suffix.len() == 10
+                    && suffix.bytes().all(|byte| byte.is_ascii_alphanumeric())),
+        "服务器返回的临时文件位置无效"
+    );
+    let transfer = tokio::time::timeout(Duration::from_secs(900), async {
+        let channel = session.channel_open_session().await?;
+        channel.request_subsystem(true, "sftp").await?;
+        let sftp = russh_sftp::client::SftpSession::new(channel.into_stream())
+            .await
+            .context("SSH 服务器未提供 SFTP")?;
+        let mut output = sftp.create(staged).await?;
+        let file = tokio::fs::File::open(path).await?;
+        let mut input = tokio::io::BufReader::with_capacity(128 * 1024, file);
+        tokio::io::copy_buf(&mut input, &mut output).await?;
+        output.close().await?;
+        sftp.close().await?;
+        let script = format!(
+            "base={}; staged={}; {}",
+            remote::shell_quote(base),
+            remote::shell_quote(staged),
+            remote_install::publish_script(&offer.sha256),
+        );
+        checked_exec(session, script).await?;
+        Ok::<(), anyhow::Error>(())
+    })
+    .await
+    .context("SFTP 上传或安装超时");
+    let cleanup = checked_exec(session, format!("rm -f -- {}", remote::shell_quote(staged))).await;
+    transfer??;
+    cleanup?;
+    Ok(())
+}
+
 #[tauri::command]
 pub(super) async fn connect_ssh(
     webview: Webview,
@@ -225,6 +312,7 @@ pub(super) async fn connect_ssh(
     mut target: Target,
     secret: Option<String>,
     fingerprint: Option<String>,
+    approved: Option<remote_install::Offer>,
 ) -> Result<Reply, String> {
     let attempt = remote::Attempt::start(&webview, &desktop, None)?;
     target.validate().map_err(|error| error.to_string())?;
@@ -269,11 +357,44 @@ pub(super) async fn connect_ssh(
     .map_err(|error| format!("{error:#}"))?;
     drop(secret);
     attempt.verify()?;
-    let mut pairing = remote::bootstrap(target.executable.as_deref(), |command, timeout| {
+    if let Some(offer) = &approved {
+        async {
+            let platform = platform(&session).await?;
+            let path = remote_install::download(
+                &desktop.home,
+                &platform,
+                remote_install::Target::Ssh,
+                offer,
+            )
+            .await?;
+            attempt.verify().map_err(anyhow::Error::msg)?;
+            upload(&session, &path, offer).await
+        }
+        .await
+        .map_err(|error| format!("{error:#}"))?;
+        target.executable = None;
+    }
+    let pairing = remote::bootstrap(target.executable.as_deref(), |command, timeout| {
         exec(&session, command, timeout)
     })
-    .await
-    .map_err(|error| format!("{error:#}"))?;
+    .await;
+    let mut pairing = match pairing {
+        Ok(pairing) => pairing,
+        Err(error) if approved.is_none() && error.is::<remote::MissingExecutable>() => {
+            let platform = platform(&session)
+                .await
+                .map_err(|error| format!("{error:#}"))?;
+            let offer = remote_install::latest(&platform, remote_install::Target::Ssh)
+                .await
+                .map_err(|error| format!("找不到 Wingmate。{error:#}"))?;
+            attempt.verify()?;
+            return Ok(Reply::Install {
+                offer,
+                path: remote_install::DESTINATION,
+            });
+        }
+        Err(error) => return Err(format!("{error:#}")),
+    };
     // SSH 传输已绑定服务器。继续支持尚未提供网关实例标识的旧管理服务。
     pairing.instance = None;
     let port = pairing.url.port().expect("validated gateway port");

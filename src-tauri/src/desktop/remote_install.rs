@@ -1,4 +1,4 @@
-//! 官方无界面发行包的选择、校验和本机缓存。
+//! 官方 Linux 发行包的选择、校验和本机缓存。
 use anyhow::{ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -9,8 +9,14 @@ use std::{
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const REPOSITORY: &str = "alphagauss/wingmate";
-const NAME: &str = "wingmate-linux-x64-headless";
+const NAME: &str = "wingmate-linux-x64";
 pub(super) const DESTINATION: &str = "~/.wingmate/remote-install/wingmate";
+
+#[derive(Clone, Copy)]
+pub(super) enum Target {
+    Ssh,
+    Wsl,
+}
 
 #[derive(Deserialize)]
 struct Release {
@@ -33,21 +39,21 @@ pub(super) struct Offer {
 }
 
 impl Offer {
-    fn from_release(release: Release) -> Result<Self> {
+    fn from_release(release: Release, target: Target) -> Result<Self> {
         let tag = release.tag_name;
-        ensure!(
-            tag.starts_with('v')
-                && tag.len() <= 64
-                && tag
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte)),
-            "官方发行版本号无效"
-        );
+        let version = semver::Version::parse(tag.strip_prefix('v').context("官方发行版本号无效")?)
+            .context("官方发行版本号无效")?;
+        if matches!(target, Target::Wsl) {
+            ensure!(
+                version > semver::Version::new(0, 4, 2),
+                "最新的官方发行尚未提供 WSL 网关转发能力"
+            );
+        }
         let asset = release
             .assets
             .into_iter()
             .find(|asset| asset.name == NAME)
-            .context("最新的官方发行尚未提供 Linux x64 无界面安装包")?;
+            .context("最新的官方发行尚未提供 Linux x64 安装包")?;
         let sha256 = asset
             .digest
             .as_deref()
@@ -82,7 +88,7 @@ fn client() -> Result<reqwest::Client> {
         .build()?)
 }
 
-pub(super) async fn latest(platform: &str) -> Result<Offer> {
+pub(super) async fn latest(platform: &str, target: Target) -> Result<Offer> {
     ensure!(
         platform.trim() == "Linux x86_64",
         "当前自动安装支持 Linux x64"
@@ -98,7 +104,7 @@ pub(super) async fn latest(platform: &str) -> Result<Offer> {
         .error_for_status()?
         .json::<Release>()
         .await?;
-    Offer::from_release(release)
+    Offer::from_release(release, target)
 }
 
 async fn matches(path: &Path, offer: &Offer) -> Result<bool> {
@@ -121,9 +127,14 @@ async fn matches(path: &Path, offer: &Offer) -> Result<bool> {
     }
 }
 
-pub(super) async fn download(home: &Path, platform: &str, approved: &Offer) -> Result<PathBuf> {
+pub(super) async fn download(
+    home: &Path,
+    platform: &str,
+    target: Target,
+    approved: &Offer,
+) -> Result<PathBuf> {
     // 复核桌面呈现给用户的版本，禁止从前端输入下载地址或更换确认过的资产。
-    let offer = latest(platform).await?;
+    let offer = latest(platform, target).await?;
     ensure!(&offer == approved, "官方发行已更新，请重新检查版本后确认");
     let cache = home.join("downloads").join("remote");
     tokio::fs::create_dir_all(&cache).await?;
@@ -183,29 +194,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepts_only_the_digested_headless_asset() {
-        let assets = vec![Asset {
-            name: NAME.into(),
-            size: 100,
-            digest: Some(format!("sha256:{}", "B".repeat(64))),
-        }];
-        let offer = Offer::from_release(Release {
-            tag_name: "v0.4.3".into(),
-            assets,
-        })
-        .unwrap();
-        assert_eq!(offer.sha256, "b".repeat(64));
-        assert!(offer
-            .download_url()
-            .ends_with("/v0.4.3/wingmate-linux-x64-headless"));
-        assert!(Offer::from_release(Release {
-            tag_name: "v0.4.3".into(),
+    fn uses_the_same_linux_asset_and_requires_wsl_capable_releases() {
+        let release = |tag: &str, digest: Option<String>| Release {
+            tag_name: tag.into(),
             assets: vec![Asset {
-                name: "wingmate-linux-x64".into(),
+                name: NAME.into(),
                 size: 100,
-                digest: None
-            }]
-        })
-        .is_err());
+                digest,
+            }],
+        };
+        let digest = || Some(format!("sha256:{}", "B".repeat(64)));
+        let offer = Offer::from_release(release("v0.4.2", digest()), Target::Ssh).unwrap();
+        assert_eq!(offer.sha256, "b".repeat(64));
+        assert!(offer.download_url().ends_with("/v0.4.2/wingmate-linux-x64"));
+        assert!(Offer::from_release(release("v0.4.2", digest()), Target::Wsl).is_err());
+        assert!(Offer::from_release(release("v0.4.3", digest()), Target::Wsl).is_ok());
+        assert!(Offer::from_release(release("v0.4.3", None), Target::Wsl).is_err());
     }
 }

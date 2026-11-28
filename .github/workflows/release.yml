@@ -83,32 +83,6 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
-  linux-headless:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build --headless
-      - name: Stage and smoke test the Linux headless executable
-        run: |
-          install -Dm755 target/release/wingmate release/wingmate-linux-x64-headless
-          pnpm test:smoke release/wingmate-linux-x64-headless
-      - uses: actions/upload-artifact@v7
-        with:
-          name: wingmate-linux-x64-headless
-          path: release/wingmate-linux-x64-headless
-          archive: false
-          if-no-files-found: error
-          overwrite: true
-
   macos:
     runs-on: macos-15
     timeout-minutes: 60
@@ -265,7 +239,7 @@ jobs:
 
   publish:
     if: github.event_name == 'push'
-    needs: [windows, linux, linux-headless, macos, android]
+    needs: [windows, linux, macos, android]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -288,7 +262,7 @@ jobs:
         run: |
           tag="$GITHUB_REF_NAME"
           [[ "$(gh api "repos/$GH_REPO/commits/tags/$tag" --jq .sha)" == "$GITHUB_SHA" ]]
-          files=(wingmate-windows-x64.exe wingmate-linux-x64 wingmate-linux-x64-headless wingmate-macos-arm64.dmg
+          files=(wingmate-windows-x64.exe wingmate-linux-x64 wingmate-macos-arm64.dmg
                  wingmate-android-remote.apk wingmate-android-local.apk wingmate-android-runtime-sources.tar)
           sha256sum "${files[@]}" > SHA256SUMS.txt
           files+=(SHA256SUMS.txt)
@@ -311,7 +285,6 @@ jobs:
           - \`wingmate-windows-x64.exe\` · Windows x64，自带 Node.js、npm 和 pnpm。
           - \`wingmate-linux-x64\` · Linux x64，在 Ubuntu 24.04 上构建，自带 Node.js、npm 和 pnpm。下载后执行 \`chmod +x wingmate-linux-x64\`，再运行 \`./wingmate-linux-x64\` 打开桌面，或用 \`./wingmate-linux-x64 start\` 启动后台。桌面需要 WebKitGTK 4.1。
           - \`wingmate-macos-arm64.dmg\` · Apple Silicon。双击挂载后，在访达中将 Wingmate 拖入「应用程序」。应用使用临时签名，未经 Apple 公证。
-          - \`wingmate-linux-x64-headless\` · Linux x64 无界面版，适用于服务器和 WSL，使用 \`service-start\` 启动管理服务。
           - \`wingmate-android-remote.apk\` · Android 远程版，连接已有 Wingmate 主机。
           - \`wingmate-android-local.apk\` · Android 本地版，可在 Android 8.0 及以上的 ARM64 手机上运行 DSH。
 

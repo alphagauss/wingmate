@@ -54,9 +54,7 @@ pnpm tauri bundle --config src-tauri/tauri.bundle.macos.conf.json
 
 [Build and release Wingmate](../.github/workflows/release.yml) 在 Windows x64 和 Ubuntu 24.04 x64 上分别构建并冒烟测试桌面单文件，在 macOS ARM64 上构建 DMG 并冒烟测试映像内的发行入口，在 Ubuntu 上构建、签名并检查 Android 远程版和 ARM64 本地版 APK。Linux 直接发布 ELF 可执行文件，桌面和 CLI 共用该入口。macOS 的 `wingmate-macos-arm64.dmg` 供 Apple Silicon 使用，挂载后可将 `Wingmate.app` 拖入「应用程序」。应用使用临时签名，未经 Apple 公证，首次打开可能需要在系统设置中手动允许。[Tauri 签名说明](https://v2.tauri.app/distribute/sign/macos/#ad-hoc-signing)
 
-Linux x64 的 `wingmate-linux-x64-headless` 使用独立任务构建和冒烟测试，供 SSH 和 WSL 使用。此产物携带相同的 DSH 运行内容，构建和运行不依赖桌面库。
-
-手动运行可在 Actions 的 Artifacts 分别下载两个 Android APK 和运行时源码归档，以及桌面和无界面试用包。每次手动运行都会为 APK 生成新的测试证书，覆盖安装需要与设备上已有 APK 的签名相同。
+手动运行可在 Actions 的 Artifacts 分别下载两个 Android APK 和运行时源码归档，以及各桌面试用包。每次手动运行都会为 APK 生成新的测试证书，覆盖安装需要与设备上已有 APK 的签名相同。
 
 在仓库的 **Settings → Secrets and variables → Actions** 配置以下签名密钥，两个 APK 的后续版本都沿用同一密钥。
 
@@ -67,7 +65,7 @@ Linux x64 的 `wingmate-linux-x64-headless` 使用独立任务构建和冒烟测
 
 将根 `package.json`、Rust 工作区、Tauri 配置和 Android 的 `versionName` 更新为同一版本。发布新版 APK 时递增 Android 的 `versionCode`。如需在 Release 顶部补充版本说明，将其写入 `.github/release-notes/<tag>.md`。在包含这些更新的提交上创建并推送对应 tag。
 
-构建和检查通过后，发布任务把 Windows EXE、Linux 桌面及无界面可执行文件、macOS DMG、两个 APK、`wingmate-android-runtime-sources.tar` 和 `SHA256SUMS.txt` 上传到同一个 Release 草稿，上传成功后发布。说明链接到该提交的应用源码和[随包组件源码说明](../runtime/android/SOURCES.md)。带预发布后缀的版本标为预发布。上传失败可重跑，草稿继续使用，已发布的 Release 保留原有资产。发布任务使用工作流自带的 `GITHUB_TOKEN`。
+构建和检查通过后，发布任务把 Windows EXE、Linux 可执行文件、macOS DMG、两个 APK、`wingmate-android-runtime-sources.tar` 和 `SHA256SUMS.txt` 上传到同一个 Release 草稿，上传成功后发布。说明链接到该提交的应用源码和[随包组件源码说明](../runtime/android/SOURCES.md)。带预发布后缀的版本标为预发布。上传失败可重跑，草稿继续使用，已发布的 Release 保留原有资产。发布任务使用工作流自带的 `GITHUB_TOKEN`。
 
 ## 去重与精简取舍
 

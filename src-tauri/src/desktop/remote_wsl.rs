@@ -223,7 +223,13 @@ pub(super) async fn connect_wsl(
         remote::validate_executable(executable.as_deref())?;
         if let Some(offer) = &approved {
             let (platform, _) = platform(&distro).await?;
-            let path = remote_install::download(&desktop.home, &platform, offer).await?;
+            let path = remote_install::download(
+                &desktop.home,
+                &platform,
+                remote_install::Target::Wsl,
+                offer,
+            )
+            .await?;
             attempt.verify().map_err(anyhow::Error::msg)?;
             upload(&distro, &path, offer).await?;
             executable = None;
@@ -243,7 +249,7 @@ pub(super) async fn connect_wsl(
             let (platform, user) = platform(&distro)
                 .await
                 .map_err(|error| format!("{error:#}"))?;
-            let offer = remote_install::latest(&platform)
+            let offer = remote_install::latest(&platform, remote_install::Target::Wsl)
                 .await
                 .map_err(|error| format!("找不到 Wingmate。{error:#}"))?;
             attempt.verify()?;

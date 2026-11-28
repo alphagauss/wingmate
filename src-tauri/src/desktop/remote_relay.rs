@@ -411,16 +411,22 @@ mod tests {
 
     #[tokio::test]
     async fn a_different_gateway_never_receives_the_pairing_link() {
+        check_relay(false).await;
+        check_relay(true).await;
+    }
+
+    async fn check_relay(matches: bool) {
         let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
         let received = requests.clone();
-        let wrong = Uuid::new_v4();
+        let instance = Uuid::new_v4();
+        let advertised = if matches { instance } else { Uuid::new_v4() };
         let (dial, server) = tokio::io::duplex(4096);
         tokio::spawn(async move {
             let handler = service_fn(move |request: Request<Incoming>| {
                 received.lock().unwrap().push(request.uri().to_string());
                 std::future::ready(Ok::<_, Infallible>(
                     Response::builder()
-                        .header("x-wingmate-instance", wrong.to_string())
+                        .header("x-wingmate-instance", advertised.to_string())
                         .body(Full::new(Bytes::from_static(b"{}")))
                         .unwrap(),
                 ))
@@ -432,7 +438,7 @@ mod tests {
         let dial = std::sync::Mutex::new(Some(dial));
         let gateway = Gateway {
             url: Url::parse("http://127.0.0.1:8746/?auth=example").unwrap(),
-            instance: Some(Uuid::new_v4()),
+            instance: Some(instance),
         };
         let (_guard, url) = Relay::listen(gateway, move || {
             std::future::ready(Ok(
@@ -449,7 +455,13 @@ mod tests {
             .send()
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
-        assert_eq!(*requests.lock().unwrap(), ["/_wingmate"]);
+        let requested = requests.lock().unwrap();
+        if matches {
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(*requested, ["/_wingmate", "/?auth=example"]);
+        } else {
+            assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+            assert_eq!(*requested, ["/_wingmate"]);
+        }
     }
 }
