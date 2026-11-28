@@ -24,11 +24,11 @@ iframe 的用途是管理渲染生命周期。它与应用同源，不作为不�
 
 ## 与上游的适配
 
-配置补丁禁用 `office-to-pdf`，发行裁剪移除所有平台的 LibreOffice Kit 运行内容。DSH 当前会无条件注册旧 Office 预览，且下拉菜单保留低优先级实现，因此配套 [版本补丁](../../runtime/patches/dsh-0.2.2-rc.1.json) 移除其注册调用。补丁应用与失败策略见 [运行时维护指南](../../docs/runtime-maintenance.md#适配与升级记录)。
+[共用启动补丁](../../runtime/cordis.shared.patch.yml)禁用 `office-kit` 和 `skill-office`，发行裁剪移除所有平台的 LibreOffice Kit 运行内容。DSH 会无条件注册内置 Word 和 PowerPoint 预览，下拉菜单也会保留低优先级实现，因此 [版本补丁](../../runtime/patches/dsh-0.2.2-rc.5.json)移除其注册调用。同一补丁移除 `standard` 和 `ptc` 预设中的 `tool-office` 条目，避免预设注册依赖已禁用服务的转换、渲染和重算工具。补丁应用与失败策略见[运行时维护指南](../../docs/runtime-maintenance.md#适配与升级记录)。
 
-升级时核对预览插槽、字节加载、标签可见性、客户端模块和资源服务接口，以及 File Viewer 的 Worker 布局与生命周期。上游提供关闭旧 Office 预览的配置后，撤销代码补丁。仅独立安装此插件的 `.tgz` 可以新增预览，但不会修改 DSH 内置注册代码；Wingmate 发行流程负责完整替换。
+升级时核对预览插槽、字节加载、标签可见性、客户端模块、资源服务和 Office 预设，以及 File Viewer 的 Worker 布局与生命周期。上游提供关闭内置 Office 预览或预设工具的配置后，可分别以配置替换对应补丁。独立安装此插件的 `.tgz` 会新增浏览器预览，Wingmate 发行流程负责裁剪和替换内置组合。
 
-移除本插件会失去上述新增预览。恢复原版 Word/PPT 转 PDF 需要同时恢复 LibreOffice 运行内容、启用转换提供方并撤销注册补丁。
+移除本插件会失去上述新增预览。恢复原版 Word/PPT 转 PDF 需要同时恢复 LibreOffice 运行内容、启用 `office-kit` 并撤销预览注册补丁。恢复 Agent 的 Office 工具还需启用 `skill-office` 并恢复预设中的 `tool-office`。
 
 ## 许可与验证
 

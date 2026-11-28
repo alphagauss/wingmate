@@ -72,10 +72,12 @@ pnpm tauri bundle --config src-tauri/tauri.bundle.macos.conf.json
 | 当前选择 | 原因与保留边界 | 升级时重新判断 |
 | --- | --- | --- |
 | 将 Zod、debug、ms 的共享版本固定在运行时顶层 | 避免多个依赖重复嵌套同版本；保持上游声明的兼容范围，不使用强制 overrides 消除版本冲突 | 上游是否仍有重复；现有固定是否仍兼容；必要时调整或撤销额外固定，允许不兼容版本并存 |
-| 排除 source map、PDB 等调试元数据 | 优先缩小发行体积，接受发行包中调试映射与符号信息减少；安装树仍保留 | 这些文件是否开始参与运行功能或新的调试交付需求 |
+| 排除 source map、PDB 及已知非运行测试/构建夹具 | 优先缩小发行体积，排除 `.js`/`.mjs`/`.cjs`/`.ts`/`.mts`/`.cts`/`.css` 的 `.map`、`*.pdb`、`node-pty/third_party` 与 `@mixmark-io/domino/{test,.yarn}`；安装树仍保留 | 这些文件是否开始参与运行功能或新的调试交付需求 |
 | 排除明确的异系统/异架构预编译文件 | 当前发行只需要目标平台代码；不能根据不认识的文件名猜测用途 | 上游平台命名和目录结构是否变化；目标架构与兼容后备实现是否被误排除 |
-| 保留类型声明、TypeScript 源码、许可证及相关声明 | 兼顾插件开发、包的实际入口与分发义务，不用扩展名一刀切 | 新依赖的导出、加载方式和许可要求是否改变 |
-| 用 File Viewer 替换 Word、PowerPoint 侧栏预览，移除所有平台的 LibreOffice Kit 运行内容及 WASM 后备引擎 | 以浏览器预览降低分发体积并扩展格式；禁用 `office-to-pdf` 并移除旧预览注册，保留许可证与声明。Office skill 未启用，后台 Office 转 PDF、渲染和重算不属于当前发行能力 | 新增消费者是否需要 LibreOffice，预览版式能否满足需求；恢复引擎时必须同步调整组合、补丁及验证 |
+| 保留类型声明、TypeScript 源码、文档与许可证，排除 `@deepseek-ai/*/src` 下重复静态资源 | 兼顾离线创造模式查阅源码、插件开发与分发义务；`src/` 内的 `.webp`/`.png`/`.woff2` 等资源已在同包 `lib/assets/` 带哈希打包，无需重复携带 | 新依赖的导出、加载方式和许可要求是否改变；确认 `src/` 静态资源是否变为直接运行入口 |
+| 用 File Viewer 替换 Word、PowerPoint 侧栏预览，移除所有平台的 LibreOffice Kit 运行内容及 WASM 后备引擎 | 以浏览器预览降低分发体积并扩展格式，保留许可证与声明。后台 Office 转换、渲染和重算随[内置 Office 组合](../bundled-plugins/wingmate-file-viewer/README.md#与上游的适配)一起禁用 | 新增消费者是否需要 LibreOffice，预览版式能否满足需求；恢复引擎时同步调整组合、补丁及验证 |
+| 裁剪 `@deepseek-ai/dsh-experimental-inspector` 的内嵌 DevTools 前端 | 该可选包默认关闭，Web 调试可直接使用浏览器/WebView DevTools；配套版本补丁从 `dsh-experimental-inspector-profile` 移除该项，保留「会话数据诊断」与「统计」页签及许可证 | 上游是否拆分该包、改变开发者工具组合或新增对其运行 API 的强依赖 |
+| 排除 `@vscode/ripgrep*`，复用随包 `rg` | 桌面已在 `toolchains/fallback/` 携带 `rg`，Android 来宾已通过锁定包安装 `/usr/bin/rg`；通过版本补丁让 `@deepseek-ai/dsh-util-ripgrep` 优先解析上述路径，开发态仍回退 `@vscode/ripgrep`，保留许可证 | 上游 `dsh-util-ripgrep` 解析逻辑或随包工具布局变化时同步调整补丁；若上游原生支持环境变量或路径配置，可撤销补丁 |
 | 保留图片、语音、Web 及其他现有 WASM 内容 | 保留已选择的功能与非 Office 后备实现 | 功能依赖是否变化；不能仅凭某次未调用就认定不需要 |
 
 精确文件规则以 [裁剪规则](../scripts/runtime-files.mjs) 为准。未知内容先保留；许可证优先于裁剪。依赖升级后重新审视规则，不把某一版安装布局固化为永久前提。
@@ -149,7 +151,7 @@ pnpm tauri bundle --config src-tauri/tauri.bundle.macos.conf.json
 
 配置组合优先使用 DSH 的 patch 和插件接口；代码补丁用于上游尚无扩展点的必要改动，原因和撤销条件放在对应插件文档。以后需要源码构建时，先从受管理的 URL、tag 与 commit 准备干净源码并应用补丁，再把编译包接入运行时组装，不能只修改 `stage` 或被忽略的参考仓库。
 
-Wingmate 的 DSH 仅监听回环地址，由网关提供共享访问。DSH 的自动目录选择器在启动时为整个后台选定一种交互，有图形会话时可能选中宿主系统对话框。启动配置按[上游的配置示例](https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/apps/web/tests/pin-browse-picker.overlay.yml)显式组合网页目录选择器，供同一后台的所有工作台使用。升级时如果上游能识别这种网关部署并默认提供网页选择器，可以撤掉该配置。
+Wingmate 的 DSH 仅监听回环地址，由网关提供共享访问。DSH 的自动目录选择器在启动时为整个后台选定一种交互，有图形会话时可能选中宿主系统对话框。启动配置按[上游的配置示例](https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/apps/web/tests/pin-browse-picker.overlay.yml)显式组合网页目录选择器，供同一后台的所有工作台使用。升级时如果上游能识别这种网关部署并默认提供网页选择器，可以撤掉该配置。
 
 工作台使用浏览器原生的 `dvh` 和 `dsh-resource://file/…` 主机名解析。Chromium 130 开始支持该类自定义 URL 的标准解析。Android 门槛见[工作台要求](../apps/mobile/README.md#工作台要求)。
 
@@ -159,4 +161,4 @@ Android WebView 禁用了 `scrollbar-width`。目录选择器的分栏和路径�
 
 Android 远程版的包体积、构建耗时和验收范围见 [2026-11-12 Android 远程版](records/2026-11-12-android-remote.md)。工作台兼容性调整见 [WebView 104 验证](records/2026-11-14-android-webview-104.md)、[WebView 130 真机验证](records/2026-11-14-android-webview-130.md)和[滚动条复核](records/2026-11-15-android-webview-scrollbars.md)。本地版预装与提示词调整见 [Android 本机环境插件](records/2026-11-17-android-environment-plugin.md)。
 
-当前约定更新在本指南或所属模块；历史记录保留当时结论，不持续改写成最新状态。已有记录包括 [2026-11-05 运行时体积优化](records/2026-11-05-runtime-size.md)、[2026-11-08 Wingmate 后台服务插件](records/2026-11-08-wingmate-web.md)、[2026-11-10 文件预览与 LibreOffice 裁剪](records/2026-11-10-file-viewer.md)、[开发依赖复用与运行目录回收](records/2026-11-10-runtime-reuse.md)、[2026-11-11 独立管理服务与无 GUI 引导](records/2026-11-11-management-service.md)、[ACP 执行后端插件](records/2026-11-11-acp-backends.md)、[预装插件标签页](records/2026-11-11-preinstalled-plugins.md)和[2026-11-25 独立插件开发](records/2026-11-25-independent-plugins.md)。
+当前约定更新在本指南或所属模块；历史记录保留当时结论，不持续改写成最新状态。已有记录包括 [2026-11-05 运行时体积优化](records/2026-11-05-runtime-size.md)、[2026-11-08 Wingmate 后台服务插件](records/2026-11-08-wingmate-web.md)、[2026-11-10 文件预览与 LibreOffice 裁剪](records/2026-11-10-file-viewer.md)、[开发依赖复用与运行目录回收](records/2026-11-10-runtime-reuse.md)、[2026-11-11 独立管理服务与无 GUI 引导](records/2026-11-11-management-service.md)、[ACP 执行后端插件](records/2026-11-11-acp-backends.md)、[预装插件标签页](records/2026-11-11-preinstalled-plugins.md)、[2026-11-25 独立插件开发](records/2026-11-25-independent-plugins.md)和 [2026-11-28 DSH 0.2.2-rc.5 升级](records/2026-11-28-dsh-rc5.md)。

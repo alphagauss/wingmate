@@ -27,13 +27,13 @@
 
 同一管理目录下，第一个打开的桌面窗口使用固定 ID `main`。关闭时保存窗口位置、尺寸和最大化状态，下次打开主窗口时恢复。主窗口打开期间再次启动会得到独立的临时窗口，按默认布局打开。主窗口关闭后，下次启动可以接任，已打开的临时窗口继续使用各自的 ID。
 
-默认尺寸采用 [DSH 桌面配置](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.1/apps/desktop/src/main.ts#L259-L265)，默认 1280 × 820 DIP，最小 520 × 600 DIP。启动时按显示器工作区校正位置和大小。原显示器不可用时改用主显示器的默认定位，工作区太小时允许缩小到默认最小尺寸以下。
+默认尺寸采用 [DSH 桌面配置](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/apps/desktop/src/main.ts#L259-L265)，默认 1280 × 820 DIP，最小 520 × 600 DIP。启动时按显示器工作区校正位置和大小。原显示器不可用时改用主显示器的默认定位，工作区太小时允许缩小到默认最小尺寸以下。
 
 窗口走默认定位时优先居中。如果中心位置与同一管理目录下已打开窗口的左上角太接近，按 32 DIP 向右下层叠，到工作区边缘后检查其余候选位置。候选位置用尽时居中。窗口坐标只在运行期间登记，最小化的窗口不占位置，临时窗口的布局不用于恢复。异常退出留下的登记在下次启动时清理。
 
 ## 桌面标题栏
 
-Windows 和 macOS 的首页与工作台共用 40 DIP 的 Web 顶栏。首页初次打开跟随系统，返回首页时沿用本窗口上次收到的 DSH 明暗主题选择。Windows 使用 [DSH 桌面布局](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.1/packages/client/ui-layout/README.zh.md#窗口-chrome-座) 的顶栏避让和主题颜色。窗口按钮参考 [Electron Windows 窗口按钮](https://github.com/electron/electron/blob/v44.7.0/shell/browser/ui/views/win_caption_button.cc)，拖动和双击使用 WebView2 的拖动区域。
+Windows 和 macOS 的首页与工作台共用 40 DIP 的 Web 顶栏。首页初次打开跟随系统，返回首页时沿用本窗口上次收到的 DSH 明暗主题选择。Windows 使用 [DSH 桌面布局](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/client/ui-layout/README.zh.md#窗口-chrome-座) 的顶栏避让和主题颜色。窗口按钮参考 [Electron Windows 窗口按钮](https://github.com/electron/electron/blob/v44.7.0/shell/browser/ui/views/win_caption_button.cc)，拖动和双击使用 WebView2 的拖动区域。
 
 macOS 在 Web 顶栏就绪后启用 `Overlay`，保留原生红黄绿按钮，并为它们和工作台内容留出空间。Linux 使用 GTK HeaderBar，沿用系统主题、标题栏手势和窗口按钮布局。当系统仅配置关闭按钮时，Wingmate 在关闭按钮同侧补上最小化和最大化，便于在只提供关闭按钮的桌面会话中操作窗口。各平台的标题栏都提供同一个「远程连接」入口。Linux 子 WebView 使用 GTK Overlay，使远程工作台填充连接栏以下的区域，连接浮层可以覆盖当前工作台。
 

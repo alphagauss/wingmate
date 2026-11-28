@@ -5,7 +5,7 @@ description: 在 Wingmate 中创建、修改、调试和更新独立的 TS/TSX D
 
 # Wingmate 独立插件开发
 
-先读取 DSH 官方 cordis-plugin-development 指引，并按当前运行时检查结果选择接口。本技能补充项目组织、构建和交付方式；安装、启停、卸载及权限继续使用官方机制。
+先加载 DSH 官方 `dsh-doc` 技能，查阅其中的 `references/plugin-development.md`，并按当前运行时检查结果选择接口。本技能补充项目组织、构建和交付方式；安装、启停、卸载及权限继续使用官方机制。
 
 ## 项目与模板
 

@@ -94,7 +94,7 @@ macOS 的 `pnpm build` 会在完整发行入口编译后自动生成 `.app` 和 
 
 Wingmate 是独立维护的社区发行版。Wingmate 自有代码默认采用 [MIT 许可证](LICENSE)。移植代码、按其他许可证发布的组合产物和随包依赖适用各自的许可条款。
 
-- **DeepSeek Harness** 提供 Agent、Web 工作台和插件生态，所用版本采用 MIT 许可。[项目](https://github.com/deepseek-ai/deepseek-harness) · [版本许可](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.1/LICENSE)
+- **DeepSeek Harness** 提供 Agent、Web 工作台和插件生态，所用版本采用 MIT 许可。[项目](https://github.com/deepseek-ai/deepseek-harness) · [版本许可](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/LICENSE)
 - **dsh-Go** 是 Android 本地运行时的移植来源。采用的载荷构建脚本及本机引擎代码涉及 AGPLv3。[项目](https://github.com/ccch1mneyyy/dsh-Go) · [本地运行载荷](runtime/android/README.md) · [上游许可](https://github.com/ccch1mneyyy/dsh-Go/blob/288234ae52fdfcfc2b0a0388763c371d0b09ea7d/LICENSE)
 - **cloudflared** 是 Cloudflare 的公网隧道连接器，按需下载，采用 Apache-2.0 许可。[许可](https://github.com/cloudflare/cloudflared/blob/master/LICENSE) · [公网隧道](crates/wingmate-service/README.md#公网隧道)
 - **ds-harness-remote** 是外部 Agent 工作区与会话投影的参考，相关代码保留 MIT 声明。[项目](https://github.com/liguobao/ds-harness-remote) · [执行后端插件](bundled-plugins/wingmate-backends/README.md)

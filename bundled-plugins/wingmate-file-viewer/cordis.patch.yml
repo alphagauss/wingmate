@@ -1,5 +1,3 @@
-- id: office-to-pdf
-  disabled: true
 - insert:
     - id: wingmate-file-viewer
       name: dsh-wingmate-file-viewer

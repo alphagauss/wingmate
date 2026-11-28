@@ -15,8 +15,30 @@ export function excludedRuntimeFile(
     )
   )
     return 'libreoffice';
-  if (/\.(?:js|mjs|cjs|ts|css)\.map$/i.test(name)) return 'source-map';
+  if (
+    /(?:^|\/)node_modules\/@deepseek-ai\/dsh-experimental-inspector\//.test(
+      normalized,
+    )
+  )
+    return 'experimental-inspector';
+  if (/(?:^|\/)node_modules\/@vscode\/ripgrep(?:-[^/]+)?\//.test(normalized))
+    return 'bundled-ripgrep';
+  if (/\.(?:js|mjs|cjs|ts|mts|cts|css)\.map$/i.test(name)) return 'source-map';
   if (/\.pdb$/i.test(name)) return 'debug-symbols';
+  if (/(?:^|\/)node_modules\/node-pty\/third_party\//.test(normalized))
+    return 'node-pty-third-party';
+  if (
+    /(?:^|\/)node_modules\/@mixmark-io\/domino\/(?:test|\.yarn)\//.test(
+      normalized,
+    )
+  )
+    return 'package-dev-files';
+  if (
+    /(?:^|\/)node_modules\/@deepseek-ai\/[^/]+\/src\/.*\.(?:webp|png|jpe?g|gif|svg|woff2?|ttf|otf|ico)$/i.test(
+      normalized,
+    )
+  )
+    return 'duplicate-source-asset';
   const prebuild = normalized.match(
     /\/prebuilds\/(win32|linux|darwin)-(x64|arm64|ia32|arm)(?=[/+.-])/,
   );

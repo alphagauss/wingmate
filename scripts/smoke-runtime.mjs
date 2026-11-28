@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 async function smokeRuntime(runtime, work, env) {
   const require = createRequire(join(runtime, 'package.json'));
@@ -95,8 +96,116 @@ async function smokeRuntime(runtime, work, env) {
     ),
     'utf8',
   );
-  assert.ok(!preview.includes('apply$2(ctx, config.office);'));
-  checks.push('LibreOffice 运行内容已裁剪，旧 Office 预览入口已移除');
+  assert.doesNotMatch(preview, /\bapply\$\d+\(ctx,\s*config\.office\)/);
+  const webConfig = spawnSync(
+    process.execPath,
+    [
+      join(runtime, 'node_modules/@deepseek-ai/dsh/lib/bin.js'),
+      'web',
+      '--patch',
+      join(runtime, 'plugins/cordis.patch.yml'),
+      '--dump-config',
+    ],
+    { cwd: work, env, windowsHide: true, encoding: 'utf8', timeout: 25_000 },
+  );
+  assert.equal(
+    webConfig.status,
+    0,
+    webConfig.error?.message || webConfig.stderr,
+  );
+  const plugins = require('yaml').parse(webConfig.stdout, {
+    logLevel: 'silent',
+  });
+  for (const id of ['office-kit', 'skill-office']) {
+    assert.equal(plugins.find((row) => row.id === id)?.disabled, true, id);
+  }
+  for (const preset of ['standard', 'ptc']) {
+    const rows = plugins.find((row) => row.id === `preset-${preset}`).config
+      .plugins;
+    assert.ok(
+      !rows.some((row) => row.name === '@deepseek-ai/dsh-tool-office'),
+      preset,
+    );
+  }
+  checks.push(
+    'LibreOffice 运行内容已裁剪，内置 Office 预览、技能和默认预设工具已禁用',
+  );
+
+  assert.throws(() =>
+    require.resolve('@deepseek-ai/dsh-experimental-inspector'),
+  );
+  const inspectorProfile = require('yaml').parse(
+    await readFile(
+      join(
+        runtime,
+        'node_modules/@deepseek-ai/dsh-experimental-inspector-profile/cordis.patch.yml',
+      ),
+      'utf8',
+    ),
+    { logLevel: 'silent' },
+  );
+  const inspectorRows = inspectorProfile.flatMap((row) => row.insert ?? []);
+  assert.ok(
+    !inspectorRows.some(
+      (row) => row.name === '@deepseek-ai/dsh-experimental-inspector',
+    ),
+  );
+  assert.ok(
+    inspectorRows.some(
+      (row) => row.name === '@deepseek-ai/dsh-experimental-session-inspector',
+    ),
+  );
+  assert.ok(
+    inspectorRows.some(
+      (row) => row.name === '@deepseek-ai/dsh-experimental-client-ui-stats',
+    ),
+  );
+  checks.push(
+    '实验性内嵌 DevTools 已裁剪，开发者工具保留会话数据诊断与统计页签',
+  );
+
+  assert.throws(() => require.resolve('@vscode/ripgrep'));
+  const { resolveRgPath } = await import(
+    pathToFileURL(
+      join(runtime, 'node_modules/@deepseek-ai/dsh-util-ripgrep/lib/index.js'),
+    ).href
+  );
+  const resolvedRg = await resolveRgPath();
+  const expectedRg = join(
+    env.WINGMATE_HOME,
+    'toolchains/fallback',
+    process.platform === 'win32' ? 'rg.exe' : 'rg',
+  );
+  assert.equal(resolvedRg.toLowerCase(), expectedRg.toLowerCase());
+  const rgVersion = spawnSync(resolvedRg, ['--version'], {
+    cwd: work,
+    env,
+    windowsHide: true,
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
+  assert.equal(
+    rgVersion.status,
+    0,
+    rgVersion.error?.message || rgVersion.stderr,
+  );
+  assert.match(rgVersion.stdout.trim(), /^ripgrep \d+\.\d+\.\d+/);
+  checks.push('重复的 @vscode/ripgrep 已裁剪，dsh-util-ripgrep 复用随包 rg');
+
+  await readFile(
+    join(runtime, 'node_modules/@deepseek-ai/dsh/src/bin.ts'),
+    'utf8',
+  );
+  await assert.rejects(
+    readFile(
+      join(
+        runtime,
+        'node_modules/@deepseek-ai/dsh-client-ui-settings-account/src/client/assets/onboarding-welcome.webp',
+      ),
+    ),
+    { code: 'ENOENT' },
+  );
+  checks.push('保留 DSH TypeScript 源码与文档，排除源码目录下的重复静态资源');
   return checks;
 }
 

@@ -19,7 +19,7 @@
     "test": "node build.mjs && node --test test.mjs"
   },
   "engines": {
-    "dsh": "0.2.2-rc.1"
+    "dsh": "0.2.2-rc.5"
   },
   "dsh": {
     "bundle": {

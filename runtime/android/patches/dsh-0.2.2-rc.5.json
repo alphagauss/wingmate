@@ -2,16 +2,18 @@
   {
     "id": "allow-offline-loopback-workbench",
     "package": "@deepseek-ai/dsh-client-connection",
-    "version": "0.2.2-rc.1",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/client/connection/src/client/index.ts",
     "file": "lib/client.browser.js",
-    "sha256": "dfc3544eb894c74b340a4c4c63a8c125fd2e983df9efed5885712574af994e62",
-    "before": "if (browser === void 0 || initiallyAvailable === void 0) return () => {};",
-    "after": "if (browser === void 0 || initiallyAvailable === void 0 || isLoopbackHostname(browser.location.hostname)) return () => {};"
+    "sha256": "5f6107953fa764c80b6c06aa161be318ffa0b71e565ac81536fc4267d5d62412",
+    "before": "if(browser===void 0||initiallyAvailable===void 0)return()=>{};",
+    "after": "if(browser===void 0||initiallyAvailable===void 0||isLoopbackHostname(browser.location.hostname))return()=>{};"
   },
   {
     "id": "open-directory-picker-in-shared-workspace",
     "package": "@deepseek-ai/dsh-host-directory-picker-browse",
-    "version": "0.2.2-rc.1",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/host/directory-picker-browse/src/index.ts",
     "file": "lib/index.js",
     "sha256": "20d82ef343a4ee06f1ace8d56521b3e6c7cbbf52816acf056e9977839d31c54b",
     "before": "const target = resolve(path ?? home);",
@@ -20,16 +22,18 @@
   {
     "id": "allow-credentials-on-android-shared-dsh-home",
     "package": "@deepseek-ai/dsh-credentials-local",
-    "version": "0.2.2-rc.1",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/credentials/credentials-local/src/index.ts",
     "file": "lib/index.js",
-    "sha256": "6b4926ef62bfeb95bc3d7687b85303d739a41e813fe05ac06de50111361da069",
+    "sha256": "ea1d5d514e588160490224bfec59698b6ec03dfd1acaea90b0c3ab79fc71349e",
     "before": "if (process.platform === \"win32\") return;\n\tif ((mode & GROUP_OTHER_BITS) === 0) return;",
     "after": "if (process.platform === \"win32\") return;\n\t// Android shared storage synthesizes the mode reported for this file.\n\tif (filename === \"/root/.dsh/.credentials.yaml\") return;\n\tif ((mode & GROUP_OTHER_BITS) === 0) return;"
   },
   {
     "id": "load-android-session-storage",
     "package": "@deepseek-ai/dsh-session-persistence-jsonl",
-    "version": "0.2.2-rc.1",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/session/session-persistence-jsonl/src/index.ts",
     "file": "lib/index.js",
     "sha256": "69efef5f84dddf947032bc1425067878fa610416c8885acde2ded9b01230c9b7",
     "before": "import { createHash, randomBytes } from \"node:crypto\";",
@@ -38,7 +42,8 @@
   {
     "id": "lock-shared-sessions-on-private-storage",
     "package": "@deepseek-ai/dsh-session-persistence-jsonl",
-    "version": "0.2.2-rc.1",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/session/session-persistence-jsonl/src/lease.ts",
     "file": "lib/index.js",
     "sha256": "1deffb21ec1c7908cacb6816452249d84157370ba695c1320424f48a168601b7",
     "before": "\tstatic async acquire(dir, id) {\n\t\tconst path = join(dir, LEASE_FILENAME);\n\t\tawait mkdir(dir, {\n\t\t\trecursive: true,\n\t\t\tmode: 448\n\t\t});",
@@ -47,7 +52,8 @@
   {
     "id": "publish-shared-session-log-with-rename",
     "package": "@deepseek-ai/dsh-session-persistence-jsonl",
-    "version": "0.2.2-rc.1",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/session/session-persistence-jsonl/src/index.ts",
     "file": "lib/index.js",
     "sha256": "5af54c0c2434a102d371601d5be03ce69573e12d600c3d28f7a6878521b13c09",
     "before": "await link(tmp, finalPath);",
@@ -56,7 +62,8 @@
   {
     "id": "publish-shared-session-migration-with-rename",
     "package": "@deepseek-ai/dsh-session-persistence-jsonl",
-    "version": "0.2.2-rc.1",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/session/session-persistence-jsonl/src/generation.ts",
     "file": "lib/index.js",
     "sha256": "de775e9506d39bd836d3a1e0bddb1cf0e188175c038b67ec1993957872078e6d",
     "before": "await internals.fs.link(staged, currentPath);",
@@ -65,7 +72,8 @@
   {
     "id": "load-android-attachment-storage",
     "package": "@deepseek-ai/dsh-attachment-local",
-    "version": "0.2.2-rc.1",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/attachment/attachment-local/src/sharp.ts",
     "file": "lib/index.js",
     "sha256": "ff717f87226b59d6224aff67796b43d5fd72b98d0e74fa91a952affaf3285f9d",
     "before": "import { createLazyRequire } from \"@deepseek-ai/dsh-lazy-require\";",
@@ -74,7 +82,8 @@
   {
     "id": "copy-shared-attachment-alias",
     "package": "@deepseek-ai/dsh-attachment-local",
-    "version": "0.2.2-rc.1",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/attachment/attachment-local/src/store.ts",
     "file": "lib/index.js",
     "sha256": "6644ce5718623be3aa3286970d25173f5106a469d952cf5d568497bdb764d654",
     "before": "async function publishImmutableAlias(root, source, target, sha256) {",
@@ -83,7 +92,8 @@
   {
     "id": "publish-shared-attachment-with-rename",
     "package": "@deepseek-ai/dsh-attachment-local",
-    "version": "0.2.2-rc.1",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/attachment/attachment-local/src/store.ts",
     "file": "lib/index.js",
     "sha256": "c1a9b85ea51545f6a8ba6253ceb3e4d7ee5a89facf7260855311b8fe267caac0",
     "before": "await link(staged.path, target);",
@@ -92,10 +102,21 @@
   {
     "id": "clean-up-shared-attachment-stage",
     "package": "@deepseek-ai/dsh-attachment-local",
-    "version": "0.2.2-rc.1",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/attachment/attachment-local/src/store.ts",
     "file": "lib/index.js",
     "sha256": "7441959d607ba224c64db96dbd2801be967eff5135513b1b3f7af9ad3ae27a5b",
     "before": "await unlink(staged.path);",
     "after": "await removeTemporary(staged.path);"
+  },
+  {
+    "id": "use-android-guest-ripgrep",
+    "package": "@deepseek-ai/dsh-util-ripgrep",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/util/ripgrep/src/index.ts",
+    "file": "lib/index.js",
+    "sha256": "bd118114f9f1abb87e6cb19de2afe65accf30c5f9c83853e2e0b076387ebbdee",
+    "before": "\t\tfor (const candidate of [process.platform === \"win32\" ? join(executable.dir, \"fallback\", rgName) : join(executable.dir, \"..\", \"fallback\", rgName), join(import.meta.dirname, \"../../../../../..\", \"toolchains\", \"fallback\", rgName)]) if (existsSync(candidate)) return candidate;\n\t\tconst dependency = (await import(\"@vscode/ripgrep\")).rgPath;",
+    "after": "\t\tfor (const candidate of [process.platform === \"win32\" ? join(executable.dir, \"fallback\", rgName) : join(executable.dir, \"..\", \"fallback\", rgName), join(import.meta.dirname, \"../../../../../..\", \"toolchains\", \"fallback\", rgName)]) if (existsSync(candidate)) return candidate;\n\t\tif (existsSync(\"/usr/bin/rg\")) return \"/usr/bin/rg\";\n\t\tconst dependency = (await import(\"@vscode/ripgrep\")).rgPath;"
   }
 ]

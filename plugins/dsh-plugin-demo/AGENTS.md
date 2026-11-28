@@ -14,7 +14,7 @@ UI 使用 TSX，算法与业务使用 TS。ui 提供共用界面；core 只做�
 
 ## DSH 接入
 
-接口以目标 DSH 的运行时检查、包文档与实现为准。创造模式先读取官方 cordis-plugin-development 指引；安装和启停通过 plugin_manager，外部终端使用指向目标环境的 dsh plugin 命令。不要手写用户 Profile、修改已安装包或默认用户目录。
+接口以目标 DSH 的运行时检查、包文档与实现为准。创造模式先加载官方 `dsh-doc` 技能并查阅其中的 `references/plugin-development.md`。安装和启停通过 plugin_manager，外部终端使用指向目标环境的 dsh plugin 命令。不要手写用户 Profile、修改已安装包或默认用户目录。
 
 源码安装与更新先重新构建并打包，再安装成品，避免链接工作副本影响正常使用。Git 源码安装通过标准 prepare 构建。编译失败不替换正在使用的版本。以安装返回的 application、warnings 和实际功能判断成功，restart-required 不等于已生效。
 
@@ -22,7 +22,7 @@ UI 使用 TSX，算法与业务使用 TS。ui 提供共用界面；core 只做�
 
 ## 插件 UI 与动效
 
-- 先按目标 DSH 版本找最接近的官方界面。设置项对照设置页，插件详情对照内置插件详情；从对应发布 tag 的 [UI/UX 指引](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.1/.agents/skills/dsh-client-ui-ux/SKILL.md)和[组件目录](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.1/packages/client/ui-primitives/README.zh.md#component-catalog)确认可用接口。链接以本模板当前版本为例，升级时切换到目标 tag。
+- 先按目标 DSH 版本找最接近的官方界面。设置项对照设置页，插件详情对照内置插件详情；从对应发布 tag 的 [UI/UX 指引](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/.agents/skills/dsh-client-ui-ux/SKILL.md)和[组件目录](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/client/ui-primitives/README.zh.md#component-catalog)确认可用接口。链接以本模板当前版本为例，升级时切换到目标 tag。
 - DSH 入口使用宿主 React 和 `@deepseek-ai/dsh-client-ui-primitives` 的控件。例如弹窗用 `Modal`，由它处理关闭、焦点和浮层行为。插件布局使用宿主主题的 `--dsw-*` 变量，样式限定在自己的界面内。另有独立网页入口时，在该入口提供需要的控件和主题回退。
 - 动效跟随同类交互。列表需要展示用户操作引起的增删或重排时，优先用 `AnimatedRows`；首次加载和刷新时直接呈现数据。自定义过渡应能说明它表达的状态变化，并在 `prefers-reduced-motion: reduce` 下保留清晰的静态反馈。
 - 对照实际 DSH 页面检查本次改动涉及的深浅主题、窄窗口、键盘焦点及减少动态效果。涉及动画时分别观察首次显示和用户操作后的变化。

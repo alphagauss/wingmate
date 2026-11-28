@@ -21,6 +21,8 @@ test('裁剪归档保留运行入口、类型、许可证和目标平台二进�
   ];
   const removed = [
     'lib/index.js.map',
+    'lib/index.d.mts.map',
+    'lib/index.d.cts.map',
     'lib/style.css.map',
     'prebuilds/win32-x64/addon.pdb',
     'prebuilds/win32-arm64/addon.node',
@@ -130,4 +132,97 @@ test('所有目标排除 LibreOffice 包及嵌套引擎，保留许可证和无�
       undefined,
     );
   }
+});
+
+test('排除重复的 ripgrep、内嵌 DevTools、冗余依赖文件和源码重复静态资源，保留 TS 源码与许可证', () => {
+  assert.equal(
+    excludedRuntimeFile(
+      'node_modules/@deepseek-ai/dsh-experimental-inspector/lib/devtools/entrypoints/lighthouse_worker/lighthouse_worker.js',
+    ),
+    'experimental-inspector',
+  );
+  assert.equal(
+    excludedRuntimeFile(
+      'node_modules/@deepseek-ai/dsh-experimental-inspector/LICENSE',
+    ),
+    undefined,
+  );
+  assert.equal(
+    excludedRuntimeFile(
+      'node_modules/@deepseek-ai/dsh-experimental-inspector-profile/cordis.patch.yml',
+    ),
+    undefined,
+  );
+  assert.equal(
+    excludedRuntimeFile(
+      'node_modules/@deepseek-ai/dsh-experimental-client-ui-stats/lib/client.js',
+    ),
+    undefined,
+  );
+  assert.equal(
+    excludedRuntimeFile('node_modules/@vscode/ripgrep/lib/index.js'),
+    'bundled-ripgrep',
+  );
+  assert.equal(
+    excludedRuntimeFile('node_modules/@vscode/ripgrep-win32-x64/bin/rg.exe'),
+    'bundled-ripgrep',
+  );
+  assert.equal(
+    excludedRuntimeFile('node_modules/@vscode/ripgrep-win32-x64/LICENSE'),
+    undefined,
+  );
+  assert.equal(
+    excludedRuntimeFile(
+      'node_modules/node-pty/third_party/conpty/1.25.260303002/win10-x64/OpenConsole.exe',
+    ),
+    'node-pty-third-party',
+  );
+  assert.equal(
+    excludedRuntimeFile(
+      'node_modules/node-pty/prebuilds/win32-x64/conpty/OpenConsole.exe',
+      'win32',
+      'x64',
+    ),
+    undefined,
+  );
+  assert.equal(
+    excludedRuntimeFile(
+      'node_modules/@mixmark-io/domino/test/html5lib-tests.json',
+    ),
+    'package-dev-files',
+  );
+  assert.equal(
+    excludedRuntimeFile(
+      'node_modules/@mixmark-io/domino/.yarn/plugins/@yarnpkg/plugin-version.cjs',
+    ),
+    'package-dev-files',
+  );
+  assert.equal(
+    excludedRuntimeFile('node_modules/@mixmark-io/domino/lib/index.js'),
+    undefined,
+  );
+  assert.equal(
+    excludedRuntimeFile(
+      'node_modules/@deepseek-ai/dsh-client-ui-settings-account/src/client/assets/onboarding-welcome.webp',
+    ),
+    'duplicate-source-asset',
+  );
+  assert.equal(
+    excludedRuntimeFile(
+      'node_modules/@deepseek-ai/dsh-client-ui-theme/src/styles/montserrat-regular.woff2',
+    ),
+    'duplicate-source-asset',
+  );
+  assert.equal(
+    excludedRuntimeFile(
+      'node_modules/@deepseek-ai/dsh-client-ui-settings-account/lib/assets/onboarding-welcome-8bee260fc9a4.webp',
+    ),
+    undefined,
+  );
+  assert.equal(
+    excludedRuntimeFile(
+      'node_modules/@deepseek-ai/dsh-client-ui-settings-account/src/client/index.tsx',
+    ),
+    undefined,
+  );
 });

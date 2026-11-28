@@ -1,2 +1,4 @@
-- id: office-to-pdf
+- id: office-kit
+  disabled: true
+- id: skill-office
   disabled: true

@@ -22,7 +22,7 @@ ACP 适配器随插件交付。主机需安装并登录 Codex，确保启动 Win
 
 ## DSH 适配与验证
 
-针对 `0.2.2-rc.1`，插件使用 Web 启动注入和 Connection transport hooks 标记当前页面的请求，宿主适配 Typert 网关的单次调用和流入口，沿用其认证和 Peer 生命周期。导航适配将 DSH 的当前会话持久化键映射到各标签页的后端记录。升级 DSH 时验证这两个入口、导航键、侧栏选择器和会话流快照。断线重连重读状态，不重放发送和审批。
+针对 `0.2.2-rc.5`，插件使用 Web 启动注入和 Connection transport hooks 标记当前页面的请求，宿主适配 Typert 网关的单次调用和流入口，沿用其认证和 Peer 生命周期。导航适配将 DSH 的当前会话持久化键映射到各标签页的后端记录。升级 DSH 时验证这两个入口、导航键、侧栏选择器和会话流快照。断线重连重读状态，不重放发送和审批。
 
 工作区、会话和网关投影参考 [ds-harness-remote 7d4d73baee7b](https://github.com/liguobao/ds-harness-remote/tree/7d4d73baee7b/packages/plugin/src)，随包保留 [MIT 许可](LICENSE.remote)。ACP 适配器来自 [agentclientprotocol/codex-acp](https://github.com/agentclientprotocol/codex-acp)，随包保留 Apache-2.0 许可。接入验证见 [2026-11-12 记录](../../docs/records/2026-11-12-bundled-codex-acp.md)。
 

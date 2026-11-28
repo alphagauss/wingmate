@@ -20,7 +20,7 @@ export async function installWorkbench(ctx, backends) {
     table.push({ kind: 'script', placement: 'head', text: script });
   });
 
-  // The 0.2.2-rc.1 gateway has separate unary and stream carriers.
+  // The 0.2.2-rc.5 gateway has separate unary and stream carriers.
   // Adapted from ds-harness-remote's TypertGatewaySwitch (see LICENSE.remote).
   const gateway = ctx.typertGateway;
   const { dispatchRpc, openWireStream } = gateway;

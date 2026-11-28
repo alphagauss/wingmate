@@ -1,0 +1,72 @@
+[
+  {
+    "id": "disable-builtin-office-preview",
+    "package": "@deepseek-ai/dsh-client-ui-sidebar-documentpreview",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/client/ui-sidebar-documentpreview/src/client/index.ts",
+    "file": "lib/client.js",
+    "sha256": "f4c84ba525e3593c3f9ad1fc19f821fce3ff381320f9e27746fc441d12ce25fd",
+    "before": "apply$2(ctx,config.office);",
+    "after": ""
+  },
+  {
+    "id": "hide-directory-picker-scrollbars-in-webview",
+    "package": "@deepseek-ai/dsh-client-ui-directory-picker-browse",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/client/ui-directory-picker-browse/src/client/DirectoryBrowser.module.css",
+    "file": "lib/client.js",
+    "sha256": "e90178a60fe35c9982bf75e8aa7ac57061eabcf21928a65e6bf4043930a567a5",
+    "before": ".ZuhsRW_crumbTrail{scrollbar-width:none;flex:0 auto;align-items:center;gap:4px;min-width:0;display:flex;overflow-x:auto}",
+    "after": ".ZuhsRW_crumbTrail{scrollbar-width:none;flex:0 auto;align-items:center;gap:4px;min-width:0;display:flex;overflow-x:auto}@supports not (scrollbar-width:none){.ZuhsRW_millerRow::-webkit-scrollbar,.ZuhsRW_crumbTrail::-webkit-scrollbar{display:none}}"
+  },
+  {
+    "id": "hide-spreadsheet-preview-scrollbars-in-webview",
+    "package": "@deepseek-ai/dsh-client-ui-sidebar-documentpreview",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/client/ui-sidebar-documentpreview/src/client/excel/ExcelBody.module.css",
+    "file": "lib/client.excel.js",
+    "sha256": "cc056df58a14801fbd8b988a8b30bffb9307759c2c6864f151833ab3696c4fb1",
+    "before": "._3HaaOG_workbook .fortune-fx-input{white-space:nowrap;scrollbar-width:none;min-width:0;overflow:auto hidden}",
+    "after": "._3HaaOG_workbook .fortune-fx-input{white-space:nowrap;scrollbar-width:none;min-width:0;overflow:auto hidden}@supports not (scrollbar-width:none){._3HaaOG_workbook .fortune-sheettab-container .fortune-sheettab-container-c::-webkit-scrollbar,._3HaaOG_workbook .fortune-fx-input::-webkit-scrollbar{display:none}}"
+  },
+  {
+    "id": "remove-office-tools-from-standard-preset",
+    "package": "@deepseek-ai/dsh-web-app",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/bundle/web-app/presets/standard.patch.yml",
+    "file": "presets/standard.patch.yml",
+    "sha256": "e40bb192ed3b835312c2acd2ccd64d3bc4b85f80a7bc95b132cb18fbee190b5d",
+    "before": "          - id: tool-office\n            name: '@deepseek-ai/dsh-tool-office'\n",
+    "after": ""
+  },
+  {
+    "id": "remove-office-tools-from-ptc-preset",
+    "package": "@deepseek-ai/dsh-web-app",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/bundle/web-app/presets/ptc.patch.yml",
+    "file": "presets/ptc.patch.yml",
+    "sha256": "838665e063dc8bcab4caf24e41ec848373c434df4262feb981306944e1cec7fd",
+    "before": "          - id: tool-office\n            name: '@deepseek-ai/dsh-tool-office'\n",
+    "after": ""
+  },
+  {
+    "id": "remove-experimental-inspector-from-devtools-profile",
+    "package": "@deepseek-ai/dsh-experimental-inspector-profile",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/experimental/inspector-profile/cordis.patch.yml",
+    "file": "cordis.patch.yml",
+    "sha256": "a1d5e9bb9c98c872f2dcc7e710d5bba0799d6d2f31d0e724af435b96c09b7335",
+    "before": "    - id: experimental-inspector\n      name: '@deepseek-ai/dsh-experimental-inspector'\n      disabled: false\n      config:\n        captureFetch: true\n",
+    "after": ""
+  },
+  {
+    "id": "use-wingmate-bundled-ripgrep",
+    "package": "@deepseek-ai/dsh-util-ripgrep",
+    "version": "0.2.2-rc.5",
+    "source": "https://github.com/deepseek-ai/deepseek-harness/blob/9c2670d3bce5275e0d1610272958121af87787bb/packages/util/ripgrep/src/index.ts",
+    "file": "lib/index.js",
+    "sha256": "58f06ddafed1680885a933bcdb0afa638bf08d5bd9b9689e39cfd82daf7f5822",
+    "before": "\t\tif (\"pkg\" in process && existsSync(executableSidecar)) return executableSidecar;\n\t\tconst dependency = (await import(\"@vscode/ripgrep\")).rgPath;",
+    "after": "\t\tif (\"pkg\" in process && existsSync(executableSidecar)) return executableSidecar;\n\t\tconst rgName = process.platform === \"win32\" ? \"rg.exe\" : \"rg\";\n\t\tfor (const candidate of [process.platform === \"win32\" ? join(executable.dir, \"fallback\", rgName) : join(executable.dir, \"..\", \"fallback\", rgName), join(import.meta.dirname, \"../../../../../..\", \"toolchains\", \"fallback\", rgName)]) if (existsSync(candidate)) return candidate;\n\t\tconst dependency = (await import(\"@vscode/ripgrep\")).rgPath;"
+  }
+]
