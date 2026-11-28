@@ -394,6 +394,17 @@ const wsl = document.getElementById('wsl-connection');
 const wslDistro = document.getElementById('wsl-distro');
 const wslStatus = document.getElementById('wsl-status');
 const wslConnect = document.getElementById('wsl-connect');
+const wslExecutable = document.getElementById('wsl-wingmate');
+let wslOffer;
+
+function resetWslOffer() {
+  wslOffer = undefined;
+  wslConnect.textContent = '连接 WSL';
+  wslStatus.textContent = '';
+}
+
+wslDistro.addEventListener('change', resetWslOffer);
+wslExecutable.addEventListener('input', resetWslOffer);
 wsl.hidden = !supportsWsl;
 wsl.addEventListener('toggle', async () => {
   if (!wsl.open || wslDistro.options.length) return;
@@ -416,14 +427,32 @@ document.getElementById('wsl-form').addEventListener('submit', (event) => {
   if (connectionBusy) return;
   act(wslConnect, async () => {
     connectionBusy = true;
-    const wslExecutable = document.getElementById('wsl-wingmate');
     wslDistro.disabled = wslExecutable.disabled = true;
+    wslStatus.textContent = wslOffer
+      ? '正在下载并安装 Wingmate…'
+      : '正在检查 Wingmate…';
     try {
-      await invoke('connect_wsl', {
+      const result = await invoke('connect_wsl', {
         distro: wslDistro.value,
         executable: wslExecutable.value.trim() || undefined,
+        approved: wslOffer,
       });
+      if (result.status === 'install') {
+        wslOffer = result.offer;
+        const size = Math.ceil(wslOffer.size / 1024 / 1024);
+        wslStatus.textContent = [
+          '未找到 Wingmate。',
+          wslDistro.value + ' · ' + result.user,
+          wslOffer.tag + ' · ' + size + ' MiB',
+          result.path,
+        ].join(' ');
+        wslConnect.textContent = '安装并连接';
+        return;
+      }
       await close();
+    } catch (error) {
+      resetWslOffer();
+      throw error;
     } finally {
       connectionBusy = false;
       wslDistro.disabled = wslExecutable.disabled = false;

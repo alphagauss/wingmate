@@ -3,6 +3,7 @@ mod bridge;
 mod connection_panel;
 mod popup;
 mod remote;
+mod remote_install;
 mod remote_relay;
 mod remote_ssh;
 mod remote_wsl;

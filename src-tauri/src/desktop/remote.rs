@@ -332,7 +332,7 @@ pub(super) fn executable_script(executable: Option<&str>) -> String {
     if let Some(path) = executable {
         format!("wm={}; [ -x \"$wm\" ] || exit 44", shell_quote(path))
     } else {
-        "if [ -x \"$HOME/.wingmate/bin/wingmate\" ]; then wm=\"$HOME/.wingmate/bin/wingmate\"; else wm=$(command -v wingmate) || exit 44; fi".to_owned()
+        "if [ -x \"$HOME/.wingmate/remote-install/wingmate\" ]; then wm=\"$HOME/.wingmate/remote-install/wingmate\"; elif [ -x \"$HOME/.wingmate/bin/wingmate\" ]; then wm=\"$HOME/.wingmate/bin/wingmate\"; else wm=$(command -v wingmate) || exit 44; fi".to_owned()
     }
 }
 
@@ -341,16 +341,30 @@ pub(super) struct Gateway {
     pub(super) instance: Option<uuid::Uuid>,
 }
 
+#[derive(Debug)]
+pub(super) struct MissingExecutable;
+
+impl std::fmt::Display for MissingExecutable {
+    fn fmt(&self, writer: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writer.write_str("找不到 Wingmate，请安装或指定可执行文件")
+    }
+}
+
+impl std::error::Error for MissingExecutable {}
+
 pub(super) async fn bootstrap<F, S>(executable: Option<&str>, exec: F) -> Result<Gateway>
 where
     F: Fn(String, Duration) -> S,
     S: Future<Output = Result<(u32, Vec<u8>, Vec<u8>)>>,
 {
+    const OUTPUT: &str = "__wingmate_connect_info__";
     let init = executable_script(executable);
     let (code, stdout, stderr) = exec(format!(
-        "{init}; if ! \"$wm\" connect-info >/dev/null 2>&1; then \"$wm\" service-start >/dev/null || exit; fi; exec \"$wm\" connect-info --pair"
+        "{init}; if ! \"$wm\" connect-info >/dev/null 2>&1; then \"$wm\" service-start >/dev/null || exit; fi; printf '\\n{OUTPUT}\\n'; exec \"$wm\" connect-info --pair"
     ), Duration::from_secs(150)).await?;
-    anyhow::ensure!(code != 44, "找不到 Wingmate，请安装或指定可执行文件");
+    if code == 44 {
+        return Err(MissingExecutable.into());
+    }
     anyhow::ensure!(
         code == 0,
         "无法准备 Wingmate 网关（退出码 {code}）{}",
@@ -371,12 +385,11 @@ where
         pairing_url: String,
         service_instance: Option<uuid::Uuid>,
     }
-    let line = stdout
-        .split(|byte| *byte == b'\n')
-        .rev()
-        .find(|line| !line.iter().all(|byte| byte.is_ascii_whitespace()))
+    let (_, json) = std::str::from_utf8(&stdout)
+        .context("网关连接信息编码无效")?
+        .rsplit_once(OUTPUT)
         .context("Wingmate 网关未返回连接信息")?;
-    let info: Pairing = serde_json::from_slice(line).context("无法识别 Wingmate 网关连接信息")?;
+    let info: Pairing = serde_json::from_str(json).context("无法识别 Wingmate 网关连接信息")?;
     let pairing = target(&info.pairing_url)?;
     anyhow::ensure!(
         info.schema_version == 1
@@ -749,6 +762,30 @@ pub(super) async fn local_share(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn accepts_pretty_printed_cli_output_after_login_banner() {
+        let gateway = bootstrap(None, |_, _| async {
+            Ok((
+                0,
+                br#"login banner
+__wingmate_connect_info__
+{
+  "schema_version": 1,
+  "host": "127.0.0.1",
+  "port": 8746,
+  "pairing_url": "http://127.0.0.1:8746/?auth=one-use"
+}
+"#
+                .to_vec(),
+                Vec::new(),
+            ))
+        })
+        .await
+        .unwrap();
+        assert_eq!(gateway.url.port(), Some(8746));
+        assert!(gateway.instance.is_none());
+    }
 
     #[test]
     fn accepts_wingmate_http_ipv4_and_https_domain_links() {

@@ -1,6 +1,7 @@
 //! 枚举 WSL 发行版并在所选实例中接入 Wingmate 的回环网关。
-use super::{connection_panel, remote, remote_relay::BoxStream, Desktop};
+use super::{connection_panel, remote, remote_install, remote_relay::BoxStream, Desktop};
 use anyhow::{ensure, Context, Result};
+use serde::Serialize;
 use std::{
     pin::Pin,
     process::Stdio,
@@ -10,7 +11,7 @@ use std::{
 };
 use tauri::{State, Webview};
 use tokio::{
-    io::{AsyncRead, AsyncWrite, Join, ReadBuf},
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt, Join, ReadBuf},
     process::{Child, ChildStdin, ChildStdout, Command},
 };
 
@@ -123,15 +124,94 @@ fn open_pipe(distro: &str, script: String) -> Result<BoxStream> {
     }))
 }
 
+async fn exec(distro: &str, script: String, timeout: Duration) -> Result<(u32, Vec<u8>, Vec<u8>)> {
+    let output = tokio::time::timeout(timeout, distro_command(distro, script).output())
+        .await
+        .context("WSL 命令执行超时")??;
+    Ok((
+        output
+            .status
+            .code()
+            .and_then(|code| u32::try_from(code).ok())
+            .unwrap_or(1),
+        output.stdout,
+        decode(&output.stderr).into_bytes(),
+    ))
+}
+
+async fn platform(distro: &str) -> Result<(String, String)> {
+    let (code, stdout, _) =
+        exec(distro, "uname -sm && id -un".into(), Duration::from_secs(8)).await?;
+    ensure!(code == 0, "无法读取 WSL 发行版信息");
+    let output = decode(&stdout);
+    let (platform, user) = output.trim().split_once('\n').context("未获得 WSL 用户")?;
+    Ok((platform.trim().into(), user.trim().into()))
+}
+
+async fn upload(distro: &str, path: &std::path::Path, offer: &remote_install::Offer) -> Result<()> {
+    let script = format!(
+        r#"
+        umask 077
+        base="$HOME/.wingmate/remote-install"
+        mkdir -p -- "$base" || exit
+        staged=$(mktemp "$base/.part.XXXXXXXXXX") || exit
+        trap 'rm -f -- "$staged"' EXIT
+        trap 'exit 1' HUP INT TERM
+        cat > "$staged" || exit
+        {}
+    "#,
+        remote_install::publish_script(&offer.sha256)
+    );
+    let mut process = distro_command(distro, script)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("无法向 WSL 传输 Wingmate")?;
+    let mut input = process.stdin.take().context("WSL 未提供写入管道")?;
+    let mut file = tokio::fs::File::open(path).await?;
+    let (write, output) = tokio::time::timeout(Duration::from_secs(900), async move {
+        tokio::join!(
+            async move {
+                tokio::io::copy(&mut file, &mut input).await?;
+                input.shutdown().await
+            },
+            process.wait_with_output()
+        )
+    })
+    .await
+    .context("WSL 安装超时")?;
+    let output = output?;
+    ensure!(
+        output.status.success(),
+        "安装 Wingmate 失败。{}",
+        decode(&output.stderr).trim()
+    );
+    write?;
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub(super) enum Reply {
+    Install {
+        offer: remote_install::Offer,
+        user: String,
+        path: &'static str,
+    },
+    Connected,
+}
+
 #[tauri::command]
 pub(super) async fn connect_wsl(
     webview: Webview,
     desktop: State<'_, Arc<Desktop>>,
     distro: String,
-    executable: Option<String>,
-) -> Result<(), String> {
+    mut executable: Option<String>,
+    approved: Option<remote_install::Offer>,
+) -> Result<Reply, String> {
     let attempt = remote::Attempt::start(&webview, &desktop, None)?;
-    let prepare = async {
+    async {
         ensure!(cfg!(windows), "WSL 连接需要 Windows");
         ensure!(
             !distro.is_empty()
@@ -141,31 +221,40 @@ pub(super) async fn connect_wsl(
             "请选择有效的 WSL 发行版"
         );
         remote::validate_executable(executable.as_deref())?;
-        let gateway = remote::bootstrap(executable.as_deref(), |script, timeout| {
-            let distro = &distro;
-            async move {
-                let output = tokio::time::timeout(timeout, distro_command(distro, script).output())
-                    .await
-                    .context("WSL 中的 Wingmate 准备超时")??;
-                Ok((
-                    output
-                        .status
-                        .code()
-                        .and_then(|code| u32::try_from(code).ok())
-                        .unwrap_or(1),
-                    output.stdout,
-                    decode(&output.stderr).into_bytes(),
-                ))
-            }
-        })
-        .await?;
-        ensure!(
-            gateway.instance.is_some(),
-            "WSL 中的 Wingmate 版本过旧，请在此发行版更新后重试"
-        );
-        Ok::<_, anyhow::Error>(gateway)
+        if let Some(offer) = &approved {
+            let (platform, _) = platform(&distro).await?;
+            let path = remote_install::download(&desktop.home, &platform, offer).await?;
+            attempt.verify().map_err(anyhow::Error::msg)?;
+            upload(&distro, &path, offer).await?;
+            executable = None;
+        }
+        Ok::<(), anyhow::Error>(())
+    }
+    .await
+    .map_err(|error| format!("{error:#}"))?;
+    let gateway = match remote::bootstrap(executable.as_deref(), |script, timeout| {
+        exec(&distro, script, timeout)
+    })
+    .await
+    {
+        Ok(gateway) if gateway.instance.is_some() => gateway,
+        Ok(_) => return Err("WSL 中的 Wingmate 版本过旧，请在此发行版更新后重试".into()),
+        Err(error) if approved.is_none() && error.is::<remote::MissingExecutable>() => {
+            let (platform, user) = platform(&distro)
+                .await
+                .map_err(|error| format!("{error:#}"))?;
+            let offer = remote_install::latest(&platform)
+                .await
+                .map_err(|error| format!("找不到 Wingmate。{error:#}"))?;
+            attempt.verify()?;
+            return Ok(Reply::Install {
+                offer,
+                user,
+                path: remote_install::DESTINATION,
+            });
+        }
+        Err(error) => return Err(format!("{error:#}")),
     };
-    let gateway = prepare.await.map_err(|error| format!("{error:#}"))?;
     let script = format!(
         "{}; exec \"$wm\" gateway-stdio",
         remote::executable_script(executable.as_deref())
@@ -174,5 +263,6 @@ pub(super) async fn connect_wsl(
     remote::open_tunnel(attempt, gateway, address, "wsl", move || {
         std::future::ready(open_pipe(&distro, script.clone()))
     })
-    .await
+    .await?;
+    Ok(Reply::Connected)
 }
