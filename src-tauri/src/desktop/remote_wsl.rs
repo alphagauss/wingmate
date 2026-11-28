@@ -238,7 +238,12 @@ async fn gateway_process(
     })
 }
 
-async fn upload(distro: &str, path: &std::path::Path, offer: &remote_install::Offer) -> Result<()> {
+async fn upload(
+    distro: &str,
+    path: &std::path::Path,
+    offer: &remote_install::Offer,
+    progress: &remote_install::Progress<'_>,
+) -> Result<()> {
     let script = format!(
         r#"
         umask 077
@@ -259,12 +264,14 @@ async fn upload(distro: &str, path: &std::path::Path, offer: &remote_install::Of
         .spawn()
         .context("无法向 WSL 传输 Wingmate")?;
     let mut input = process.stdin.take().context("WSL 未提供写入管道")?;
-    let mut file = tokio::fs::File::open(path).await?;
     let (write, output) = tokio::time::timeout(Duration::from_secs(900), async move {
         tokio::join!(
             async move {
-                tokio::io::copy(&mut file, &mut input).await?;
-                input.shutdown().await
+                remote_install::transfer(path, &mut input, offer.size, progress).await?;
+                input.shutdown().await?;
+                drop(input);
+                progress.stage(remote_install::Stage::Verify);
+                Ok::<(), anyhow::Error>(())
             },
             process.wait_with_output()
         )
@@ -299,6 +306,7 @@ pub(super) async fn connect_wsl(
     distro: String,
     mut executable: Option<String>,
     approved: Option<remote_install::Offer>,
+    progress_id: Option<u32>,
 ) -> Result<Reply, String> {
     let attempt = remote::Attempt::start(&webview, &desktop, None)?;
     async {
@@ -312,10 +320,13 @@ pub(super) async fn connect_wsl(
         );
         remote::validate_executable(executable.as_deref())?;
         if let Some(offer) = &approved {
+            let progress =
+                remote_install::Progress::new(&webview, desktop.page.connections(), progress_id);
             let (platform, _) = platform(&distro).await?;
-            let path = remote_install::download(&desktop.home, &platform, offer).await?;
+            let path = remote_install::download(&desktop.home, &platform, offer, &progress).await?;
             attempt.verify().map_err(anyhow::Error::msg)?;
-            upload(&distro, &path, offer).await?;
+            upload(&distro, &path, offer, &progress).await?;
+            progress.stage(remote_install::Stage::Connect);
             executable = None;
         }
         Ok::<(), anyhow::Error>(())

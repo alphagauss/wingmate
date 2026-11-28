@@ -249,7 +249,12 @@ async fn platform(session: &Session) -> Result<String> {
         .to_owned())
 }
 
-async fn upload(session: &Session, path: &Path, offer: &remote_install::Offer) -> Result<()> {
+async fn upload(
+    session: &Session,
+    path: &Path,
+    offer: &remote_install::Offer,
+    progress: &remote_install::Progress<'_>,
+) -> Result<()> {
     let result = checked_exec(
         session,
         r#"
@@ -283,11 +288,10 @@ async fn upload(session: &Session, path: &Path, offer: &remote_install::Offer) -
             .await
             .context("SSH 服务器未提供 SFTP")?;
         let mut output = sftp.create(staged).await?;
-        let file = tokio::fs::File::open(path).await?;
-        let mut input = tokio::io::BufReader::with_capacity(128 * 1024, file);
-        tokio::io::copy_buf(&mut input, &mut output).await?;
+        remote_install::transfer(path, &mut output, offer.size, progress).await?;
         output.close().await?;
         sftp.close().await?;
+        progress.stage(remote_install::Stage::Verify);
         let script = format!(
             "base={}; staged={}; {}",
             remote::shell_quote(base),
@@ -313,6 +317,7 @@ pub(super) async fn connect_ssh(
     secret: Option<String>,
     fingerprint: Option<String>,
     approved: Option<remote_install::Offer>,
+    progress_id: Option<u32>,
 ) -> Result<Reply, String> {
     let attempt = remote::Attempt::start(&webview, &desktop, None)?;
     target.validate().map_err(|error| error.to_string())?;
@@ -358,14 +363,17 @@ pub(super) async fn connect_ssh(
     drop(secret);
     attempt.verify()?;
     if let Some(offer) = &approved {
+        let progress =
+            remote_install::Progress::new(&webview, desktop.page.connections(), progress_id);
         async {
             let platform = platform(&session).await?;
-            let path = remote_install::download(&desktop.home, &platform, offer).await?;
+            let path = remote_install::download(&desktop.home, &platform, offer, &progress).await?;
             attempt.verify().map_err(anyhow::Error::msg)?;
-            upload(&session, &path, offer).await
+            upload(&session, &path, offer, &progress).await
         }
         .await
         .map_err(|error| format!("{error:#}"))?;
+        progress.stage(remote_install::Stage::Connect);
         target.executable = None;
     }
     let pairing = remote::bootstrap(target.executable.as_deref(), |command, timeout| {

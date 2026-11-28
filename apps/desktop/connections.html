@@ -584,10 +584,18 @@
     background: var(--selected);
     font-weight: 600;
   }
-  #tunnel progress {
+  #tunnel progress,
+  .install-progress progress {
     width: 100%;
     height: 8px;
     accent-color: var(--accent);
+  }
+  .install-progress .row {
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .install-bytes {
+    font-variant-numeric: tabular-nums;
   }
   #tunnel-status {
     overflow-wrap: anywhere;
@@ -726,6 +734,15 @@
             </div></div
           ></div
         >
+      </template>
+      <template id="install-progress-template">
+        <div class="install-progress">
+          <div class="row">
+            <span class="install-stage" role="status">正在准备安装…</span>
+            <span class="install-bytes muted" aria-hidden="true"></span>
+          </div>
+          <progress aria-label="Wingmate 安装进度"></progress>
+        </div>
       </template>
       <details id="ssh-connection">
         <summary>通过 SSH 连接</summary>

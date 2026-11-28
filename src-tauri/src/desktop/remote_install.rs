@@ -4,13 +4,61 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tauri::{Url, Webview};
+use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 const REPOSITORY: &str = "alphagauss/wingmate";
 const NAME: &str = "wingmate-linux-x64";
 pub(super) const DESTINATION: &str = "~/.wingmate/remote-install/wingmate";
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum Stage {
+    Download,
+    Transfer,
+    Verify,
+    Connect,
+}
+
+pub(super) struct Progress<'a> {
+    webview: &'a Webview,
+    page: Url,
+    id: Option<u32>,
+}
+
+impl<'a> Progress<'a> {
+    pub(super) fn new(webview: &'a Webview, page: Url, id: Option<u32>) -> Self {
+        Self { webview, page, id }
+    }
+
+    pub(super) fn stage(&self, stage: Stage) {
+        self.publish(stage, 0, None);
+    }
+
+    fn publish(&self, stage: Stage, completed: u64, total: Option<u64>) {
+        if let Some(id) = self.id {
+            let page = serde_json::json!(self.page.as_str());
+            let args = serde_json::json!([id, stage, completed, total]);
+            let _ = self.webview.eval(format!(
+                "if (location.href === {page}) window.wingmateInstallProgress?.(...{args})"
+            ));
+        }
+    }
+
+    fn meter(&self, stage: Stage, total: u64) -> impl FnMut(u64) + '_ {
+        let mut last = Instant::now();
+        self.publish(stage, 0, Some(total));
+        move |completed| {
+            let now = Instant::now();
+            if completed == total || now.duration_since(last) >= Duration::from_millis(200) {
+                self.publish(stage, completed, Some(total));
+                last = now;
+            }
+        }
+    }
+}
 
 #[derive(Deserialize)]
 struct Release {
@@ -121,7 +169,12 @@ async fn matches(path: &Path, offer: &Offer) -> Result<bool> {
     }
 }
 
-pub(super) async fn download(home: &Path, platform: &str, approved: &Offer) -> Result<PathBuf> {
+pub(super) async fn download(
+    home: &Path,
+    platform: &str,
+    approved: &Offer,
+    progress: &Progress<'_>,
+) -> Result<PathBuf> {
     // 复核桌面呈现给用户的版本，禁止从前端输入下载地址或更换确认过的资产。
     let offer = latest(platform).await?;
     ensure!(&offer == approved, "官方发行已更新，请重新检查版本后确认");
@@ -133,6 +186,7 @@ pub(super) async fn download(home: &Path, platform: &str, approved: &Offer) -> R
     }
     let temp = tempfile::NamedTempFile::new_in(&cache)?;
     let mut file = tokio::fs::File::from_std(temp.reopen()?);
+    let mut report = progress.meter(Stage::Download, offer.size);
     let mut response = client()?
         .get(offer.download_url())
         .timeout(Duration::from_secs(900))
@@ -146,6 +200,7 @@ pub(super) async fn download(home: &Path, platform: &str, approved: &Offer) -> R
         ensure!(size <= offer.size, "收到的发行包超过预期大小");
         hash.update(&bytes);
         file.write_all(&bytes).await?;
+        report(size);
     }
     ensure!(
         size == offer.size && format!("{:x}", hash.finalize()) == offer.sha256,
@@ -155,6 +210,32 @@ pub(super) async fn download(home: &Path, platform: &str, approved: &Offer) -> R
     drop(file);
     temp.persist(&path)?;
     Ok(path)
+}
+
+pub(super) async fn transfer(
+    path: &Path,
+    output: &mut (impl AsyncWrite + Unpin),
+    total: u64,
+    progress: &Progress<'_>,
+) -> Result<()> {
+    let mut file = tokio::fs::File::open(path).await?;
+    let mut buffer = vec![0; 128 * 1024];
+    let mut sent = 0;
+    let mut report = progress.meter(Stage::Transfer, total);
+    loop {
+        let count = file.read(&mut buffer).await?;
+        if count == 0 {
+            break;
+        }
+        let next = sent + count as u64;
+        ensure!(next <= total, "本机发行包大小已变化");
+        output.write_all(&buffer[..count]).await?;
+        sent = next;
+        report(sent);
+    }
+    ensure!(sent == total, "本机发行包大小已变化");
+    output.flush().await?;
+    Ok(())
 }
 
 // 先校验临时文件，再用原子硬链接发布。并发安装已发布相同文件时允许复用。

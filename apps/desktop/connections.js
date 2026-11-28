@@ -343,6 +343,54 @@ link.addEventListener('input', () => {
   if (!connectionBusy) clearLogin();
 });
 
+const installTemplate = document.getElementById('install-progress-template');
+let installGeneration = 0;
+let activeInstall;
+
+function startInstallProgress(button) {
+  const view = installTemplate.content.firstElementChild.cloneNode(true);
+  button.before(view);
+  activeInstall = {
+    id: ++installGeneration,
+    view,
+    stage: view.querySelector('.install-stage'),
+    bytes: view.querySelector('.install-bytes'),
+    bar: view.querySelector('progress'),
+  };
+  return activeInstall.id;
+}
+
+function stopInstallProgress(id) {
+  if (!activeInstall || activeInstall.id !== id) return;
+  activeInstall.view.remove();
+  activeInstall = undefined;
+}
+
+window.wingmateInstallProgress = (id, stage, completed, total) => {
+  if (activeInstall?.id !== id) return;
+  const text = {
+    download: '正在下载发行包',
+    transfer: '正在传输发行包',
+    verify: '正在校验并安装',
+    connect: '正在连接 Wingmate',
+  }[stage];
+  const { stage: label, bytes, bar } = activeInstall;
+  if (label.textContent !== text) label.textContent = text;
+  if (total === null) {
+    bytes.textContent = '';
+    bar.removeAttribute('value');
+    bar.removeAttribute('aria-valuetext');
+  } else {
+    const percent = Math.floor((completed * 100) / total);
+    const mib = (size) => (size / 1048576).toFixed(1);
+    bytes.textContent =
+      mib(completed) + ' / ' + mib(total) + ' MiB · ' + percent + '%';
+    bar.max = total;
+    bar.value = completed;
+    bar.setAttribute('aria-valuetext', bytes.textContent);
+  }
+};
+
 const sshForm = document.getElementById('ssh-form');
 const sshFingerprint = document.getElementById('ssh-fingerprint');
 const sshConnect = sshForm.querySelector('button[type="submit"]');
@@ -369,12 +417,14 @@ sshForm.addEventListener('submit', (event) => {
     connectionBusy = true;
     const inputs = [...sshForm.querySelectorAll('input')];
     for (const input of inputs) input.disabled = true;
+    const progressId = sshOffer ? startInstallProgress(sshConnect) : undefined;
     try {
       const result = await invoke('connect_ssh', {
         target,
         secret: fields.get('secret') || undefined,
         fingerprint: pendingFingerprint,
         approved: sshOffer,
+        progressId,
       });
       if (result.status === 'confirm_host') {
         pendingFingerprint = result.fingerprint;
@@ -403,6 +453,7 @@ sshForm.addEventListener('submit', (event) => {
       }
       throw error;
     } finally {
+      stopInstallProgress(progressId);
       connectionBusy = false;
       for (const input of inputs) input.disabled = false;
     }
@@ -457,14 +508,14 @@ document.getElementById('wsl-form').addEventListener('submit', (event) => {
   act(wslConnect, async () => {
     connectionBusy = true;
     wslDistro.disabled = wslExecutable.disabled = true;
-    wslStatus.textContent = wslOffer
-      ? '正在下载并安装 Wingmate…'
-      : '正在检查 Wingmate…';
+    if (!wslOffer) wslStatus.textContent = '正在检查 Wingmate…';
+    const progressId = wslOffer ? startInstallProgress(wslConnect) : undefined;
     try {
       const result = await invoke('connect_wsl', {
         distro: wslDistro.value,
         executable: wslExecutable.value.trim() || undefined,
         approved: wslOffer,
+        progressId,
       });
       if (result.status === 'install') {
         wslOffer = result.offer;
@@ -481,6 +532,7 @@ document.getElementById('wsl-form').addEventListener('submit', (event) => {
       resetWslOffer();
       throw error;
     } finally {
+      stopInstallProgress(progressId);
       connectionBusy = false;
       wslDistro.disabled = wslExecutable.disabled = false;
     }
