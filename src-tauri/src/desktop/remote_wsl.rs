@@ -240,14 +240,14 @@ async fn gateway_process(
 
 async fn upload(
     distro: &str,
-    path: &std::path::Path,
+    download: remote_install::Download,
     offer: &remote_install::Offer,
     progress: &remote_install::Progress<'_>,
 ) -> Result<()> {
     let script = format!(
         r#"
         umask 077
-        base="$HOME/.wingmate/remote-install"
+        base="$HOME/.wingmate/downloads"
         mkdir -p -- "$base" || exit
         staged=$(mktemp "$base/.part.XXXXXXXXXX") || exit
         trap 'rm -f -- "$staged"' EXIT
@@ -267,7 +267,7 @@ async fn upload(
     let (write, output) = tokio::time::timeout(Duration::from_secs(900), async move {
         tokio::join!(
             async move {
-                remote_install::transfer(path, &mut input, offer.size, progress).await?;
+                remote_install::transfer(download, &mut input, offer.size, progress).await?;
                 input.shutdown().await?;
                 drop(input);
                 progress.stage(remote_install::Stage::Verify);
@@ -323,9 +323,10 @@ pub(super) async fn connect_wsl(
             let progress =
                 remote_install::Progress::new(&webview, desktop.page.connections(), progress_id);
             let (platform, _) = platform(&distro).await?;
-            let path = remote_install::download(&desktop.home, &platform, offer, &progress).await?;
+            let download =
+                remote_install::download(&desktop.home, &platform, offer, &progress).await?;
             attempt.verify().map_err(anyhow::Error::msg)?;
-            upload(&distro, &path, offer, &progress).await?;
+            upload(&distro, download, offer, &progress).await?;
             progress.stage(remote_install::Stage::Connect);
             executable = None;
         }

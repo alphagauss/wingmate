@@ -332,7 +332,15 @@ pub(super) fn executable_script(executable: Option<&str>) -> String {
     if let Some(path) = executable {
         format!("wm={}; [ -x \"$wm\" ] || exit 44", shell_quote(path))
     } else {
-        "if [ -x \"$HOME/.wingmate/remote-install/wingmate\" ]; then wm=\"$HOME/.wingmate/remote-install/wingmate\"; elif [ -x \"$HOME/.wingmate/bin/wingmate\" ]; then wm=\"$HOME/.wingmate/bin/wingmate\"; else wm=$(command -v wingmate) || exit 44; fi".to_owned()
+        let asset = super::remote_install::NAME;
+        format!(
+            r#"
+            wm="$HOME/.wingmate/downloads/{asset}"
+            if [ ! -x "$wm" ]; then
+                wm="$HOME/.wingmate/bin/wingmate"
+                [ -x "$wm" ] || wm=$(command -v wingmate) || exit 44
+            fi"#
+        )
     }
 }
 

@@ -11,7 +11,7 @@ use std::{
     collections::BTreeMap,
     fs::{self, OpenOptions},
     io::Write,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -251,7 +251,7 @@ async fn platform(session: &Session) -> Result<String> {
 
 async fn upload(
     session: &Session,
-    path: &Path,
+    download: remote_install::Download,
     offer: &remote_install::Offer,
     progress: &remote_install::Progress<'_>,
 ) -> Result<()> {
@@ -259,7 +259,7 @@ async fn upload(
         session,
         r#"
         umask 077
-        base="$HOME/.wingmate/remote-install"
+        base="$HOME/.wingmate/downloads"
         mkdir -p -- "$base" || exit
         mktemp "$base/.part.XXXXXXXXXX"
     "#
@@ -273,7 +273,7 @@ async fn upload(
         .context("服务器返回的临时文件位置无效")?;
     ensure!(
         base.starts_with('/')
-            && base.ends_with("/.wingmate/remote-install")
+            && base.ends_with("/.wingmate/downloads")
             && !staged.chars().any(char::is_control)
             && name
                 .strip_prefix(".part.")
@@ -288,7 +288,7 @@ async fn upload(
             .await
             .context("SSH 服务器未提供 SFTP")?;
         let mut output = sftp.create(staged).await?;
-        remote_install::transfer(path, &mut output, offer.size, progress).await?;
+        remote_install::transfer(download, &mut output, offer.size, progress).await?;
         output.close().await?;
         sftp.close().await?;
         progress.stage(remote_install::Stage::Verify);
@@ -367,9 +367,10 @@ pub(super) async fn connect_ssh(
             remote_install::Progress::new(&webview, desktop.page.connections(), progress_id);
         async {
             let platform = platform(&session).await?;
-            let path = remote_install::download(&desktop.home, &platform, offer, &progress).await?;
+            let download =
+                remote_install::download(&desktop.home, &platform, offer, &progress).await?;
             attempt.verify().map_err(anyhow::Error::msg)?;
-            upload(&session, &path, offer, &progress).await
+            upload(&session, download, offer, &progress).await
         }
         .await
         .map_err(|error| format!("{error:#}"))?;

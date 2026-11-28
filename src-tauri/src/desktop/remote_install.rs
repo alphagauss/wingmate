@@ -3,15 +3,20 @@ use anyhow::{ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    path::{Path, PathBuf},
+    fs::{self, OpenOptions},
+    io::{ErrorKind, SeekFrom},
+    path::Path,
     time::{Duration, Instant},
 };
 use tauri::{Url, Webview};
-use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::{
+    fs::File,
+    io::{AsyncReadExt, AsyncSeekExt, AsyncWrite, AsyncWriteExt},
+};
 
 const REPOSITORY: &str = "alphagauss/wingmate";
-const NAME: &str = "wingmate-linux-x64";
-pub(super) const DESTINATION: &str = "~/.wingmate/remote-install/wingmate";
+pub(super) const NAME: &str = "wingmate-linux-x64";
+pub(super) const DESTINATION: &str = "~/.wingmate/downloads/wingmate-linux-x64";
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -149,24 +154,56 @@ pub(super) async fn latest(platform: &str) -> Result<Offer> {
     Offer::from_release(release)
 }
 
-async fn matches(path: &Path, offer: &Offer) -> Result<bool> {
-    let mut file = match tokio::fs::File::open(path).await {
+async fn cached(path: &Path, offer: &Offer) -> Result<Option<File>> {
+    let mut file = match File::open(path).await {
         Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     };
     if file.metadata().await?.len() != offer.size {
-        return Ok(false);
+        return Ok(None);
     }
     let mut hash = Sha256::new();
     let mut buffer = vec![0; 128 * 1024];
     loop {
         let count = file.read(&mut buffer).await?;
         if count == 0 {
-            return Ok(format!("{:x}", hash.finalize()) == offer.sha256);
+            if format!("{:x}", hash.finalize()) != offer.sha256 {
+                return Ok(None);
+            }
+            file.seek(SeekFrom::Start(0)).await?;
+            return Ok(Some(file));
         }
         hash.update(&buffer[..count]);
     }
+}
+
+fn clean_old_downloads(cache: &Path) {
+    let previous = cache.join("remote");
+    if !previous
+        .symlink_metadata()
+        .is_ok_and(|metadata| metadata.is_dir())
+    {
+        return;
+    }
+    if let Ok(entries) = previous.read_dir() {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if name.to_str().is_some_and(|name| {
+                name.len() == 64 && name.bytes().all(|byte| byte.is_ascii_hexdigit())
+            }) && entry.file_type().is_ok_and(|kind| kind.is_file())
+            {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+    let _ = fs::remove_dir(previous);
+}
+
+pub(super) struct Download {
+    file: File,
+    // Windows 不能原子替换仍打开的发行文件，传输结束后再释放缓存锁。
+    _lock: fs::File,
 }
 
 pub(super) async fn download(
@@ -174,18 +211,31 @@ pub(super) async fn download(
     platform: &str,
     approved: &Offer,
     progress: &Progress<'_>,
-) -> Result<PathBuf> {
+) -> Result<Download> {
+    let cache = home.join("downloads");
+    tokio::fs::create_dir_all(&cache).await?;
+    let lock = cache.join(".wingmate-download.lock");
+    let lock = tokio::task::spawn_blocking(move || -> Result<_> {
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(lock)?;
+        fs2::FileExt::lock_exclusive(&file)?;
+        Ok(file)
+    })
+    .await??;
     // 复核桌面呈现给用户的版本，禁止从前端输入下载地址或更换确认过的资产。
     let offer = latest(platform).await?;
     ensure!(&offer == approved, "官方发行已更新，请重新检查版本后确认");
-    let cache = home.join("downloads").join("remote");
-    tokio::fs::create_dir_all(&cache).await?;
-    let path = cache.join(&offer.sha256);
-    if matches(&path, &offer).await? {
-        return Ok(path);
+    let path = cache.join(NAME);
+    if let Some(file) = cached(&path, &offer).await? {
+        clean_old_downloads(&cache);
+        return Ok(Download { file, _lock: lock });
     }
     let temp = tempfile::NamedTempFile::new_in(&cache)?;
-    let mut file = tokio::fs::File::from_std(temp.reopen()?);
+    let mut file = File::from_std(temp.reopen()?);
     let mut report = progress.meter(Stage::Download, offer.size);
     let mut response = client()?
         .get(offer.download_url())
@@ -208,22 +258,23 @@ pub(super) async fn download(
     );
     file.sync_all().await?;
     drop(file);
-    temp.persist(&path)?;
-    Ok(path)
+    let mut file = File::from_std(temp.persist(&path)?);
+    file.seek(SeekFrom::Start(0)).await?;
+    clean_old_downloads(&cache);
+    Ok(Download { file, _lock: lock })
 }
 
 pub(super) async fn transfer(
-    path: &Path,
+    mut download: Download,
     output: &mut (impl AsyncWrite + Unpin),
     total: u64,
     progress: &Progress<'_>,
 ) -> Result<()> {
-    let mut file = tokio::fs::File::open(path).await?;
     let mut buffer = vec![0; 128 * 1024];
     let mut sent = 0;
     let mut report = progress.meter(Stage::Transfer, total);
     loop {
-        let count = file.read(&mut buffer).await?;
+        let count = download.file.read(&mut buffer).await?;
         if count == 0 {
             break;
         }
@@ -238,23 +289,30 @@ pub(super) async fn transfer(
     Ok(())
 }
 
-// 先校验临时文件，再用原子硬链接发布。并发安装已发布相同文件时允许复用。
+// 临时文件与正式文件在同一个目录，校验通过后原子替换。
 pub(super) fn publish_script(hash: &str) -> String {
     let hash = super::remote::shell_quote(hash);
     format!(
         r#"
         expected={hash}
-        check() {{
-            actual=$(sha256sum -- "$1") || return 1
-            case "$actual" in "$expected "*) return 0 ;; esac
-            return 1
-        }}
-        check "$staged" || {{ echo '发行包 SHA-256 校验失败' >&2; exit 45; }}
+        actual=$(sha256sum < "$staged") || exit
+        case "$actual" in
+            "$expected "*) ;;
+            *) echo '发行包 SHA-256 校验失败' >&2; exit 45 ;;
+        esac
         chmod 700 "$staged" || exit
-        if ! ln -T -- "$staged" "$base/wingmate" 2>/dev/null; then
-            [ -f "$base/wingmate" ] && [ -x "$base/wingmate" ] && check "$base/wingmate" ||
-                {{ echo '安装位置已存在不同的文件，请指定可执行文件' >&2; exit 46; }}
-        fi
+        (
+            flock -x 9 || exit
+            launcher="$base/{NAME}"
+            mv -fT -- "$staged" "$launcher" || exit
+            "$launcher" install >/dev/null || exit
+            legacy="$HOME/.wingmate/remote-install"
+            if [ -d "$legacy" ] && [ ! -L "$legacy" ] &&
+                [ -f "$legacy/wingmate" ] && [ -x "$legacy/wingmate" ] &&
+                [ ! -L "$legacy/wingmate" ]; then
+                rm -f -- "$legacy/wingmate" && rmdir -- "$legacy" 2>/dev/null || :
+            fi
+        ) 9>"$base/.wingmate-install.lock"
     "#
     )
 }
@@ -262,6 +320,44 @@ pub(super) fn publish_script(hash: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn verified_cache_is_rewound_and_revalidates_replaced_content() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join(NAME);
+        let contents = b"previous verified package";
+        fs::write(&path, contents)?;
+        let offer = Offer {
+            tag: "v0.4.2".into(),
+            size: contents.len() as u64,
+            sha256: format!("{:x}", Sha256::digest(contents)),
+        };
+        let mut previous = cached(&path, &offer).await?.unwrap();
+        let mut read = Vec::new();
+        previous.read_to_end(&mut read).await?;
+        assert_eq!(read, contents);
+        drop(previous);
+        let replacement = tempfile::NamedTempFile::new_in(directory.path())?;
+        fs::write(replacement.path(), b"new package")?;
+        drop(replacement.persist(&path)?);
+        assert!(cached(&path, &offer).await?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn old_cache_cleanup_only_removes_completed_downloads() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let legacy = directory.path().join("remote");
+        fs::create_dir(&legacy)?;
+        let completed = legacy.join("a".repeat(64));
+        let unrelated = legacy.join("notes");
+        fs::write(&completed, [])?;
+        fs::write(&unrelated, [])?;
+        clean_old_downloads(directory.path());
+        assert!(!completed.exists());
+        assert!(unrelated.is_file());
+        Ok(())
+    }
 
     #[test]
     fn accepts_the_existing_official_linux_asset() {
