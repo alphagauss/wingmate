@@ -175,7 +175,7 @@ fn open_panel(
     });
     let args = serde_json::json!({
         "theme": theme, "address": address, "anchor": anchor,
-        "passwordOnly": password_instance.is_some(),
+        "passwordOnly": password_instance.is_some(), "supportsWsl": cfg!(windows),
     });
     let url = desktop.page.connections();
     static NEXT: AtomicU64 = AtomicU64::new(0);

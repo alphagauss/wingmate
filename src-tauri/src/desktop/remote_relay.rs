@@ -1,6 +1,7 @@
 //! 将桌面 WebView 的专用回环入口接到已验证的 Wingmate 网关。
+use super::remote::Gateway;
 use anyhow::{ensure, Context, Result};
-use http_body_util::{combinators::UnsyncBoxBody, BodyExt, Full};
+use http_body_util::{combinators::UnsyncBoxBody, BodyExt, Full, Limited};
 use hyper::{
     body::{Bytes, Incoming},
     header::{self, HeaderMap, HeaderValue},
@@ -40,26 +41,28 @@ struct Route {
     upstream: String,
     cookie: String,
     local_cookie: String,
+    instance: Option<Uuid>,
     cancel: CancellationToken,
 }
 
 impl Relay {
-    pub(super) async fn listen<F, S>(pairing: Url, dial: F) -> Result<(Self, Url)>
+    pub(super) async fn listen<F, S>(gateway: Gateway, dial: F) -> Result<(Self, Url)>
     where
         F: Fn() -> S + Send + Sync + 'static,
         S: Future<Output = Result<BoxStream>> + Send,
     {
-        let port = pairing.port().context("缺少网关端口")?;
+        let port = gateway.url.port().context("缺少网关端口")?;
         let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
         let local = listener.local_addr()?.to_string();
         let mut url = Url::parse(&format!("http://{local}/"))?;
-        url.set_query(pairing.query());
+        url.set_query(gateway.url.query());
         let cancel = CancellationToken::new();
         let route = Route {
             local,
             upstream: format!("127.0.0.1:{port}"),
             cookie: format!("wingmate_share_{port}"),
             local_cookie: format!("wingmate_relay_{}", Uuid::new_v4().simple()),
+            instance: gateway.instance,
             cancel: cancel.clone(),
         };
         let dial = Arc::new(dial);
@@ -113,6 +116,43 @@ fn reply(status: StatusCode, message: &'static str) -> Response<Body> {
                 .boxed_unsync(),
         )
         .expect("static response")
+}
+
+async fn verify_peer(
+    sender: &mut hyper::client::conn::http1::SendRequest<Body>,
+    route: &Route,
+) -> Result<()> {
+    let Some(instance) = route.instance else {
+        return Ok(());
+    };
+    // 在承载实际请求的同一个上游连接上核对实例，避免配对信息发给同端口的其他服务。
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let request = Request::builder()
+            .uri("/_wingmate")
+            .header(header::HOST, &route.upstream)
+            .body(
+                Full::new(Bytes::new())
+                    .map_err(|never| match never {})
+                    .boxed_unsync(),
+            )?;
+        let response = sender.send_request(request).await?;
+        ensure!(
+            response.status() == StatusCode::OK
+                && response
+                    .headers()
+                    .get("x-wingmate-instance")
+                    .and_then(|value| Uuid::try_parse_ascii(value.as_bytes()).ok())
+                    == Some(instance),
+            "实际网关与所选 Wingmate 实例不匹配"
+        );
+        Limited::new(response.into_body(), 2048)
+            .collect()
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("核对 Wingmate 网关实例超时")?
 }
 
 fn request_allowed(request: &Request<impl Sized>, route: &Route) -> bool {
@@ -261,7 +301,11 @@ where
             _ = connection.with_upgrades() => {}
         }
     });
-    let mut response = sender.send_request(request).await?;
+    verify_peer(&mut sender, route).await?;
+    sender.ready().await?;
+    let mut response = sender
+        .send_request(request.map(BodyExt::boxed_unsync))
+        .await?;
     let switched = response.status() == StatusCode::SWITCHING_PROTOCOLS;
     if switched {
         let downstream = downstream.context("网关返回了意外的协议切换")?;
@@ -302,6 +346,7 @@ mod tests {
             upstream: "127.0.0.1:8746".into(),
             cookie: "wingmate_share_8746".into(),
             local_cookie: "wingmate_relay_test".into(),
+            instance: None,
             cancel: CancellationToken::new(),
         }
     }
@@ -362,5 +407,49 @@ mod tests {
         assert_eq!(cookie.max_age(), Some(cookie::time::Duration::ZERO));
         assert_eq!(cookie.domain(), None);
         assert_eq!(headers[header::LOCATION], "http://127.0.0.1:6543/path?q=1");
+    }
+
+    #[tokio::test]
+    async fn a_different_gateway_never_receives_the_pairing_link() {
+        let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let received = requests.clone();
+        let wrong = Uuid::new_v4();
+        let (dial, server) = tokio::io::duplex(4096);
+        tokio::spawn(async move {
+            let handler = service_fn(move |request: Request<Incoming>| {
+                received.lock().unwrap().push(request.uri().to_string());
+                std::future::ready(Ok::<_, Infallible>(
+                    Response::builder()
+                        .header("x-wingmate-instance", wrong.to_string())
+                        .body(Full::new(Bytes::from_static(b"{}")))
+                        .unwrap(),
+                ))
+            });
+            let _ = hyper::server::conn::http1::Builder::new()
+                .serve_connection(TokioIo::new(server), handler)
+                .await;
+        });
+        let dial = std::sync::Mutex::new(Some(dial));
+        let gateway = Gateway {
+            url: Url::parse("http://127.0.0.1:8746/?auth=example").unwrap(),
+            instance: Some(Uuid::new_v4()),
+        };
+        let (_guard, url) = Relay::listen(gateway, move || {
+            std::future::ready(Ok(
+                Box::new(dial.lock().unwrap().take().unwrap()) as BoxStream
+            ))
+        })
+        .await
+        .unwrap();
+        let response = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get(url)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        assert_eq!(*requests.lock().unwrap(), ["/_wingmate"]);
     }
 }

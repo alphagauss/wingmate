@@ -758,6 +758,19 @@
           <button type="submit" class="primary">连接 SSH</button>
         </form>
       </details>
+      <details id="wsl-connection" hidden>
+        <summary>连接 WSL</summary>
+        <form id="wsl-form" autocomplete="off">
+          <label for="wsl-distro">WSL 发行版</label>
+          <select id="wsl-distro" required></select>
+          <p id="wsl-status" class="muted" role="status"></p>
+          <label for="wsl-wingmate">发行版中的 Wingmate 路径（可选）</label>
+          <input id="wsl-wingmate" placeholder="/home/user/wingmate">
+          <button id="wsl-connect" type="submit" class="primary" disabled
+            >连接 WSL</button
+          >
+        </form>
+      </details>
     </section>
     <section id="share" role="tabpanel" aria-labelledby="share-tab" hidden>
       <div class="row share-row">

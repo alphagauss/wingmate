@@ -269,12 +269,14 @@ pub(super) async fn connect_ssh(
     .map_err(|error| format!("{error:#}"))?;
     drop(secret);
     attempt.verify()?;
-    let pairing = remote::bootstrap(target.executable.as_deref(), |command, timeout| {
+    let mut pairing = remote::bootstrap(target.executable.as_deref(), |command, timeout| {
         exec(&session, command, timeout)
     })
     .await
     .map_err(|error| format!("{error:#}"))?;
-    let port = pairing.port().expect("validated gateway port");
+    // SSH 传输已绑定服务器。继续支持尚未提供网关实例标识的旧管理服务。
+    pairing.instance = None;
+    let port = pairing.url.port().expect("validated gateway port");
     let session = Arc::new(session);
     let dial = move || {
         let session = session.clone();

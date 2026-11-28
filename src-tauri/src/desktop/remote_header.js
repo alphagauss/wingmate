@@ -1,4 +1,4 @@
-([origin, theme, platform, transport]) => {
+([address, theme, platform, transport]) => {
   let header = document.querySelector('[data-wingmate-remote-header]');
   if (!header) {
     header = document.createElement('div');
@@ -53,9 +53,13 @@
   }
   header.dataset.theme = theme;
   header.dataset.platform = platform;
-  const label = { local: '本机', lan: '局域网', public: '公网', ssh: 'SSH' }[
-    transport
-  ];
+  const label = {
+    local: '本机',
+    lan: '局域网',
+    public: '公网',
+    ssh: 'SSH',
+    wsl: 'WSL',
+  }[transport];
   header.shadowRoot.querySelector('[role="status"]').textContent =
-    label + ' · ' + (transport === 'ssh' ? origin : new URL(origin).host);
+    label + ' · ' + address;
 };

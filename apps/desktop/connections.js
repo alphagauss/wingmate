@@ -1,5 +1,6 @@
 const { invoke } = window.__TAURI_INTERNALS__;
-const { theme, address, anchor, passwordOnly } = window.wingmateConnections;
+const { theme, address, anchor, passwordOnly, supportsWsl } =
+  window.wingmateConnections;
 const panel = document.querySelector('dialog');
 const tabs = [...document.querySelectorAll('[role="tab"]')];
 const form = document.querySelector('form');
@@ -218,8 +219,7 @@ recent.then((saved) => {
 });
 if (address) {
   const current = document.getElementById('current');
-  current.textContent =
-    '当前主机 · ' + (address.includes('://') ? new URL(address).host : address);
+  current.textContent = '当前主机 · ' + address;
   current.hidden = false;
 }
 
@@ -386,6 +386,47 @@ sshForm.addEventListener('submit', (event) => {
     } finally {
       connectionBusy = false;
       for (const input of inputs) input.disabled = false;
+    }
+  });
+});
+
+const wsl = document.getElementById('wsl-connection');
+const wslDistro = document.getElementById('wsl-distro');
+const wslStatus = document.getElementById('wsl-status');
+const wslConnect = document.getElementById('wsl-connect');
+wsl.hidden = !supportsWsl;
+wsl.addEventListener('toggle', async () => {
+  if (!wsl.open || wslDistro.options.length) return;
+  wslStatus.textContent = '正在读取 WSL 发行版…';
+  try {
+    const distros = await invoke('list_wsl');
+    wslDistro.replaceChildren(
+      ...distros.map((distro) => new Option(distro, distro)),
+    );
+    wslConnect.disabled = !distros.length;
+    wslStatus.textContent = distros.length
+      ? ''
+      : '请先在 Windows 中安装 WSL 发行版。';
+  } catch (error) {
+    wslStatus.textContent = String(error);
+  }
+});
+document.getElementById('wsl-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  if (connectionBusy) return;
+  act(wslConnect, async () => {
+    connectionBusy = true;
+    const wslExecutable = document.getElementById('wsl-wingmate');
+    wslDistro.disabled = wslExecutable.disabled = true;
+    try {
+      await invoke('connect_wsl', {
+        distro: wslDistro.value,
+        executable: wslExecutable.value.trim() || undefined,
+      });
+      await close();
+    } finally {
+      connectionBusy = false;
+      wslDistro.disabled = wslExecutable.disabled = false;
     }
   });
 });

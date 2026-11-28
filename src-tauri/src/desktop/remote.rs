@@ -192,6 +192,12 @@ pub(super) struct Workbench {
 
 impl Workbench {
     pub(super) fn display_address(&self) -> &str {
+        if self._relay.is_none() {
+            return self
+                .address
+                .split_once("://")
+                .map_or(&self.address, |(_, host)| host);
+        }
         &self.address
     }
 }
@@ -204,7 +210,7 @@ pub(super) fn render_header(app: &tauri::AppHandle) {
             return;
         };
         serde_json::json!([
-            remote.address,
+            remote.display_address(),
             current.titlebar_theme,
             std::env::consts::OS,
             remote.transport
@@ -322,16 +328,25 @@ pub(super) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-pub(super) async fn bootstrap<F, S>(executable: Option<&str>, exec: F) -> Result<Url>
+pub(super) fn executable_script(executable: Option<&str>) -> String {
+    if let Some(path) = executable {
+        format!("wm={}; [ -x \"$wm\" ] || exit 44", shell_quote(path))
+    } else {
+        "if [ -x \"$HOME/.wingmate/bin/wingmate\" ]; then wm=\"$HOME/.wingmate/bin/wingmate\"; else wm=$(command -v wingmate) || exit 44; fi".to_owned()
+    }
+}
+
+pub(super) struct Gateway {
+    pub(super) url: Url,
+    pub(super) instance: Option<uuid::Uuid>,
+}
+
+pub(super) async fn bootstrap<F, S>(executable: Option<&str>, exec: F) -> Result<Gateway>
 where
     F: Fn(String, Duration) -> S,
     S: Future<Output = Result<(u32, Vec<u8>, Vec<u8>)>>,
 {
-    let init = if let Some(path) = executable {
-        format!("wm={}; [ -x \"$wm\" ] || exit 44", shell_quote(path))
-    } else {
-        "if [ -x \"$HOME/.wingmate/bin/wingmate\" ]; then wm=\"$HOME/.wingmate/bin/wingmate\"; else wm=$(command -v wingmate) || exit 44; fi".to_owned()
-    };
+    let init = executable_script(executable);
     let (code, stdout, stderr) = exec(format!(
         "{init}; if ! \"$wm\" connect-info >/dev/null 2>&1; then \"$wm\" service-start >/dev/null || exit; fi; exec \"$wm\" connect-info --pair"
     ), Duration::from_secs(150)).await?;
@@ -354,6 +369,7 @@ where
         host: std::net::Ipv4Addr,
         port: u16,
         pairing_url: String,
+        service_instance: Option<uuid::Uuid>,
     }
     let line = stdout
         .split(|byte| *byte == b'\n')
@@ -372,12 +388,15 @@ where
             && pairing.query().is_some(),
         "Wingmate 返回了无效的回环配对地址"
     );
-    Ok(pairing)
+    Ok(Gateway {
+        url: pairing,
+        instance: info.service_instance,
+    })
 }
 
 pub(super) async fn open_tunnel<F, S>(
     attempt: Attempt<'_>,
-    pairing: Url,
+    gateway: Gateway,
     address: String,
     transport: &str,
     dial: F,
@@ -392,7 +411,7 @@ where
         .map_err(|_| "连接 Wingmate 网关超时".to_owned())?
         .map_err(|error| format!("{error:#}"))?;
     drop(stream);
-    let (relay, url) = Relay::listen(pairing, dial)
+    let (relay, url) = Relay::listen(gateway, dial)
         .await
         .map_err(|error| format!("{error:#}"))?;
     let client = client(true).map_err(|_| "无法初始化远程连接")?;
