@@ -1,4 +1,7 @@
-use super::{registration_lock, CommandFile, Status, OWNER, WINGMATE_OWNER};
+use super::{
+    registration_lock, CommandFile, Status, OLD_DSH_OWNER, OLD_WINGMATE_OWNER, UNIX_DSH_HEADER,
+    UNIX_WINGMATE_HEADER,
+};
 use anyhow::{Context, Result};
 use std::{
     fs,
@@ -7,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const SHEBANG: &str = "#!/usr/bin/env node\n";
+const OLD_SHEBANG: &str = "#!/usr/bin/env node\n";
 // Keep the old blocks so existing registrations can be updated or removed.
 pub(super) const SH_PATH: [&str; 3] = [
     r#"
@@ -93,18 +96,23 @@ fn configure_in(
 ) -> Result<Status> {
     let bin = home.join(".wingmate/bin");
     let _lock = registration_lock(&bin, enabled)?;
-    let owned = |owner| {
+    let owned = |header: &'static str, old_owner: &'static str| {
         move |text: &str| {
-            text.strip_prefix(SHEBANG)
-                .is_some_and(|text| text.starts_with(owner))
+            text.starts_with(header)
+                || text
+                    .strip_prefix(OLD_SHEBANG)
+                    .is_some_and(|text| text.starts_with(old_owner))
         }
     };
-    let open_dsh = || CommandFile::open(&bin, "dsh", owned(OWNER));
+    let open_dsh = || CommandFile::open(&bin, "dsh", owned(UNIX_DSH_HEADER, OLD_DSH_OWNER));
     let dsh = dsh_launcher
         .map(|launcher| -> Result<_> { Ok((open_dsh()?, launcher)) })
         .transpose()?;
-    let wingmate_file = CommandFile::open(&bin, "wingmate", owned(WINGMATE_OWNER))?;
-    let wingmate = format!("{SHEBANG}{wingmate}");
+    let wingmate_file = CommandFile::open(
+        &bin,
+        "wingmate",
+        owned(UNIX_WINGMATE_HEADER, OLD_WINGMATE_OWNER),
+    )?;
     let login_profiles = [".bash_profile", ".bash_login", ".profile"].map(|name| home.join(name));
     let bash_login = login_profiles
         .iter()
@@ -127,7 +135,7 @@ fn configure_in(
             let dsh = dsh
                 .map(|(file, launcher)| -> Result<_> {
                     file.ensure_available()?;
-                    Ok((file, format!("{SHEBANG}{}", launcher()?)))
+                    Ok((file, launcher()?))
                 })
                 .transpose()?;
             for (path, blocks, prepend) in profiles {
@@ -137,7 +145,7 @@ fn configure_in(
             if let Some((file, script)) = dsh {
                 file.install(&script)?;
             }
-            wingmate_file.install(&wingmate)?;
+            wingmate_file.install(wingmate)?;
             Ok(Status {
                 enabled: true,
                 needs_update: false,
@@ -170,13 +178,9 @@ fn configure_in(
             let needs_update = enabled
                 && (dsh.is_some_and(|(file, launcher)| {
                     file.current.is_none()
-                        || launcher().ok().as_deref()
-                            != file
-                                .current
-                                .as_deref()
-                                .and_then(|text| text.strip_prefix(SHEBANG))
+                        || launcher().ok() != file.current
                         || !is_executable(&file.path)
-                }) || wingmate_file.current.as_deref() != Some(wingmate.as_str())
+                }) || wingmate_file.current.as_deref() != Some(wingmate)
                     || !is_executable(&wingmate_file.path)
                     || profiles.iter().any(|(path, [block, ..], prepend)| {
                         !fs::read_to_string(path).is_ok_and(|text| {
@@ -269,8 +273,15 @@ mod tests {
         symlink(&bash_target, home.join(".bashrc"))?;
         symlink(home.join("missing"), home.join(".bash_profile"))?;
         fs::write(home.join(".bash_login"), original)?;
-        let launcher =
-            || super::super::launcher(&home.join("entry.js"), home, &home.join("agents"));
+        let launcher = || {
+            super::super::dsh_launcher(
+                &home.join("toolchains/bin/node"),
+                &home.join("entry.js"),
+                home,
+                &home.join("agents"),
+                &home.join("toolchains"),
+            )
+        };
         let wingmate = super::super::wingmate_launcher(&home.join("desktop"), home)?;
         let configure =
             |enabled| configure_in(home, &zsh, &fish, enabled, Some(launcher), &wingmate);
@@ -339,7 +350,13 @@ mod tests {
         let original = "[ \"${-#*i}\" = \"$-\" ] && return\n";
         fs::write(home.join(".bashrc"), original)?;
         symlink(home.join(".bashrc"), home.join(".bash_profile"))?;
-        let wingmate = super::super::wingmate_launcher(&home.join("release"), home)?;
+        let executable = home.join("Wingmate's release");
+        fs::write(
+            &executable,
+            "#!/bin/sh\nprintf '%s\\n%s\\n' \"$WINGMATE_HOME\" \"$1\"\n",
+        )?;
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700))?;
+        let wingmate = super::super::wingmate_launcher(&executable, home)?;
         let configure_wingmate = |enabled| {
             configure_in(
                 home,
@@ -351,8 +368,22 @@ mod tests {
             )
         };
         assert!(configure_wingmate(true)?.enabled);
-        assert!(configure_wingmate(true)?.enabled);
         let bin = home.join(".wingmate/bin");
+        let entry = bin.join("wingmate");
+        fs::write(
+            &entry,
+            format!("{OLD_SHEBANG}{OLD_WINGMATE_OWNER}throw new Error();\n"),
+        )?;
+        assert!(configure_wingmate(true)?.enabled);
+        let run = std::process::Command::new(&entry)
+            .env_clear()
+            .arg("argument with spaces")
+            .output()?;
+        assert!(run.status.success(), "{run:?}");
+        assert_eq!(
+            String::from_utf8(run.stdout)?,
+            format!("{}\nargument with spaces\n", home.display())
+        );
         assert!(!bin.join("dsh").exists());
         let output = std::process::Command::new("bash")
             .env("HOME", home)

@@ -13,9 +13,12 @@ use std::{
 
 pub const SUPPORTED: bool =
     cfg!(any(windows, target_os = "linux", target_os = "macos")) && !crate::IS_DEV;
-const OWNER: &str = "// Wingmate dsh command\n";
-const LAUNCHER: &str = include_str!("dsh_command/launch.cjs");
-const WINGMATE_OWNER: &str = "// Wingmate desktop command\n";
+const OLD_DSH_OWNER: &str = "// Wingmate dsh command\n";
+const OLD_WINGMATE_OWNER: &str = "// Wingmate desktop command\n";
+#[cfg(not(windows))]
+const UNIX_DSH_HEADER: &str = "#!/bin/sh\n# Wingmate dsh command\n";
+#[cfg(not(windows))]
+const UNIX_WINGMATE_HEADER: &str = "#!/bin/sh\n# Wingmate desktop command\n";
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,7 +50,13 @@ pub fn configure(home: &Path, state: Option<Snapshot>, enabled: Option<bool>) ->
         let agents_home = state
             .agents_home
             .context("后台未提供 Agent 数据目录，请用当前版本重启后台后再注册")?;
-        launcher(&entry, &dsh_home, &agents_home)
+        dsh_launcher(
+            &crate::toolchains::node(home)?,
+            &entry,
+            &dsh_home,
+            &agents_home,
+            &home.join("toolchains"),
+        )
     };
     configure_commands(Some(home), enabled, Some(launcher))
 }
@@ -94,19 +103,105 @@ fn configure_commands(
     }
 }
 
-fn launcher(entry: &Path, dsh_home: &Path, agents_home: &Path) -> Result<String> {
-    let config = serde_json::to_string(&(entry, dsh_home, agents_home))?;
-    Ok(format!(
-        "{OWNER}const [entry, dshHome, agentsHome] = {config};\n{LAUNCHER}"
-    ))
+fn dsh_launcher(
+    node: &Path,
+    entry: &Path,
+    dsh_home: &Path,
+    agents_home: &Path,
+    toolchain: &Path,
+) -> Result<String> {
+    render_launcher(
+        "dsh",
+        node,
+        &[entry],
+        &[("DSH_HOME", dsh_home), ("DSH_AGENTS_HOME", agents_home)],
+        Some([
+            node.parent().context("Node 路径没有父目录")?,
+            &wingmate_service::runtime::toolchain_fallback(toolchain),
+        ]),
+    )
 }
 
 fn wingmate_launcher(executable: &Path, home: &Path) -> Result<String> {
-    let config = serde_json::to_string(&(executable, home))?;
-    Ok(format!(
-        "{WINGMATE_OWNER}const [executable, home] = {config};\n{}",
-        include_str!("dsh_command/wingmate.cjs")
-    ))
+    render_launcher(
+        "wingmate",
+        executable,
+        &[],
+        &[("WINGMATE_HOME", home)],
+        None,
+    )
+}
+
+#[cfg(windows)]
+fn render_launcher(
+    kind: &str,
+    executable: &Path,
+    arguments: &[&Path],
+    environment: &[(&str, &Path)],
+    tools: Option<[&Path; 2]>,
+) -> Result<String> {
+    #[derive(serde::Serialize)]
+    struct Launch<'a> {
+        wingmate_command: &'a str,
+        executable: &'a Path,
+        arguments: &'a [&'a Path],
+        environment: std::collections::BTreeMap<&'a str, &'a Path>,
+        tools: Option<[&'a Path; 2]>,
+    }
+    let environment = environment
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeMap<_, _>>();
+    Ok(serde_json::to_string(&Launch {
+        wingmate_command: kind,
+        executable,
+        arguments,
+        environment,
+        tools,
+    })?)
+}
+
+#[cfg(not(windows))]
+fn render_launcher(
+    kind: &str,
+    executable: &Path,
+    arguments: &[&Path],
+    environment: &[(&str, &Path)],
+    tools: Option<[&Path; 2]>,
+) -> Result<String> {
+    use std::fmt::Write as _;
+
+    let quote = |path: &Path| -> Result<String> {
+        let path = path.to_str().context("Wingmate 路径不是 UTF-8")?;
+        Ok(format!("'{}'", path.replace('\'', "'\\''")))
+    };
+    let header = if kind == "dsh" {
+        UNIX_DSH_HEADER
+    } else {
+        UNIX_WINGMATE_HEADER
+    };
+    let mut script = header.to_owned();
+    if let Some([primary, fallback]) = tools {
+        let primary = quote(primary)?;
+        let fallback = quote(fallback)?;
+        let entry = quote(arguments[0])?;
+        writeln!(
+            script,
+            "[ -f {entry} ] || {{ echo '运行内容已切换，请重新注册 dsh' >&2; exit 1; }}"
+        )?;
+        writeln!(script, "PATH={primary}${{PATH:+:$PATH}}")?;
+        writeln!(script, "[ ! -d {fallback} ] || PATH=\"$PATH\":{fallback}")?;
+        writeln!(script, "export PATH")?;
+    }
+    for (name, value) in environment {
+        write!(script, "{name}={} ", quote(value)?)?;
+    }
+    write!(script, "exec {}", quote(executable)?)?;
+    for argument in arguments {
+        write!(script, " {}", quote(argument)?)?;
+    }
+    script.push_str(" \"$@\"\n");
+    Ok(script)
 }
 
 fn registration_lock(bin: &Path, enabled: Option<bool>) -> Result<Option<File>> {
