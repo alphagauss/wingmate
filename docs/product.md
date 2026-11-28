@@ -40,6 +40,6 @@ Wingmate 是面向个人使用的 DeepSeek Harness（DSH）发行版。它负责
 
 ## 未来方向，尚未交付
 
-外部 Agent 扩展、SSH、TUI 和 Android 的目标与实施顺序见[临时架构与实施方案](../ARCHITECTURE_PLAN.md)。Claude 留待后续按需适配。
+外部 Agent 扩展、TUI 和 Android 的目标与实施顺序见[临时架构与实施方案](../ARCHITECTURE_PLAN.md)。Claude 留待后续按需适配。
 
 更多按实际需求补充的自有前端、预装插件和自动选择最新发布 tag 仍属于后续方向，不自动纳入上述阶段任务。

@@ -1,5 +1,5 @@
 const { invoke } = window.__TAURI_INTERNALS__;
-const { theme, origin, anchor, passwordOnly } = window.wingmateConnections;
+const { theme, address, anchor, passwordOnly } = window.wingmateConnections;
 const panel = document.querySelector('dialog');
 const tabs = [...document.querySelectorAll('[role="tab"]')];
 const form = document.querySelector('form');
@@ -216,9 +216,10 @@ recent.then((saved) => {
     if (selected && selected !== link.value) selectHost('');
   });
 });
-if (origin) {
+if (address) {
   const current = document.getElementById('current');
-  current.textContent = '当前主机 · ' + new URL(origin).host;
+  current.textContent =
+    '当前主机 · ' + (address.includes('://') ? new URL(address).host : address);
   current.hidden = false;
 }
 
@@ -340,6 +341,53 @@ form.addEventListener('submit', (event) => {
 });
 link.addEventListener('input', () => {
   if (!connectionBusy) clearLogin();
+});
+
+const sshForm = document.getElementById('ssh-form');
+const sshFingerprint = document.getElementById('ssh-fingerprint');
+const sshConnect = sshForm.querySelector('button[type="submit"]');
+let pendingFingerprint;
+sshForm.addEventListener('input', () => {
+  pendingFingerprint = undefined;
+  sshFingerprint.hidden = true;
+  sshConnect.textContent = '连接 SSH';
+});
+sshForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  if (connectionBusy) return;
+  act(sshConnect, async () => {
+    const fields = new FormData(sshForm);
+    const target = {
+      host: fields.get('host'),
+      port: Number(fields.get('port')),
+      username: fields.get('username'),
+      identityFile: fields.get('identityFile').trim() || undefined,
+      executable: fields.get('executable').trim() || undefined,
+    };
+    connectionBusy = true;
+    const inputs = [...sshForm.querySelectorAll('input')];
+    for (const input of inputs) input.disabled = true;
+    try {
+      const result = await invoke('connect_ssh', {
+        target,
+        secret: fields.get('secret') || undefined,
+        fingerprint: pendingFingerprint,
+      });
+      if (result.status === 'confirm_host') {
+        pendingFingerprint = result.fingerprint;
+        sshFingerprint.textContent =
+          '请核对 SSH 主机指纹 ' + result.fingerprint;
+        sshFingerprint.hidden = false;
+        sshConnect.textContent = '信任并连接';
+      } else {
+        sshForm.elements.namedItem('secret').value = '';
+        await close();
+      }
+    } finally {
+      connectionBusy = false;
+      for (const input of inputs) input.disabled = false;
+    }
+  });
 });
 
 window.wingmateLanHost = (id, host) => {

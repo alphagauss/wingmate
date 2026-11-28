@@ -53,7 +53,9 @@
   }
   header.dataset.theme = theme;
   header.dataset.platform = platform;
-  const label = { local: '本机', lan: '局域网', public: '公网' }[transport];
+  const label = { local: '本机', lan: '局域网', public: '公网', ssh: 'SSH' }[
+    transport
+  ];
   header.shadowRoot.querySelector('[role="status"]').textContent =
-    label + ' · ' + new URL(origin).host;
+    label + ' · ' + (transport === 'ssh' ? origin : new URL(origin).host);
 };

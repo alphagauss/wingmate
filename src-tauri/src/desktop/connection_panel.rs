@@ -157,11 +157,14 @@ fn open_panel(
         close_panel(&panel, desktop).map_err(|error| error.to_string())?;
     }
 
-    let (theme, origin) = {
+    let (theme, address) = {
         let current = desktop.connection.lock().unwrap();
         (
             current.titlebar_theme,
-            current.remote.as_ref().map(|remote| remote.origin.clone()),
+            current
+                .remote
+                .as_ref()
+                .map(|remote| remote.display_address().to_owned()),
         )
     };
     let owner = webview.window();
@@ -171,7 +174,7 @@ fn open_panel(
         top: 40.,
     });
     let args = serde_json::json!({
-        "theme": theme, "origin": origin, "anchor": anchor,
+        "theme": theme, "address": address, "anchor": anchor,
         "passwordOnly": password_instance.is_some(),
     });
     let url = desktop.page.connections();

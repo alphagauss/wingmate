@@ -1,7 +1,12 @@
-use super::{connection_panel, Desktop};
+use super::{
+    connection_panel,
+    remote_relay::{BoxStream, Relay},
+    Desktop,
+};
 use anyhow::{Context, Result};
 use std::{
     fs,
+    future::Future,
     io::Write,
     net::Ipv4Addr,
     path::Path,
@@ -181,6 +186,14 @@ pub(super) struct Workbench {
     pub view: Webview,
     pub origin: String,
     transport: String,
+    address: String,
+    _relay: Option<Relay>,
+}
+
+impl Workbench {
+    pub(super) fn display_address(&self) -> &str {
+        &self.address
+    }
 }
 
 pub(super) fn render_header(app: &tauri::AppHandle) {
@@ -191,7 +204,7 @@ pub(super) fn render_header(app: &tauri::AppHandle) {
             return;
         };
         serde_json::json!([
-            remote.origin,
+            remote.address,
             current.titlebar_theme,
             std::env::consts::OS,
             remote.transport
@@ -256,6 +269,140 @@ pub(super) struct ConnectionReply {
     origin: String,
     needs_password: bool,
     needs_pairing: bool,
+}
+
+pub(super) struct Attempt<'a> {
+    webview: &'a Webview,
+    desktop: &'a Desktop,
+    instance: Option<&'a str>,
+    revision: (u64, u32),
+}
+
+impl<'a> Attempt<'a> {
+    pub(super) fn start(
+        webview: &'a Webview,
+        desktop: &'a Desktop,
+        instance: Option<&'a str>,
+    ) -> Result<Self, String> {
+        authorized(webview, desktop, instance)?;
+        let mut current = desktop.connection.lock().unwrap();
+        if current.busy || current.exit_pending {
+            return Err("后台操作正在进行，请稍后重试".into());
+        }
+        current.revision += 1;
+        Ok(Self {
+            webview,
+            desktop,
+            instance,
+            revision: (current.revision, current.titlebar.navigation()),
+        })
+    }
+
+    pub(super) fn verify(&self) -> Result<(), String> {
+        authorized(self.webview, self.desktop, self.instance)?;
+        let current = self.desktop.connection.lock().unwrap();
+        if (current.revision, current.titlebar.navigation()) != self.revision {
+            return Err("连接已取消，请重试".into());
+        }
+        Ok(())
+    }
+}
+
+pub(super) fn validate_executable(executable: Option<&str>) -> Result<()> {
+    if let Some(path) = executable {
+        anyhow::ensure!(
+            path.starts_with('/') && path.len() <= 4096 && !path.chars().any(char::is_control),
+            "请填写 Wingmate 在目标系统上的绝对路径"
+        );
+    }
+    Ok(())
+}
+
+pub(super) fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+pub(super) async fn bootstrap<F, S>(executable: Option<&str>, exec: F) -> Result<Url>
+where
+    F: Fn(String, Duration) -> S,
+    S: Future<Output = Result<(u32, Vec<u8>, Vec<u8>)>>,
+{
+    let init = if let Some(path) = executable {
+        format!("wm={}; [ -x \"$wm\" ] || exit 44", shell_quote(path))
+    } else {
+        "if [ -x \"$HOME/.wingmate/bin/wingmate\" ]; then wm=\"$HOME/.wingmate/bin/wingmate\"; else wm=$(command -v wingmate) || exit 44; fi".to_owned()
+    };
+    let (code, stdout, stderr) = exec(format!(
+        "{init}; if ! \"$wm\" connect-info >/dev/null 2>&1; then \"$wm\" service-start >/dev/null || exit; fi; exec \"$wm\" connect-info --pair"
+    ), Duration::from_secs(150)).await?;
+    anyhow::ensure!(code != 44, "找不到 Wingmate，请安装或指定可执行文件");
+    anyhow::ensure!(
+        code == 0,
+        "无法准备 Wingmate 网关（退出码 {code}）{}",
+        {
+            let details = String::from_utf8_lossy(&stderr);
+            if details.trim().is_empty() {
+                String::new()
+            } else {
+                format!("：{}", details.trim().chars().take(500).collect::<String>())
+            }
+        }
+    );
+    #[derive(serde::Deserialize)]
+    struct Pairing {
+        schema_version: u32,
+        host: std::net::Ipv4Addr,
+        port: u16,
+        pairing_url: String,
+    }
+    let line = stdout
+        .split(|byte| *byte == b'\n')
+        .rev()
+        .find(|line| !line.iter().all(|byte| byte.is_ascii_whitespace()))
+        .context("Wingmate 网关未返回连接信息")?;
+    let info: Pairing = serde_json::from_slice(line).context("无法识别 Wingmate 网关连接信息")?;
+    let pairing = target(&info.pairing_url)?;
+    anyhow::ensure!(
+        info.schema_version == 1
+            && info.host == Ipv4Addr::LOCALHOST
+            && info.port != 0
+            && pairing.scheme() == "http"
+            && pairing.host_str() == Some("127.0.0.1")
+            && pairing.port() == Some(info.port)
+            && pairing.query().is_some(),
+        "Wingmate 返回了无效的回环配对地址"
+    );
+    Ok(pairing)
+}
+
+pub(super) async fn open_tunnel<F, S>(
+    attempt: Attempt<'_>,
+    pairing: Url,
+    address: String,
+    transport: &str,
+    dial: F,
+) -> Result<(), String>
+where
+    F: Fn() -> S + Send + Sync + 'static,
+    S: Future<Output = Result<BoxStream>> + Send,
+{
+    attempt.verify()?;
+    let stream = tokio::time::timeout(Duration::from_secs(8), dial())
+        .await
+        .map_err(|_| "连接 Wingmate 网关超时".to_owned())?
+        .map_err(|error| format!("{error:#}"))?;
+    drop(stream);
+    let (relay, url) = Relay::listen(pairing, dial)
+        .await
+        .map_err(|error| format!("{error:#}"))?;
+    let client = client(true).map_err(|_| "无法初始化远程连接")?;
+    if probe(&client, &url, Duration::from_secs(10))
+        .await
+        .is_none()
+    {
+        return Err("转发已建立，Wingmate 网关未响应".into());
+    }
+    open_workbench(attempt, url, address, transport.to_owned(), Some(relay))
 }
 
 async fn with_cookie_store<T: Send + 'static>(
@@ -367,7 +514,7 @@ pub(super) async fn connect_remote(
     requested: Option<String>,
     instance: Option<String>,
 ) -> Result<ConnectionReply, String> {
-    authorized(&webview, &desktop, instance.as_deref())?;
+    let attempt = Attempt::start(&webview, &desktop, instance.as_deref())?;
     let mut url = target(&link).map_err(|error| error.to_string())?;
     let requested_origin = requested
         .and_then(|link| target(&link).ok())
@@ -375,22 +522,6 @@ pub(super) async fn connect_remote(
         .origin()
         .ascii_serialization();
     let client = client(url.scheme() == "http").map_err(|_| "无法初始化远程连接")?;
-    let attempt = {
-        let mut current = desktop.connection.lock().unwrap();
-        if current.busy || current.exit_pending {
-            return Err("后台操作正在进行，请稍后重试".into());
-        }
-        current.revision += 1;
-        (current.revision, current.titlebar.navigation())
-    };
-    let verify_attempt = || -> Result<(), String> {
-        authorized(&webview, &desktop, instance.as_deref())?;
-        let current = desktop.connection.lock().unwrap();
-        if (current.revision, current.titlebar.navigation()) != attempt {
-            return Err("连接已取消，请重试".into());
-        }
-        Ok(())
-    };
     let mut identity = probe(&client, &url, Duration::from_secs(4)).await;
     if identity.is_none() && password.is_none() && url.query().is_none() && url.scheme() == "http" {
         for candidate in lan::alternatives(&url.clone()) {
@@ -405,7 +536,7 @@ pub(super) async fn connect_remote(
             }
         }
     }
-    verify_attempt()?;
+    attempt.verify()?;
     let identity = identity.ok_or("无法连接 Wingmate 主机，请检查地址及网络")?;
     let origin = url.origin().ascii_serialization();
     if password.is_some()
@@ -417,7 +548,7 @@ pub(super) async fn connect_remote(
         let logged_in = lan_session(&webview, &desktop, &client, &url, password)
             .await
             .map_err(|error| error.to_string())?;
-        verify_attempt()?;
+        attempt.verify()?;
         if !logged_in {
             return Ok(ConnectionReply {
                 origin,
@@ -426,8 +557,35 @@ pub(super) async fn connect_remote(
             });
         }
     }
+    open_workbench(attempt, url, origin.clone(), identity.transport, None)?;
+    let home = desktop.home.clone();
+    let connected = origin.clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        change_history(&home, |history| {
+            history.retain(|item| item != &connected && item != &requested_origin);
+            history.insert(0, connected);
+        })
+    })
+    .await;
+    Ok(ConnectionReply {
+        origin,
+        needs_password: false,
+        needs_pairing: false,
+    })
+}
+
+fn open_workbench(
+    attempt: Attempt<'_>,
+    url: Url,
+    address: String,
+    transport: String,
+    relay: Option<Relay>,
+) -> Result<(), String> {
+    attempt.verify()?;
     let origin_guard = url.origin();
-    let app = webview.app_handle().clone();
+    let origin = origin_guard.ascii_serialization();
+    let desktop = attempt.desktop;
+    let app = attempt.webview.app_handle().clone();
     let main = app
         .get_webview(&desktop.window_label)
         .ok_or("主窗口已关闭")?;
@@ -446,6 +604,7 @@ pub(super) async fn connect_remote(
     let popup_app = app.clone();
     let builder = WebviewBuilder::new(label, WebviewUrl::External(url))
         .focused(false)
+        .incognito(relay.is_some())
         .initialization_script(format!(
             r#"if (window === window.top && location.origin === {expected_origin}) {{
                 Object.defineProperty(window, '__WINGMATE_RETURN_LOCAL__', {{
@@ -469,10 +628,10 @@ pub(super) async fn connect_remote(
         let _ = view.close();
         return Err(error.to_string());
     }
-    let source_valid = authorized(&webview, &desktop, instance.as_deref()).is_ok();
+    let source_valid = authorized(attempt.webview, desktop, attempt.instance).is_ok();
     let previous = {
         let mut current = desktop.connection.lock().unwrap();
-        if !source_valid || (current.revision, current.titlebar.navigation()) != attempt {
+        if !source_valid || (current.revision, current.titlebar.navigation()) != attempt.revision {
             drop(current);
             let _ = view.close();
             return Err("连接已取消，请重试".into());
@@ -480,31 +639,20 @@ pub(super) async fn connect_remote(
         current.revision += 1;
         current.remote.replace(Workbench {
             view: view.clone(),
-            origin: origin.clone(),
-            transport: identity.transport,
+            origin,
+            transport,
+            address,
+            _relay: relay,
         })
     };
     if let Some(previous) = previous {
         let _ = previous.view.close();
     }
     render_header(&app);
-    if instance.is_some() {
+    if attempt.instance.is_some() {
         let _ = view.set_focus();
     }
-    let home = desktop.home.clone();
-    let connected = origin.clone();
-    let _ = tauri::async_runtime::spawn_blocking(move || {
-        change_history(&home, |history| {
-            history.retain(|item| item != &connected && item != &requested_origin);
-            history.insert(0, connected);
-        })
-    })
-    .await;
-    Ok(ConnectionReply {
-        origin,
-        needs_password: false,
-        needs_pairing: false,
-    })
+    Ok(())
 }
 
 #[tauri::command]

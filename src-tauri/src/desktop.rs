@@ -3,6 +3,8 @@ mod bridge;
 mod connection_panel;
 mod popup;
 mod remote;
+mod remote_relay;
+mod remote_ssh;
 mod startup_page;
 mod titlebar;
 mod window_state;
@@ -614,6 +616,7 @@ pub fn run(home: PathBuf) -> Result<()> {
             connection_panel::open_lan_password,
             connection_panel::close_connections,
             remote::connect_remote,
+            remote_ssh::connect_ssh,
             remote::scan_lan,
             remote::cancel_lan_scan,
             remote::connection_history,
