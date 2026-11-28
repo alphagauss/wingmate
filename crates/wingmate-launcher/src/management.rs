@@ -9,7 +9,6 @@ use std::{
 };
 
 pub fn connect_info(home: &Path, pair: bool) -> Result<Value> {
-    let service = service::connection_status(home)?.context("管理服务未运行")?;
     let command = if pair {
         service::ShareCommand::PairLocal
     } else {
@@ -28,7 +27,6 @@ pub fn connect_info(home: &Path, pair: bool) -> Result<Value> {
         "host": address.ip(),
         "port": address.port(),
         "url": format!("http://{address}"),
-        "service_instance": service.instance,
     });
     if pair {
         info["pairing_url"] = json!(status.pairing_url.context("管理服务未返回配对链接")?);
@@ -37,33 +35,6 @@ pub fn connect_info(home: &Path, pair: bool) -> Result<Value> {
             .context("管理服务未返回配对链接有效期")?);
     }
     Ok(info)
-}
-
-#[cfg(target_os = "linux")]
-pub fn gateway_stdio(home: &Path) -> Result<()> {
-    use std::net::{Shutdown, TcpStream};
-
-    let address = service::connection_status(home)?
-        .and_then(|service| service.web_address)
-        .context("本机网关未运行")?;
-    anyhow::ensure!(address.ip().is_loopback(), "网关地址必须属于回环接口");
-    let mut stream =
-        TcpStream::connect_timeout(&address.into(), std::time::Duration::from_secs(4))?;
-    let mut request = stream.try_clone()?;
-    std::thread::spawn(move || {
-        let _ = io::copy(&mut io::stdin().lock(), &mut request);
-        let _ = request.shutdown(Shutdown::Write);
-    });
-    let mut output = io::stdout().lock();
-    let mut buffer = [0; 16 * 1024];
-    loop {
-        let count = stream.read(&mut buffer)?;
-        if count == 0 {
-            return Ok(());
-        }
-        output.write_all(&buffer[..count])?;
-        output.flush()?;
-    }
 }
 
 pub fn doctor(home: &Path) -> Value {

@@ -336,11 +336,6 @@ pub(super) fn executable_script(executable: Option<&str>) -> String {
     }
 }
 
-pub(super) struct Gateway {
-    pub(super) url: Url,
-    pub(super) instance: Option<uuid::Uuid>,
-}
-
 #[derive(Debug)]
 pub(super) struct MissingExecutable;
 
@@ -352,7 +347,7 @@ impl std::fmt::Display for MissingExecutable {
 
 impl std::error::Error for MissingExecutable {}
 
-pub(super) async fn bootstrap<F, S>(executable: Option<&str>, exec: F) -> Result<Gateway>
+pub(super) async fn bootstrap<F, S>(executable: Option<&str>, exec: F) -> Result<Url>
 where
     F: Fn(String, Duration) -> S,
     S: Future<Output = Result<(u32, Vec<u8>, Vec<u8>)>>,
@@ -383,7 +378,6 @@ where
         host: std::net::Ipv4Addr,
         port: u16,
         pairing_url: String,
-        service_instance: Option<uuid::Uuid>,
     }
     let (_, json) = std::str::from_utf8(&stdout)
         .context("网关连接信息编码无效")?
@@ -401,15 +395,12 @@ where
             && pairing.query().is_some(),
         "Wingmate 返回了无效的回环配对地址"
     );
-    Ok(Gateway {
-        url: pairing,
-        instance: info.service_instance,
-    })
+    Ok(pairing)
 }
 
 pub(super) async fn open_tunnel<F, S>(
     attempt: Attempt<'_>,
-    gateway: Gateway,
+    pairing: Url,
     address: String,
     transport: &str,
     dial: F,
@@ -424,7 +415,7 @@ where
         .map_err(|_| "连接 Wingmate 网关超时".to_owned())?
         .map_err(|error| format!("{error:#}"))?;
     drop(stream);
-    let (relay, url) = Relay::listen(gateway, dial)
+    let (relay, url) = Relay::listen(pairing, dial)
         .await
         .map_err(|error| format!("{error:#}"))?;
     let client = client(true).map_err(|_| "无法初始化远程连接")?;
@@ -783,8 +774,7 @@ __wingmate_connect_info__
         })
         .await
         .unwrap();
-        assert_eq!(gateway.url.port(), Some(8746));
-        assert!(gateway.instance.is_none());
+        assert_eq!(gateway.port(), Some(8746));
     }
 
     #[test]

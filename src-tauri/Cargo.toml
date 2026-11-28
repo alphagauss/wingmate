@@ -25,7 +25,6 @@ russh = { version = "0.61.2", default-features = false, features = ["ring", "rsa
 russh-sftp = "2.4"
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
-semver = "1"
 if-addrs = "0.15"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 cookie = "0.18"

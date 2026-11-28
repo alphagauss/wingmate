@@ -167,10 +167,6 @@ pub(super) struct Manager {
 }
 
 impl Manager {
-    pub(super) fn instance(&self) -> &str {
-        &self.endpoint.instance
-    }
-
     pub(super) fn execute(&self, command: Request) -> Result<Status> {
         let home = &self.home;
         if command.action != "status" {

@@ -1244,18 +1244,7 @@ impl Gateway {
                     "password": self.auth.lock().unwrap().password.is_some(),
                 }));
             }
-            let mut reply =
-                json(serde_json::json!({"product": "wingmate", "transport": self.access}));
-            if self.access == Access::Local {
-                reply.headers_mut().insert(
-                    "x-wingmate-instance",
-                    self.manager
-                        .instance()
-                        .parse()
-                        .expect("service instance is a UUID"),
-                );
-            }
-            return reply;
+            return json(serde_json::json!({"product": "wingmate", "transport": self.access}));
         }
         let session = headers
             .get_all(header::COOKIE)

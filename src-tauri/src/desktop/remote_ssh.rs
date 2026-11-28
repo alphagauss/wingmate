@@ -360,13 +360,7 @@ pub(super) async fn connect_ssh(
     if let Some(offer) = &approved {
         async {
             let platform = platform(&session).await?;
-            let path = remote_install::download(
-                &desktop.home,
-                &platform,
-                remote_install::Target::Ssh,
-                offer,
-            )
-            .await?;
+            let path = remote_install::download(&desktop.home, &platform, offer).await?;
             attempt.verify().map_err(anyhow::Error::msg)?;
             upload(&session, &path, offer).await
         }
@@ -378,13 +372,13 @@ pub(super) async fn connect_ssh(
         exec(&session, command, timeout)
     })
     .await;
-    let mut pairing = match pairing {
+    let pairing = match pairing {
         Ok(pairing) => pairing,
         Err(error) if approved.is_none() && error.is::<remote::MissingExecutable>() => {
             let platform = platform(&session)
                 .await
                 .map_err(|error| format!("{error:#}"))?;
-            let offer = remote_install::latest(&platform, remote_install::Target::Ssh)
+            let offer = remote_install::latest(&platform)
                 .await
                 .map_err(|error| format!("找不到 Wingmate。{error:#}"))?;
             attempt.verify()?;
@@ -395,9 +389,7 @@ pub(super) async fn connect_ssh(
         }
         Err(error) => return Err(format!("{error:#}")),
     };
-    // SSH 传输已绑定服务器。继续支持尚未提供网关实例标识的旧管理服务。
-    pairing.instance = None;
-    let port = pairing.url.port().expect("validated gateway port");
+    let port = pairing.port().expect("validated gateway port");
     let session = Arc::new(session);
     let dial = move || {
         let session = session.clone();

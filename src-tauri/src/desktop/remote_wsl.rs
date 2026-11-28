@@ -1,17 +1,18 @@
 //! 枚举 WSL 发行版并在所选实例中接入 Wingmate 的回环网关。
 use super::{connection_panel, remote, remote_install, remote_relay::BoxStream, Desktop};
 use anyhow::{ensure, Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
+    net::SocketAddrV4,
     pin::Pin,
     process::Stdio,
     sync::Arc,
     task::{Context as TaskContext, Poll},
     time::Duration,
 };
-use tauri::{State, Webview};
+use tauri::{State, Url, Webview};
 use tokio::{
-    io::{AsyncRead, AsyncWrite, AsyncWriteExt, Join, ReadBuf},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Join, ReadBuf},
     process::{Child, ChildStdin, ChildStdout, Command},
 };
 
@@ -110,18 +111,48 @@ impl AsyncWrite for Stream {
     }
 }
 
-fn open_pipe(distro: &str, script: String) -> Result<BoxStream> {
-    let mut child = distro_command(distro, script)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .context("无法在所选 WSL 发行版运行 Wingmate")?;
-    let pipe = tokio::io::join(child.stdout.take().unwrap(), child.stdin.take().unwrap());
-    Ok(Box::new(Stream {
-        pipe,
-        _process: child,
-    }))
+struct GatewayProcess {
+    node: String,
+    pid: String,
+    started: String,
+    port: String,
+}
+
+impl GatewayProcess {
+    async fn dial(&self, distro: &str) -> Result<BoxStream> {
+        let mut child = command()
+            .args([
+                "--distribution",
+                distro,
+                "--exec",
+                "env",
+                "-u",
+                "NODE_OPTIONS",
+                "-u",
+                "NODE_PATH",
+                &self.node,
+                "--input-type=commonjs",
+                "--eval",
+                include_str!("remote_wsl_relay.cjs"),
+                "--",
+                &self.port,
+                &self.pid,
+                &self.started,
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .context("无法在所选 WSL 发行版运行转发程序")?;
+        let mut stdout = child.stdout.take().unwrap();
+        let state = stdout.read_u8().await.context("WSL 转发未返回就绪状态")?;
+        ensure!(state == 0, "无法确认实际网关属于所选 WSL 发行版的 Wingmate");
+        let pipe = tokio::io::join(stdout, child.stdin.take().unwrap());
+        Ok(Box::new(Stream {
+            pipe,
+            _process: child,
+        }))
+    }
 }
 
 async fn exec(distro: &str, script: String, timeout: Duration) -> Result<(u32, Vec<u8>, Vec<u8>)> {
@@ -146,6 +177,65 @@ async fn platform(distro: &str) -> Result<(String, String)> {
     let output = decode(&stdout);
     let (platform, user) = output.trim().split_once('\n').context("未获得 WSL 用户")?;
     Ok((platform.trim().into(), user.trim().into()))
+}
+
+async fn gateway_process(
+    distro: &str,
+    executable: Option<&str>,
+    pairing: &Url,
+) -> Result<GatewayProcess> {
+    const STATUS: &str = "__wingmate_service_status__";
+    const DOCTOR: &str = "__wingmate_doctor__";
+    let (code, stdout, _) = exec(distro, format!(
+        "{}; printf '\\n{STATUS}\\n'; \"$wm\" service-status || exit; printf '\\n{DOCTOR}\\n'; exec \"$wm\" doctor",
+        remote::executable_script(executable)
+    ), Duration::from_secs(12)).await?;
+    ensure!(code == 0, "无法查询 WSL 中的 Wingmate 管理服务和 Node.js");
+    let text = std::str::from_utf8(&stdout)?;
+    let (before_doctor, doctor) = text
+        .rsplit_once(DOCTOR)
+        .context("Wingmate 未返回 Node.js 信息")?;
+    let (_, status) = before_doctor
+        .rsplit_once(STATUS)
+        .context("Wingmate 未返回管理服务状态")?;
+    #[derive(Deserialize)]
+    struct Status {
+        pid: u32,
+        web_address: SocketAddrV4,
+    }
+    let status: Status = serde_json::from_str(status).context("无法识别 Wingmate 管理服务状态")?;
+    ensure!(
+        status.pid != 0
+            && status.web_address.ip().is_loopback()
+            && Some(status.web_address.port()) == pairing.port(),
+        "WSL 中的 Wingmate 网关已变化，请重新连接"
+    );
+    let doctor: serde_json::Value =
+        serde_json::from_str(doctor).context("无法识别 Wingmate Node.js 诊断")?;
+    let node = doctor
+        .pointer("/node/info/path")
+        .and_then(serde_json::Value::as_str)
+        .context("Wingmate 未找到可用于 WSL 转发的 Node.js")?;
+    remote::validate_executable(Some(node))?;
+    let pid = status.pid.to_string();
+    let (code, stat, _) = exec(
+        distro,
+        format!("exec cat /proc/{pid}/stat"),
+        Duration::from_secs(5),
+    )
+    .await?;
+    ensure!(code == 0, "WSL 中的 Wingmate 管理服务已退出");
+    let started = std::str::from_utf8(&stat)?
+        .rsplit_once(") ")
+        .and_then(|(_, fields)| fields.split_whitespace().nth(19))
+        .filter(|value| value.parse::<u64>().is_ok())
+        .context("无法确认 WSL 中 Wingmate 管理服务的启动时间")?;
+    Ok(GatewayProcess {
+        node: node.into(),
+        pid,
+        started: started.into(),
+        port: status.web_address.port().to_string(),
+    })
 }
 
 async fn upload(distro: &str, path: &std::path::Path, offer: &remote_install::Offer) -> Result<()> {
@@ -223,13 +313,7 @@ pub(super) async fn connect_wsl(
         remote::validate_executable(executable.as_deref())?;
         if let Some(offer) = &approved {
             let (platform, _) = platform(&distro).await?;
-            let path = remote_install::download(
-                &desktop.home,
-                &platform,
-                remote_install::Target::Wsl,
-                offer,
-            )
-            .await?;
+            let path = remote_install::download(&desktop.home, &platform, offer).await?;
             attempt.verify().map_err(anyhow::Error::msg)?;
             upload(&distro, &path, offer).await?;
             executable = None;
@@ -243,13 +327,12 @@ pub(super) async fn connect_wsl(
     })
     .await
     {
-        Ok(gateway) if gateway.instance.is_some() => gateway,
-        Ok(_) => return Err("WSL 中的 Wingmate 版本过旧，请在此发行版更新后重试".into()),
+        Ok(gateway) => gateway,
         Err(error) if approved.is_none() && error.is::<remote::MissingExecutable>() => {
             let (platform, user) = platform(&distro)
                 .await
                 .map_err(|error| format!("{error:#}"))?;
-            let offer = remote_install::latest(&platform, remote_install::Target::Wsl)
+            let offer = remote_install::latest(&platform)
                 .await
                 .map_err(|error| format!("找不到 Wingmate。{error:#}"))?;
             attempt.verify()?;
@@ -261,13 +344,16 @@ pub(super) async fn connect_wsl(
         }
         Err(error) => return Err(format!("{error:#}")),
     };
-    let script = format!(
-        "{}; exec \"$wm\" gateway-stdio",
-        remote::executable_script(executable.as_deref())
+    let process = Arc::new(
+        gateway_process(&distro, executable.as_deref(), &gateway)
+            .await
+            .map_err(|error| format!("{error:#}"))?,
     );
     let address = distro.clone();
     remote::open_tunnel(attempt, gateway, address, "wsl", move || {
-        std::future::ready(open_pipe(&distro, script.clone()))
+        let distro = distro.clone();
+        let process = process.clone();
+        async move { process.dial(&distro).await }
     })
     .await?;
     Ok(Reply::Connected)

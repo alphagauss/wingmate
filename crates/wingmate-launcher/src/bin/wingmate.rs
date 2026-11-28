@@ -187,8 +187,6 @@ fn run() -> Result<()> {
                 _ => bail!("用法：wingmate connect-info [--pair]"),
             },
         )?,
-        #[cfg(target_os = "linux")]
-        Some("gateway-stdio") => return management::gateway_stdio(&home),
         Some("doctor") => management::doctor(&home),
         Some("logs") => return management::logs(&home, args),
         Some("start") => public_state(Some(service::start(&home)?)),
